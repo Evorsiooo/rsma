@@ -16,17 +16,25 @@ import { Simulator } from "@/lib/simulator"
 import { useAuthStore } from "@/store/authStore"
 
 export default function Steward() {
-  const { flagStatus, setFlagStatus, sessionType, setSessionType, drivers, leaderboard, sensorsActive, setSensorsActive, setSessionTimes, addLog, sessionStartTime, sessionEndTime, lapCount, endSessionEarly, logs, toggleDriverDnf } = useRaceStore()
+  const { 
+    flagStatus, setFlagStatus, 
+    sessionType, setSessionType, 
+    drivers, leaderboard, 
+    sensorsActive, setSensorsActive, 
+    sessionDurationMinutes, setSessionDurationMinutes,
+    lapCount, setLapCount,
+    setSessionTimes, addLog, 
+    sessionStartTime, sessionEndTime, 
+    endSessionEarly, logs, toggleDriverDnf,
+    commsTargets, setCommsTargets,
+    dnfTarget, setDnfTarget,
+    messageText, setMessageText
+  } = useRaceStore()
+  
   const driverList = Object.values(drivers)
   const { logout } = useAuthStore()
 
-  const [commsTargets, setCommsTargets] = useState<string[]>([])
-  const [dnfTarget, setDnfTarget] = useState<string>("")
-  
-  // Local states for inputs since they might not be in the store yet
-  const [totalTime, setTotalTime] = useState(60)
-  const [totalLaps, setTotalLaps] = useState(lapCount)
-  const [messageText, setMessageText] = useState("")
+  // Local derived states
   const [timeLeftStr, setTimeLeftStr] = useState("00:00:00")
   const [lapsLeft, setLapsLeft] = useState(lapCount)
 
@@ -76,7 +84,6 @@ export default function Steward() {
     setSensorsActive(true); // Automatically toggle track sensors
 
     if (sessionType === 'RACE') {
-       useRaceStore.getState().setLapCount(totalLaps);
        setSessionTimes(now, null);
        addLog({ timestamp: now, message: 'Race session started', type: 'SYSTEM' });
        
@@ -84,8 +91,8 @@ export default function Steward() {
        
        playStartSequence(0.8, now + 2000);
     } else {
-       setSessionTimes(now, now + (totalTime * 60000));
-       addLog({ timestamp: now, message: `${sessionType} session started for ${totalTime} minutes`, type: 'SYSTEM' });
+       setSessionTimes(now, now + (sessionDurationMinutes * 60000));
+       addLog({ timestamp: now, message: `${sessionType} session started for ${sessionDurationMinutes} minutes`, type: 'SYSTEM' });
        
        useRaceStore.getState().sendRawEvent("TTS_MESSAGE", { targets: ["ALL"], text: `${sessionType.toLowerCase()} has started` });
     }
@@ -121,8 +128,8 @@ export default function Steward() {
   }
   
   const toggleDriverComms = (username: string) => {
-    setCommsTargets(prev => 
-      prev.includes(username) ? prev.filter(u => u !== username) : [...prev, username]
+    setCommsTargets(
+      commsTargets.includes(username) ? commsTargets.filter(u => u !== username) : [...commsTargets, username]
     )
   }
 
@@ -306,7 +313,7 @@ export default function Steward() {
                     <div className="space-y-4">
                       <div>
                         <div className="text-sm font-medium text-muted-foreground mb-1">Total Time (mins)</div>
-                        <Input type="number" value={totalTime} onChange={e => setTotalTime(Number(e.target.value))} disabled={isSessionActive} />
+                        <Input type="number" value={sessionDurationMinutes} onChange={e => setSessionDurationMinutes(Number(e.target.value))} disabled={isSessionActive} />
                       </div>
                       <div>
                         <div className="text-sm font-medium text-muted-foreground mb-1">Time Remaining</div>
@@ -317,7 +324,7 @@ export default function Steward() {
                     <div className="space-y-4">
                       <div>
                         <div className="text-sm font-medium text-muted-foreground mb-1">Total Laps</div>
-                        <Input type="number" value={totalLaps} onChange={e => setTotalLaps(Number(e.target.value))} disabled={isSessionActive} />
+                        <Input type="number" value={lapCount} onChange={e => setLapCount(Number(e.target.value))} disabled={isSessionActive} />
                       </div>
                       <div>
                         <div className="text-sm font-medium text-muted-foreground mb-1">Laps Remaining</div>

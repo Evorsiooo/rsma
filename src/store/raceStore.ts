@@ -56,6 +56,11 @@ interface RaceStore {
   };
   poppedOutWindows: string[];
 
+  // Synchronized Steward UI Inputs
+  commsTargets: string[];
+  dnfTarget: string;
+  messageText: string;
+
   // WebSocket Connection Status
   isConnected: boolean;
   sendAction: (action: string, ...payload: any[]) => void;
@@ -70,6 +75,10 @@ interface RaceStore {
   updateWhitelist: (drivers: WhitelistDriver[]) => void;
   updateTrackLayout: (layout: TrackLayout) => void;
   togglePopoutWindow: (id: string, isPopped: boolean) => void;
+
+  setCommsTargets: (targets: string[]) => void;
+  setDnfTarget: (target: string) => void;
+  setMessageText: (text: string) => void;
   
   updateDriverState: (username: string, updates: Partial<DriverState>) => void;
   toggleDriverDnf: (username: string) => void;
@@ -105,6 +114,9 @@ export const useRaceStore = create<RaceStore>()((set, get) => ({
     RACE: []
   },
   poppedOutWindows: [],
+  commsTargets: [],
+  dnfTarget: "",
+  messageText: "",
   isConnected: false,
 
   sendAction: (action, ...payload) => {
@@ -138,9 +150,14 @@ export const useRaceStore = create<RaceStore>()((set, get) => ({
   setSessionDurationMinutes: (minutes) => get().sendAction("setSessionDurationMinutes", minutes),
   setSessionTimes: (start, end) => get().sendAction("setSessionTimes", start, end),
   setSensorsActive: (active) => get().sendAction("setSensorsActive", active),
-  updateWhitelist: (whitelist) => get().sendAction("updateWhitelist", whitelist),
+  updateWhitelist: (drivers) => get().sendAction("updateWhitelist", drivers),
   updateTrackLayout: (layout) => get().sendAction("updateTrackLayout", layout),
   togglePopoutWindow: (id, isPopped) => get().sendAction("togglePopoutWindow", id, isPopped),
+
+  setCommsTargets: (targets) => get().sendAction("setCommsTargets", targets),
+  setDnfTarget: (target) => get().sendAction("setDnfTarget", target),
+  setMessageText: (text) => get().sendAction("setMessageText", text),
+
   updateDriverState: (username, updates) => get().sendAction("updateDriverState", username, updates),
   toggleDriverDnf: (username) => get().sendAction("toggleDriverDnf", username),
   setLeaderboard: (leaderboard) => get().sendAction("setLeaderboard", leaderboard),
