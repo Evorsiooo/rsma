@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
@@ -8,15 +8,85 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog"
 import { TrackWizardDialog } from "@/components/admin/TrackWizardDialog"
 import { useSensorDebuggerStore } from "@/store/sensorDebuggerStore"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { useAuthStore } from "@/store/authStore"
+
+interface TokenInfo {
+  id: string;
+  token: string;
+  role: string;
+  created_at: number;
+}
 
 export default function Admin() {
-  const { whitelist, hardResetState } = useRaceStore()
+  const { whitelist, updateWhitelist, hardResetState } = useRaceStore()
   const { isRecording, setIsRecording, recordedHits, clearHits } = useSensorDebuggerStore()
   
   const [newDriverNum, setNewDriverNum] = useState("")
   const [newDriverName, setNewDriverName] = useState("")
   const [wizardOpen, setWizardOpen] = useState(false)
   const [resetOpen, setResetOpen] = useState(false)
+  const [tokens, setTokens] = useState<TokenInfo[]>([])
+  const [tokenRole, setTokenRole] = useState("RACE_CONTROL")
+  const { token, logout } = useAuthStore()
+
+  useEffect(() => {
+    if (token) {
+      fetch('/api/tokens/list', {
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      .then(res => res.json())
+      .then(data => setTokens(data))
+      .catch(e => console.error("Failed to load tokens:", e))
+    }
+  }, [token])
+
+  const handleGenerateToken = async () => {
+    try {
+      const res = await fetch('/api/tokens/create', {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ role: tokenRole })
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setTokens([...tokens, data])
+      } else {
+        alert("Failed to create token. Check console.")
+      }
+    } catch (e) {
+      alert("Failed to connect to API. Are you running wrangler dev?")
+    }
+  }
+
+  const handleRevokeToken = async (id: string) => {
+    try {
+      const res = await fetch(`/api/tokens/revoke/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${token}` }
+      })
+      if (res.ok) {
+        setTokens(tokens.filter(t => t.id !== id))
+      }
+    } catch (e) {
+      alert("Failed to connect to API")
+    }
+  }
+
+  const handleAddDriver = () => {
+    if (!newDriverNum.trim() || !newDriverName.trim()) return
+    updateWhitelist([...whitelist, { username: newDriverName.trim(), number: newDriverNum.trim() }])
+    setNewDriverNum("")
+    setNewDriverName("")
+  }
+
+  const handleRemoveDriver = (username: string) => {
+    updateWhitelist(whitelist.filter(w => w.username !== username))
+  }
 
   const toggleRecording = () => {
     if (!isRecording) {
@@ -27,15 +97,27 @@ export default function Admin() {
     }
   }
 
+
+
   return (
-    <div className="space-y-6 max-w-5xl mx-auto pb-12">
+    <div className="space-y-6 max-w-5xl mx-auto pb-12 p-4 pt-8">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-          <p className="text-muted-foreground">Manage system operations and driver whitelists</p>
+          <p className="text-muted-foreground">Manage system operations and access</p>
         </div>
-        <ThemeToggle />
+        <div className="flex gap-4">
+          <Button variant="outline" onClick={logout}>Logout</Button>
+          <ThemeToggle />
+        </div>
       </div>
+
+      <Tabs defaultValue="operations">
+        <TabsList>
+          <TabsTrigger value="operations">Race Operations</TabsTrigger>
+          <TabsTrigger value="access">Access Control</TabsTrigger>
+        </TabsList>
+        <TabsContent value="operations" className="space-y-6 mt-6">
 
       <div className="grid gap-6 md:grid-cols-2">
         <Card className="md:col-span-2">
@@ -85,7 +167,7 @@ export default function Admin() {
             <div className="flex-1">
               <Input placeholder="Driver Name" value={newDriverName} onChange={e => setNewDriverName(e.target.value)} />
             </div>
-            <Button>Add Driver</Button>
+            <Button onClick={handleAddDriver}>Add Driver</Button>
           </div>
 
           <div className="rounded-md border">
@@ -103,7 +185,7 @@ export default function Admin() {
                     <TableCell className="font-medium font-mono">{w.number}</TableCell>
                     <TableCell>{w.username}</TableCell>
                     <TableCell className="text-right">
-                      <Button variant="destructive" size="sm">Remove</Button>
+                      <Button variant="destructive" size="sm" onClick={() => handleRemoveDriver(w.username)}>Remove</Button>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -146,7 +228,61 @@ export default function Admin() {
         </CardContent>
       </Card>
 
-      <TrackWizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />
-    </div>
+            <TrackWizardDialog open={wizardOpen} onOpenChange={setWizardOpen} />
+          </TabsContent>
+
+          <TabsContent value="access" className="space-y-6 mt-6">
+            <Card>
+              <CardHeader>
+                <CardTitle>Access Tokens</CardTitle>
+                <CardDescription>Generate and revoke access tokens</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex space-x-2 mb-6">
+                  <Select value={tokenRole} onValueChange={(val) => { if (val) setTokenRole(val) }}>
+                    <SelectTrigger className="w-48"><SelectValue placeholder="Role" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="ADMIN">Admin</SelectItem>
+                      <SelectItem value="RACE_CONTROL">Race Control</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <Button onClick={handleGenerateToken}>Generate Token</Button>
+                </div>
+                <div className="rounded-md border">
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Token</TableHead>
+                        <TableHead>Role</TableHead>
+                        <TableHead>Created</TableHead>
+                        <TableHead className="text-right">Actions</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {tokens.map(t => (
+                        <TableRow key={t.id}>
+                          <TableCell className="font-mono">{t.token}</TableCell>
+                          <TableCell>{t.role}</TableCell>
+                          <TableCell>{new Date(t.created_at).toLocaleString()}</TableCell>
+                          <TableCell className="text-right">
+                            <Button variant="destructive" size="sm" onClick={() => handleRevokeToken(t.id)}>Revoke</Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                      {tokens.length === 0 && (
+                        <TableRow>
+                          <TableCell colSpan={4} className="text-center text-muted-foreground h-24">
+                            No access tokens generated.
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </TableBody>
+                  </Table>
+                </div>
+              </CardContent>
+            </Card>
+          </TabsContent>
+        </Tabs>
+      </div>
   )
 }

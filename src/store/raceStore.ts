@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 
 export type SessionType = 'PRACTICE' | 'QUALIFYING' | 'RACE';
 export type FlagStatus = 'GREEN' | 'YELLOW' | 'RED';
@@ -42,7 +41,7 @@ interface RaceStore {
   flagStatus: FlagStatus;
   lapCount: number;
   sessionDurationMinutes: number;
-  sessionStartTime: number | null; // Absolute Unix timestamp broadcasted 1s in advance
+  sessionStartTime: number | null;
   sessionEndTime: number | null;
   whitelist: WhitelistDriver[];
   trackLayout: TrackLayout;
@@ -56,6 +55,11 @@ interface RaceStore {
     RACE: StewardLog[];
   };
   poppedOutWindows: string[];
+
+  // WebSocket Connection Status
+  isConnected: boolean;
+  sendAction: (action: string, ...payload: any[]) => void;
+  sendRawEvent: (type: string, payload: any) => void;
 
   setSessionType: (type: SessionType) => void;
   setFlagStatus: (status: FlagStatus) => void;
@@ -77,238 +81,117 @@ interface RaceStore {
   hardResetState: () => void;
 }
 
-export const useRaceStore = create<RaceStore>()(
-  persist(
-    (set) => ({
-      sessionType: 'PRACTICE',
-      flagStatus: 'GREEN',
-      lapCount: 10,
-      sessionDurationMinutes: 15,
-      sessionStartTime: null,
-      sessionEndTime: null,
-      whitelist: [],
-      trackLayout: {
-        sensors: [],
-        pitlaneStartSensor: null,
-        postPitlaneSensor: null,
-      },
-      sensorsActive: false,
-      drivers: {},
-      leaderboard: [],
-      logs: {
-        PRACTICE: [],
-        QUALIFYING: [],
-        RACE: []
-      },
-      poppedOutWindows: [],
+let ws: WebSocket | null = null;
 
-      setSessionType: (type) => set((state) => {
-        if (state.sessionType === type) return {};
-        
-        // Reset state on session type change
-        const resetDrivers: Record<string, DriverState> = {};
-        state.whitelist.forEach(d => {
-          resetDrivers[d.username] = {
-            username: d.username,
-            number: d.number,
-            lastSensorId: null,
-            lastSensorTime: null,
-            lapsCompleted: 0,
-            currentLapStartTime: null,
-            bestLapTime: null,
-            lastLapTime: null,
-            inPitlane: false,
-            intervalToAhead: null,
-            gapToLeader: null,
-            status: 'PITS'
-          };
-        });
-        
-        return { 
-          sessionType: type,
-          drivers: resetDrivers,
-          leaderboard: [],
-          sessionStartTime: null,
-          sessionEndTime: null,
-          sensorsActive: false
-        };
-      }),
-      togglePopoutWindow: (id, isPopped) => set((state) => ({
+export const useRaceStore = create<RaceStore>()((set, get) => ({
+  sessionType: 'PRACTICE',
+  flagStatus: 'GREEN',
+  lapCount: 10,
+  sessionDurationMinutes: 15,
+  sessionStartTime: null,
+  sessionEndTime: null,
+  whitelist: [],
+  trackLayout: {
+    sensors: [],
+    pitlaneStartSensor: null,
+    postPitlaneSensor: null,
+  },
+  sensorsActive: false,
+  drivers: {},
+  leaderboard: [],
+  logs: {
+    PRACTICE: [],
+    QUALIFYING: [],
+    RACE: []
+  },
+  poppedOutWindows: [],
+  isConnected: false,
+
+  sendAction: (action, ...payload) => {
+    // Actions modifying poppedOutWindows should remain local to the frontend
+    if (action === "togglePopoutWindow") {
+      const [id, isPopped] = payload;
+      set((state) => ({
         poppedOutWindows: isPopped 
           ? [...new Set([...state.poppedOutWindows, id])]
           : state.poppedOutWindows.filter(w => w !== id)
-      })),
-      setFlagStatus: (status) => set((state) => {
-        const log: StewardLog = {
-          id: Math.random().toString(36).substring(2, 9),
-          timestamp: Date.now(),
-          message: `${status} FLAG deployed.`,
-          type: 'FLAG'
-        };
-        const safeLogs = state.logs && !Array.isArray(state.logs) ? state.logs : { PRACTICE: [], QUALIFYING: [], RACE: [] };
-        const currentLogs = safeLogs[state.sessionType] || [];
-        return { 
-          flagStatus: status,
-          logs: {
-            ...safeLogs,
-            [state.sessionType]: [log, ...currentLogs].slice(0, 1000)
-          }
-        };
-      }),
-      setLapCount: (count) => set({ lapCount: count }),
-      setSessionDurationMinutes: (minutes) => set({ sessionDurationMinutes: minutes }),
-      setSessionTimes: (start, end) => set({ sessionStartTime: start, sessionEndTime: end }),
-      setSensorsActive: (active) => set({ sensorsActive: active }),
-      updateWhitelist: (whitelist) => set((state) => {
-        const drivers: Record<string, DriverState> = { ...state.drivers };
-        whitelist.forEach(driver => {
-          if (!drivers[driver.username]) {
-            drivers[driver.username] = {
-              username: driver.username,
-              number: driver.number,
-              lastSensorId: null,
-              lastSensorTime: null,
-              lapsCompleted: 0,
-              currentLapStartTime: null,
-              bestLapTime: null,
-              lastLapTime: null,
-              inPitlane: false,
-              intervalToAhead: null,
-              gapToLeader: null,
-              status: 'PITS'
-            };
-          }
-        });
-        return { whitelist, drivers };
-      }),
-      updateTrackLayout: (layout) => set({ trackLayout: layout }),
-      
-      updateDriverState: (username, updates) => set((state) => ({
-        drivers: {
-          ...state.drivers,
-          [username]: { ...state.drivers[username], ...updates }
-        }
-      })),
-      toggleDriverDnf: (username) => set((state) => {
-        const driver = state.drivers[username];
-        if (!driver) return state;
-        const newStatus = driver.status === 'DNF' ? 'TRACK' : 'DNF';
-        return {
-          drivers: {
-            ...state.drivers,
-            [username]: { ...driver, status: newStatus }
-          }
-        };
-      }),
-      setLeaderboard: (leaderboard) => set({ leaderboard }),
-      addLog: (log, forceSession) => set((state) => {
-        const targetSession = forceSession || state.sessionType;
-        const safeLogs = state.logs && !Array.isArray(state.logs) ? state.logs : { PRACTICE: [], QUALIFYING: [], RACE: [] };
-        const currentLogs = safeLogs[targetSession] || [];
-        const newLog = { ...log, id: Math.random().toString(36).substring(2, 9) };
-        return {
-          logs: {
-            ...safeLogs,
-            [targetSession]: [newLog, ...currentLogs].slice(0, 1000)
-          }
-        };
-      }),
-      endSessionEarly: () => set((state) => {
-        const lockedDrivers: Record<string, DriverState> = {};
-        Object.keys(state.drivers).forEach(username => {
-          lockedDrivers[username] = {
-            ...state.drivers[username],
-            status: 'FINISHED'
-          };
-        });
-        return {
-          drivers: lockedDrivers,
-          sessionEndTime: state.sessionType !== 'RACE' ? Date.now() : null,
-          sensorsActive: false,
-        };
-      }),
-      resetRaceState: () => set((state) => {
-        const resetDrivers: Record<string, DriverState> = {};
-        state.whitelist.forEach(d => {
-          resetDrivers[d.username] = {
-            username: d.username,
-            number: d.number,
-            lastSensorId: null,
-            lastSensorTime: null,
-            lapsCompleted: 0,
-            currentLapStartTime: null,
-            bestLapTime: null,
-            lastLapTime: null,
-            inPitlane: false,
-            intervalToAhead: null,
-            gapToLeader: null,
-            status: 'PITS'
-          };
-        });
-        return { 
-          drivers: resetDrivers, 
-          leaderboard: [], 
-          sessionStartTime: null,
-          sessionEndTime: null,
-          sensorsActive: false
-        };
-      }),
-      resetSessionLogsAndTiming: () => set((state) => {
-        const resetDrivers: Record<string, DriverState> = {};
-        state.whitelist.forEach(d => {
-          resetDrivers[d.username] = {
-            username: d.username,
-            number: d.number,
-            lastSensorId: null,
-            lastSensorTime: null,
-            lapsCompleted: 0,
-            currentLapStartTime: null,
-            bestLapTime: null,
-            lastLapTime: null,
-            inPitlane: false,
-            intervalToAhead: null,
-            gapToLeader: null,
-            status: 'PITS'
-          };
-        });
+      }));
+      return;
+    }
 
-        const safeLogs = state.logs && !Array.isArray(state.logs) ? state.logs : { PRACTICE: [], QUALIFYING: [], RACE: [] };
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type: "ACTION", action, payload }));
+    } else {
+      console.warn("WebSocket not connected, dropping action", action);
+    }
+  },
+
+  sendRawEvent: (type, payload) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type, payload }));
+    }
+  },
+
+  setSessionType: (type) => get().sendAction("setSessionType", type),
+  setFlagStatus: (status) => get().sendAction("setFlagStatus", status),
+  setLapCount: (count) => get().sendAction("setLapCount", count),
+  setSessionDurationMinutes: (minutes) => get().sendAction("setSessionDurationMinutes", minutes),
+  setSessionTimes: (start, end) => get().sendAction("setSessionTimes", start, end),
+  setSensorsActive: (active) => get().sendAction("setSensorsActive", active),
+  updateWhitelist: (whitelist) => get().sendAction("updateWhitelist", whitelist),
+  updateTrackLayout: (layout) => get().sendAction("updateTrackLayout", layout),
+  togglePopoutWindow: (id, isPopped) => get().sendAction("togglePopoutWindow", id, isPopped),
+  updateDriverState: (username, updates) => get().sendAction("updateDriverState", username, updates),
+  toggleDriverDnf: (username) => get().sendAction("toggleDriverDnf", username),
+  setLeaderboard: (leaderboard) => get().sendAction("setLeaderboard", leaderboard),
+  addLog: (log, forceSession) => get().sendAction("addLog", log, forceSession),
+  endSessionEarly: () => get().sendAction("endSessionEarly"),
+  resetRaceState: () => get().sendAction("resetRaceState"),
+  resetSessionLogsAndTiming: () => get().sendAction("resetSessionLogsAndTiming"),
+  hardResetState: () => get().sendAction("hardResetState"),
+}));
+
+function connectWebSocket() {
+  const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${protocol}//${window.location.host}/live`;
+  
+  ws = new WebSocket(url);
+
+  ws.onopen = () => {
+    useRaceStore.setState({ isConnected: true });
+  };
+
+  ws.onmessage = (event) => {
+    try {
+      const msg = JSON.parse(event.data);
+      if (msg.type === "INIT" || msg.type === "STATE_UPDATE") {
+        // Update the local state with the backend state, except for poppedOutWindows
+        const state = msg.payload;
+        const localPoppedOut = useRaceStore.getState().poppedOutWindows;
         
-        return { 
-          drivers: resetDrivers, 
-          leaderboard: [], 
-          logs: {
-            ...safeLogs,
-            [state.sessionType]: []
-          }
-        };
-      }),
-      hardResetState: () => set({
-        sessionType: 'PRACTICE',
-        flagStatus: 'GREEN',
-        lapCount: 10,
-        sessionDurationMinutes: 15,
-        sessionStartTime: null,
-        sessionEndTime: null,
-        whitelist: [],
-        trackLayout: {
-          sensors: [],
-          pitlaneStartSensor: null,
-          postPitlaneSensor: null,
-        },
-        sensorsActive: false,
-        drivers: {},
-        leaderboard: [],
-        logs: { PRACTICE: [], QUALIFYING: [], RACE: [] },
-        poppedOutWindows: [],
-      })
-    }),
-    { name: 'rsma-store' }
-  )
-);
+        useRaceStore.setState({ 
+          ...state,
+          poppedOutWindows: localPoppedOut 
+        });
+      } else if (msg.type === "TTS_MESSAGE") {
+        // The Audio widget will intercept this via another mechanism, or we can dispatch it globally
+        window.dispatchEvent(new CustomEvent("rsma_radio_message", { detail: msg.payload }));
+      } else if (msg.type === "START_SEQUENCE") {
+        // Trigger start sequence
+        window.dispatchEvent(new CustomEvent("rsma_start_sequence"));
+      }
+    } catch (e) {
+      console.error("Error parsing WebSocket message", e);
+    }
+  };
 
-window.addEventListener('storage', (e) => {
-  if (e.key === 'rsma-store' && e.newValue) {
-    useRaceStore.setState(JSON.parse(e.newValue).state);
-  }
-});
+  ws.onclose = () => {
+    useRaceStore.setState({ isConnected: false });
+    // Attempt reconnect
+    setTimeout(connectWebSocket, 3000);
+  };
+}
+
+if (typeof window !== "undefined") {
+  connectWebSocket();
+}

@@ -1,4 +1,4 @@
-import { useRaceStore, type DriverState } from '@/store/raceStore';
+import { raceStore, type DriverState } from './state';
 
 export interface SensorHit {
   username: string;
@@ -10,10 +10,10 @@ export class TimingEngine {
   private static readonly TIMEOUT_MS = 5000;
 
   static processBatch(hits: SensorHit[]) {
-    // Broadcast hits to the debugger/wizard
-    import('../store/sensorDebuggerStore').then(m => m.useSensorDebuggerStore.getState().addHits(hits));
+    // In production we don't broadcast hits back to the debugger unless we want to over websocket
+    // We'll skip debugger logic in the DO for now.
 
-    const store = useRaceStore.getState();
+    const store = raceStore.getState();
     if (!store.sensorsActive) return;
 
     const { trackLayout, drivers, sessionType, lapCount } = store;

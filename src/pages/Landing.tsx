@@ -16,7 +16,7 @@ export default function Landing() {
           RSMA
         </h1>
         <p className="text-xl text-muted-foreground">
-          Racing Session Management Application
+          Ro-State Motorsport Association
         </p>
       </div>
 

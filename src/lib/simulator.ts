@@ -1,5 +1,10 @@
 import { useRaceStore } from '@/store/raceStore';
-import { TimingEngine, type SensorHit } from './timingEngine';
+
+export interface SensorHit {
+  username: string;
+  sensorId: number;
+  timestamp: number;
+}
 
 interface SimCar {
   username: string;
@@ -32,10 +37,18 @@ export class Simulator {
     this.intervalId = window.setInterval(() => this.tick(), 100);
     
     // Emit batch every 2 seconds
-    this.batchIntervalId = window.setInterval(() => {
+    this.batchIntervalId = window.setInterval(async () => {
       if (this.batchedHits.length > 0) {
-        TimingEngine.processBatch(this.batchedHits);
+        const payload = [...this.batchedHits];
         this.batchedHits = [];
+        try {
+          await fetch('/api/sensors', {
+            method: 'POST',
+            body: JSON.stringify(payload)
+          });
+        } catch (e) {
+          console.error("Failed to push simulated sensor hits", e);
+        }
       }
     }, 2000);
   }

@@ -6,6 +6,7 @@ import Steward from "./pages/Steward"
 import Admin from "./pages/Admin"
 import { AppSidebar } from "./components/app-sidebar"
 import { SidebarProvider, SidebarTrigger } from "./components/ui/sidebar"
+import { AuthGuard } from "./components/admin/AuthGuard"
 
 // Layout for the staff routes containing the sidebar
 function StaffLayout({ children }: { children: React.ReactNode }) {
@@ -37,17 +38,21 @@ function App() {
         <Route 
           path="/staff/steward" 
           element={
-            <StaffLayout>
-              <Steward />
-            </StaffLayout>
+            <AuthGuard requiredRole="RACE_CONTROL">
+              <StaffLayout>
+                <Steward />
+              </StaffLayout>
+            </AuthGuard>
           } 
         />
         <Route 
           path="/staff/admin" 
           element={
-            <StaffLayout>
-              <Admin />
-            </StaffLayout>
+            <AuthGuard requiredRole="ADMIN">
+              <StaffLayout>
+                <Admin />
+              </StaffLayout>
+            </AuthGuard>
           } 
         />
         

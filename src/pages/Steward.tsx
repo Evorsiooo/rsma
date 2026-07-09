@@ -13,10 +13,12 @@ import { ThemeToggle } from "@/components/theme-toggle"
 import { PenaltyCheatSheet } from "@/components/penalty-cheat-sheet"
 import { playStartSequence } from "@/lib/audio"
 import { Simulator } from "@/lib/simulator"
+import { useAuthStore } from "@/store/authStore"
 
 export default function Steward() {
   const { flagStatus, setFlagStatus, sessionType, setSessionType, drivers, leaderboard, sensorsActive, setSensorsActive, setSessionTimes, addLog, sessionStartTime, sessionEndTime, lapCount, endSessionEarly, logs, toggleDriverDnf } = useRaceStore()
   const driverList = Object.values(drivers)
+  const { logout } = useAuthStore()
 
   const [commsTargets, setCommsTargets] = useState<string[]>([])
   const [dnfTarget, setDnfTarget] = useState<string>("")
@@ -78,18 +80,14 @@ export default function Steward() {
        setSessionTimes(now, null);
        addLog({ timestamp: now, message: 'Race session started', type: 'SYSTEM' });
        
-       const bc = new BroadcastChannel("rsma_radio");
-       bc.postMessage({ type: "START_SEQUENCE", playAt: now + 2000 });
-       bc.close();
+       useRaceStore.getState().sendRawEvent("START_SEQUENCE", { playAt: now + 2000 });
        
        playStartSequence(0.8, now + 2000);
     } else {
        setSessionTimes(now, now + (totalTime * 60000));
        addLog({ timestamp: now, message: `${sessionType} session started for ${totalTime} minutes`, type: 'SYSTEM' });
        
-       const bc = new BroadcastChannel("rsma_radio");
-       bc.postMessage({ type: "TTS_MESSAGE", targets: ["ALL"], text: `${sessionType.toLowerCase()} has started` });
-       bc.close();
+       useRaceStore.getState().sendRawEvent("TTS_MESSAGE", { targets: ["ALL"], text: `${sessionType.toLowerCase()} has started` });
     }
   };
 
@@ -101,10 +99,16 @@ export default function Steward() {
 
   const handleDemoAudio = () => {
     playStartSequence(0.8)
-    const bc = new BroadcastChannel("rsma_radio")
-    bc.postMessage({ type: "START_SEQUENCE" })
-    bc.close()
+    useRaceStore.getState().sendRawEvent("START_SEQUENCE", {})
   }
+
+  const handleExportLogs = () => {
+    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(logs, null, 2));
+    const dlAnchorElem = document.createElement('a');
+    dlAnchorElem.setAttribute("href", dataStr);
+    dlAnchorElem.setAttribute("download", `rsma_logs_${new Date().toISOString()}.json`);
+    dlAnchorElem.click();
+  };
 
   const handleSendMessage = () => {
     if (!messageText.trim() || commsTargets.length === 0) return
@@ -112,13 +116,7 @@ export default function Steward() {
     
     addLog({ timestamp: Date.now(), message: `Direct Comms to ${targets.join(', ')}: ${messageText.trim()}`, type: 'MESSAGE' });
     
-    const bc = new BroadcastChannel("rsma_radio")
-    bc.postMessage({
-      type: "TTS_MESSAGE",
-      targets,
-      text: messageText.trim()
-    })
-    bc.close()
+    useRaceStore.getState().sendRawEvent("TTS_MESSAGE", { targets, text: messageText.trim() });
     setMessageText("")
   }
   
@@ -158,6 +156,7 @@ export default function Steward() {
           </Badge>
           <PenaltyCheatSheet />
           <ThemeToggle />
+          <Button variant="ghost" onClick={logout}>Logout</Button>
         </div>
       </div>
 
@@ -398,7 +397,7 @@ export default function Steward() {
           <Card className="flex flex-col">
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle>System Logs</CardTitle>
-              <Button variant="outline" size="sm">Export JSON Log</Button>
+              <Button variant="outline" size="sm" onClick={handleExportLogs}>Export JSON Log</Button>
             </CardHeader>
             <CardContent className="pt-2">
               <Tabs defaultValue="race" className="flex flex-col">

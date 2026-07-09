@@ -1,0 +1,20 @@
+name = "rsma-live-timing"
+main = "worker/index.ts"
+compatibility_date = "2024-03-20"
+
+[assets]
+directory = "dist"
+binding = "ASSETS"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "rsma-tokens"
+database_id = "30e077c7-bbb1-4ddc-8bd9-4bf912b77b82"
+
+[[durable_objects.bindings]]
+name = "RACE_STATE"
+class_name = "RaceStateDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RaceStateDO"]

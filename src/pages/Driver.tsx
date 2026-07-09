@@ -44,32 +44,37 @@ export default function Driver() {
   useEffect(() => {
     if (!connected || !selectedDriver) return
 
-    const bc = new BroadcastChannel("rsma_radio")
+    const handleStartSequence = () => {
+      // The event detail might contain playAt, but the backend doesn't send playAt for demo.
+      // If we need playAt we could wrap the start sequence in the frontend state.
+      // For now, let's just play it now.
+      playStartSequence(volume[0] / 100)
+    }
 
-    bc.onmessage = (event) => {
-      const data = event.data
-      if (data.type === "START_SEQUENCE") {
-        playStartSequence(volume[0] / 100, data.playAt)
-      } else if (data.type === "TTS_MESSAGE") {
-        const { targets, text } = data
-        if (targets.includes("ALL") || targets.includes(selectedDriver)) {
-          const synth = window.speechSynthesis
-          const utterance = new SpeechSynthesisUtterance(text)
-          const selectedVoiceObj = availableVoices.find(v => v.voiceURI === voice)
-          if (selectedVoiceObj) {
-            utterance.voice = selectedVoiceObj
-          }
-          utterance.volume = volume[0] / 100
-          synth.speak(utterance)
+    const handleRadioMessage = (e: Event) => {
+      const data = (e as CustomEvent).detail
+      const { targets, text } = data
+      if (targets.includes("ALL") || targets.includes(selectedDriver)) {
+        const synth = window.speechSynthesis
+        const utterance = new SpeechSynthesisUtterance(text)
+        const selectedVoiceObj = availableVoices.find(v => v.voiceURI === voice)
+        if (selectedVoiceObj) {
+          utterance.voice = selectedVoiceObj
         }
+        utterance.volume = volume[0] / 100
+        synth.speak(utterance)
       }
     }
 
+    window.addEventListener("rsma_start_sequence", handleStartSequence)
+    window.addEventListener("rsma_radio_message", handleRadioMessage)
+
     return () => {
-      bc.close()
+      window.removeEventListener("rsma_start_sequence", handleStartSequence)
+      window.removeEventListener("rsma_radio_message", handleRadioMessage)
       window.speechSynthesis.cancel()
     }
-  }, [connected, selectedDriver, voice, volume, availableVoices])
+  }, [connected, selectedDriver, availableVoices, voice, volume])
 
   // Automated TTS Logic
   useEffect(() => {

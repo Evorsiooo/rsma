@@ -25,25 +25,21 @@ export function PressAudioWidget() {
   useEffect(() => {
     if (!listening) return
 
-    const bc = new BroadcastChannel("rsma_radio")
-    
-    const handler = (e: MessageEvent) => {
-      if (e.data.type === 'TTS_MESSAGE') {
-        const { targets, text } = e.data
-        if (targets.includes('PRESS') || targets.includes('ALL')) {
-            const v = availableVoices.find(x => x.voiceURI === voice)
-            const u = new SpeechSynthesisUtterance(text)
-            if (v) u.voice = v
-            u.volume = volume[0] / 100
-            window.speechSynthesis.speak(u)
-        }
+    const handler = (e: Event) => {
+      const data = (e as CustomEvent).detail
+      const { targets, text } = data
+      if (targets.includes('PRESS') || targets.includes('ALL')) {
+          const v = availableVoices.find(x => x.voiceURI === voice)
+          const u = new SpeechSynthesisUtterance(text)
+          if (v) u.voice = v
+          u.volume = volume[0] / 100
+          window.speechSynthesis.speak(u)
       }
     }
     
-    bc.addEventListener('message', handler)
+    window.addEventListener('rsma_radio_message', handler)
     return () => {
-      bc.removeEventListener('message', handler)
-      bc.close()
+      window.removeEventListener('rsma_radio_message', handler)
     }
   }, [listening, voice, volume, availableVoices])
 

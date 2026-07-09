@@ -25,6 +25,7 @@
     "zustand": "^5.0.14"
   },
   "devDependencies": {
+    "@cloudflare/workers-types": "^5.20260708.1",
     "@tailwindcss/vite": "^4.3.2",
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.17",
@@ -34,6 +35,7 @@
     "oxlint": "^1.71.0",
     "tailwindcss": "^4.3.2",
     "typescript": "~6.0.2",
-    "vite": "^8.1.1"
+    "vite": "^8.1.1",
+    "wrangler": "^4.109.0"
   }
 }

@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import type { SensorHit } from '../lib/timingEngine';
+
+export interface SensorHit {
+  username: string;
+  sensorId: number;
+  timestamp: number;
+}
 
 interface SensorDebuggerStore {
   isRecording: boolean;
