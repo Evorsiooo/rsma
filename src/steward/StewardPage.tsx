@@ -27,6 +27,7 @@ const ERRORS: Record<string, string> = {
   race_ended: "This race has ended.",
   race_timing_off: "Timing is off for races.",
   self_timed: "The teams time this session.",
+  staging_off: "Staging is off for this session.",
   not_finished: "Only finished or DNF runs can be deleted.",
 };
 
@@ -287,21 +288,25 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                 </button>
               ))}
             </div>
-            <div className="r-section"><span>Staging</span></div>
-            <input className="r-field" placeholder="Driver" aria-label="Driver name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
-            <div className="r-select">
-              <select aria-label="Team" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
-                <option value="">Independent</option>
-                {teams.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="r-row">
-              <input className="r-field r-fill" placeholder="Plate" aria-label="Plate" value={plate} onChange={(e) => setPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
-              <input className="r-field" style={{ width: 64 }} placeholder="No" aria-label="Driver number" maxLength={4} value={number} onChange={(e) => setNumber(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
-              <button className="r-btn" style={{ width: 90 }} disabled={!name.trim() || !plate.trim()} onClick={stage}>Stage</button>
-            </div>
+            {session.staging && (
+              <>
+                <div className="r-section"><span>Staging</span></div>
+                <input className="r-field" placeholder="Driver" aria-label="Driver name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
+                <div className="r-select">
+                  <select aria-label="Team" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+                    <option value="">Independent</option>
+                    {teams.map((t) => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="r-row">
+                  <input className="r-field r-fill" placeholder="Plate" aria-label="Plate" value={plate} onChange={(e) => setPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
+                  <input className="r-field" style={{ width: 64 }} placeholder="No" aria-label="Driver number" maxLength={4} value={number} onChange={(e) => setNumber(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
+                  <button className="r-btn" style={{ width: 90 }} disabled={!name.trim() || !plate.trim()} onClick={stage}>Stage</button>
+                </div>
+              </>
+            )}
             <div className="r-section"><span>Sort</span></div>
             <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
               <button className="r-btn" aria-pressed={sort === "fastest"} onClick={() => setSort("fastest")}>Fastest</button>
