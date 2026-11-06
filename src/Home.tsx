@@ -11,19 +11,8 @@ const fmt = new Intl.DateTimeFormat("en-GB", {
 export function Home({ races }: { races: RaceSummary[] }) {
   return (
     <Shell>
-      <div className="r-module">
-        <div className="r-header">Race control</div>
-        <div className="r-module__well" style={{ flexDirection: "column", alignItems: "stretch" }}>
-          <div className="r-plate" style={{ height: 56, fontSize: 32, letterSpacing: ".2em" }}>
-            FLAGMAN
-          </div>
-          <div className="r-text r-text--dim" style={{ textAlign: "center" }}>
-            Timing, stewarding and radio for rally and time-trial events.
-          </div>
-        </div>
-      </div>
       <div className="r-panel">
-        <div className="r-header">Active events</div>
+        <div className="r-header">Events</div>
         {races.length === 0 ? (
           <div className="r-empty">No active events.</div>
         ) : (

@@ -60,7 +60,7 @@ export function Boot({ onReady }: { onReady: (races: RaceSummary[]) => void }) {
           <div className="r-progress" style={{ ["--value" as string]: done / 2 }} />
         )}
         <div className="r-boot__foot r-text r-text--dim">
-          <span>{failed ? "Offline" : "Please wait"}</span>
+          <span />
           <span>{VERSION}</span>
         </div>
       </div>
