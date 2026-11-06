@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { classify, type Flag, type Run } from "../shared/race";
+import { classify, fmtPenalty, fmtTime, type Flag, type Run } from "../shared/race";
 import type { RaceSummary } from "../shared/types";
 import { api } from "./api";
-import { enableAudio, setVolume, speak, spokenTime, startBeeps } from "./audio";
+import { enableAudio, setVolume, speak, startBeeps } from "./audio";
 import { NotFound } from "./NotFound";
+import { useMe } from "./me";
 import { useRaceLive } from "./useRaceLive";
 
 const FLAG: Record<Flag, { label: string; tone: string }> = {
@@ -42,9 +43,10 @@ const hhmm = (t: number) => new Date(t).toLocaleTimeString("en-GB");
 export function DriverPage() {
   const { id = "" } = useParams();
   const [race, setRace] = useState<RaceSummary | null | undefined>(undefined);
-  const { state, live, offset } = useRaceLive(id);
+  const { me: user } = useMe();
+  const { state, live, offset } = useRaceLive(id, user ? "auth" : "public");
   const [audioOn, setAudioOn] = useState(false);
-  const [name, setName] = useState(() => store.get("name") ?? "");
+  const name = user?.username ?? "";
   const [vol, setVol] = useState(() => Number(store.get("vol") ?? 100));
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURI] = useState(() => store.get("voice") ?? "");
@@ -71,13 +73,12 @@ export function DriverPage() {
   );
 
   // React to new state: start beeps, radio messages, results. The first state only seeds what was already seen.
-  const seen = useRef<{ radio: Set<string>; status: Map<string, string>; beeped: Set<string> } | null>(null);
+  const seen = useRef<{ radio: Set<string>; beeped: Set<string> } | null>(null);
   useEffect(() => {
     if (!state) return;
     if (!seen.current) {
       seen.current = {
         radio: new Set(state.radio.map((m) => m.id)),
-        status: new Map(state.runs.map((r) => [r.id, r.status])),
         beeped: new Set(state.runs.filter((r) => r.startedAt != null).map((r) => r.id)),
       };
       return;
@@ -94,32 +95,32 @@ export function DriverPage() {
       for (const m of state.radio) {
         if (s.radio.has(m.id)) continue;
         s.radio.add(m.id);
-        if (m.to === "all" || (me && m.to.includes(me.id))) say(m.text);
-      }
-      if (me) {
-        const prev = s.status.get(me.id);
-        if (prev && prev !== me.status) {
-          if (me.status === "finished" && me.rawMs != null) {
-            const row = classify(state.runs).find((r) => r.id === me.id);
-            say(`Finished in ${spokenTime(me.rawMs + me.penaltyMs)}. Position ${row?.rank}.`);
-          } else if (me.status === "dnf") say("Did not finish.");
-        }
+        say(m.say ?? m.text); // the server only sends this viewer what is addressed to them
       }
     }
-    for (const r of state.runs) s.status.set(r.id, r.status);
     for (const m of state.radio) s.radio.add(m.id);
   }, [state, audioOn, me, offset, say]);
 
-  const messages = useMemo(
-    () => (state?.radio ?? []).filter((m) => m.to === "all" || (me && m.to.includes(me.id))).slice(-30),
-    [state, me],
-  );
+  const messages = useMemo(() => (state?.radio ?? []).slice(-50), [state]);
   const transcript = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
   }, [messages.length]);
 
   if (race === null) return <NotFound />;
+  if (!user)
+    return (
+      <div className="r-window r-stack" style={{ minHeight: "100%", padding: 4, boxSizing: "border-box" }}>
+        <div className="r-panel">
+          <div className="r-header">Driver radio</div>
+          <div className="r-stack" style={{ padding: 4, background: "var(--r-chrome)" }}>
+            <button className="r-btn" onClick={() => location.assign(`/api/auth/roblox/login?next=${encodeURIComponent(location.pathname)}`)}>
+              Sign in with Roblox
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   const queuePos = me?.status === "queued" ? state!.runs.filter((r) => r.status === "queued").indexOf(me) + 1 : 0;
   const myRank = me?.status === "finished" ? classify(state!.runs).find((r) => r.id === me.id)?.rank : undefined;
   const status = me ? { queued: `Queued, #${queuePos}`, onstage: "On stage", finished: `Finished, P${myRank}`, dnf: "DNF" }[me.status] : "";
@@ -149,31 +150,24 @@ export function DriverPage() {
       )}
 
       <div className="r-panel">
-        <div className="r-header">Driver</div>
-        <div className="r-stack" style={{ padding: 4, background: "var(--r-chrome)" }}>
-          <div className="r-select">
-            <select
-              aria-label="Driver"
-              value={me?.name ?? ""}
-              onChange={(e) => {
-                setName(e.target.value);
-                store.set("name", e.target.value);
-              }}
-            >
-              <option value="">Select driver</option>
-              {[...new Set(state?.runs.map((r) => r.name))].map((n) => (
-                <option key={n} value={n}>{n}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-        {me && (
+        <div className="r-header">{user.username}</div>
+        {me ? (
           <table className="r-table">
             <tbody>
               <tr><td className="is-left">Status</td><td>{status}</td></tr>
               <tr><td className="is-left">Plate</td><td>{me.plate}</td></tr>
+              {me.teamName && <tr><td className="is-left">Team</td><td>{me.teamName}</td></tr>}
+              {me.status === "finished" && me.rawMs != null && (
+                <>
+                  <tr><td className="is-left">Time</td><td style={{ color: "var(--r-yellow)" }}>{fmtTime(me.rawMs)}</td></tr>
+                  {me.penaltyMs > 0 && <tr><td className="is-left">Penalties</td><td className="is-red">{fmtPenalty(me.penaltyMs)}</td></tr>}
+                  <tr><td className="is-left">Final</td><td className="is-green">{fmtTime(me.rawMs + me.penaltyMs)}</td></tr>
+                </>
+              )}
             </tbody>
           </table>
+        ) : (
+          <div className="r-empty">No run staged for {user.username}.</div>
         )}
       </div>
 

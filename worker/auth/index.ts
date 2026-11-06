@@ -1,6 +1,6 @@
 import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
-import type { Me, Role } from "../../shared/types";
+import type { Me, Role, Team } from "../../shared/types";
 import { randomToken, readSession, sha256b64url, SESSION_COOKIE, SESSION_TTL_MS, signSession } from "./session";
 
 export interface AuthEnv {
@@ -15,6 +15,7 @@ export interface AuthEnv {
 }
 
 const STATE_COOKIE = "flagman_oauth";
+const NEXT_COOKIE = "flagman_next";
 const base = (env: AuthEnv) => env.ROBLOX_OAUTH_BASE ?? "https://apis.roblox.com";
 
 function origin(c: { req: { url: string; header: (n: string) => string | undefined } }) {
@@ -29,10 +30,15 @@ export async function getMe(env: AuthEnv, cookie: string | undefined): Promise<M
   if (!id) return null;
   const user = await env.DB.prepare("SELECT roblox_id AS id, username, display_name AS displayName FROM users WHERE roblox_id = ?")
     .bind(id)
-    .first<Omit<Me, "roles">>();
+    .first<Omit<Me, "roles" | "teams">>();
   if (!user) return null;
   const { results } = await env.DB.prepare("SELECT role FROM user_roles WHERE roblox_id = ?").bind(id).all<{ role: Role }>();
-  return { ...user, roles: results.map((r) => r.role) };
+  const teams = await env.DB.prepare(
+    "SELECT t.id, t.name FROM teams t JOIN team_members m ON m.team_id = t.id WHERE m.roblox_id = ? ORDER BY lower(t.name)",
+  )
+    .bind(id)
+    .all<Team>();
+  return { ...user, roles: results.map((r) => r.role), teams: teams.results };
 }
 
 export const hasRole = (me: Me | null, ...roles: Role[]) =>
@@ -45,6 +51,11 @@ auth.get("/roblox/login", async (c) => {
   const verifier = randomToken(48);
   const secure = new URL(c.req.url).protocol === "https:" || c.req.header("x-forwarded-proto") === "https";
   setCookie(c, STATE_COOKIE, `${state}.${verifier}`, { path: "/", httpOnly: true, sameSite: "Lax", secure, maxAge: 600 });
+  // Where to land after sign-in: same-site paths only.
+  const next = c.req.query("next") ?? "";
+  if (/^\/[A-Za-z0-9/_-]*$/.test(next) && !next.startsWith("//")) {
+    setCookie(c, NEXT_COOKIE, next, { path: "/", httpOnly: true, sameSite: "Lax", secure, maxAge: 600 });
+  }
   const q = new URLSearchParams({
     client_id: c.env.ROBLOX_CLIENT_ID,
     response_type: "code",
@@ -116,7 +127,9 @@ auth.get("/roblox/callback", async (c) => {
     secure,
     maxAge: SESSION_TTL_MS / 1000,
   });
-  return c.redirect("/");
+  const next = getCookie(c, NEXT_COOKIE);
+  deleteCookie(c, NEXT_COOKIE, { path: "/" });
+  return c.redirect(next && /^\/[A-Za-z0-9/_-]*$/.test(next) && !next.startsWith("//") ? next : "/");
 });
 
 auth.post("/logout", (c) => {

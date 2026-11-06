@@ -1,6 +1,6 @@
 import { DurableObject } from "cloudflare:workers";
 import { applyCommand, type Command } from "../shared/commands";
-import { emptyState, publicView, type RaceState } from "../shared/race";
+import { emptyState, publicView, viewFor, type RaceState, type Viewer } from "../shared/race";
 
 /** One instance per race. Source of truth for live state; pushes it to every connected socket. */
 export class RaceDO extends DurableObject {
@@ -11,15 +11,22 @@ export class RaceDO extends DurableObject {
     return this.state;
   }
 
-  /** Staff sockets get the full state (including the audit log), everyone else the public view. */
-  private frame(state: RaceState, staff: boolean) {
-    return JSON.stringify({ state: staff ? state : publicView(state), now: Date.now() });
+  /** Each socket sees what its viewer may: staff everything, signed-in viewers their own radio, others none. */
+  private frame(state: RaceState, viewer: Viewer) {
+    return JSON.stringify({ state: viewFor(state, viewer), now: Date.now() });
+  }
+
+  /** Socket tags carry the viewer: "staff", "user:<name>", "team:<id>". */
+  private viewerOf(tags: string[]): Viewer {
+    return {
+      staff: tags.includes("staff"),
+      user: tags.find((t) => t.startsWith("user:"))?.slice(5),
+      teams: tags.filter((t) => t.startsWith("team:")).map((t) => t.slice(5)),
+    };
   }
 
   private broadcast(state: RaceState) {
-    for (const ws of this.ctx.getWebSockets()) {
-      ws.send(this.frame(state, this.ctx.getTags(ws).includes("staff")));
-    }
+    for (const ws of this.ctx.getWebSockets()) ws.send(this.frame(state, this.viewerOf(this.ctx.getTags(ws))));
   }
 
   async fetch(req: Request): Promise<Response> {
@@ -27,10 +34,14 @@ export class RaceDO extends DurableObject {
     if (url.pathname === "/ws") {
       if (req.headers.get("Upgrade") !== "websocket") return new Response("Expected websocket", { status: 426 });
       // The Worker sets this header only after checking the caller's role.
-      const staff = req.headers.get("x-staff") === "1";
+      const tags: string[] = [];
+      if (req.headers.get("x-staff") === "1") tags.push("staff");
+      const user = req.headers.get("x-user");
+      if (user) tags.push(`user:${user.toLowerCase()}`);
+      for (const t of (req.headers.get("x-teams") ?? "").split(",").filter(Boolean)) tags.push(`team:${t}`);
       const pair = new WebSocketPair();
-      this.ctx.acceptWebSocket(pair[1], staff ? ["staff"] : []);
-      pair[1].send(this.frame(await this.load(), staff));
+      this.ctx.acceptWebSocket(pair[1], tags);
+      pair[1].send(this.frame(await this.load(), this.viewerOf(tags)));
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
     if (url.pathname === "/state" && req.method === "GET") {

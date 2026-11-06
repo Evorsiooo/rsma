@@ -9,7 +9,8 @@ const STATUS: Record<RunStatus, string> = {
 };
 
 /** Classification: finished runs ranked, then on stage, queued, DNF. `action` adds a trailing column. */
-export function ClassificationTable({ rows, action }: { rows: Row[]; action?: (r: Row) => ReactNode }) {
+export function ClassificationTable({ rows, action, mine }: { rows: Row[]; action?: (r: Row) => ReactNode; mine?: (r: Row) => boolean }) {
+  const teams = rows.some((r) => r.teamName);
   return (
     <table className="r-table">
       <thead>
@@ -17,6 +18,7 @@ export function ClassificationTable({ rows, action }: { rows: Row[]; action?: (r
           <th style={{ width: 40 }}>Pos</th>
           <th className="is-left">Driver</th>
           <th className="is-left" style={{ width: 100 }}>Plate</th>
+          {teams && <th className="is-left" style={{ width: 130 }}>Team</th>}
           <th className="is-left" style={{ width: 100 }}>Status</th>
           <th style={{ width: 110 }}>Raw</th>
           <th style={{ width: 90 }}>Pen</th>
@@ -26,10 +28,11 @@ export function ClassificationTable({ rows, action }: { rows: Row[]; action?: (r
       </thead>
       <tbody>
         {rows.map((r) => (
-          <tr key={r.id}>
+          <tr key={r.id} className={mine?.(r) ? "is-selected" : ""}>
             <td>{r.rank ?? ""}</td>
             <td className="is-left">{r.name}</td>
             <td className="is-left">{r.plate}</td>
+            {teams && <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.teamName ?? ""}</td>}
             <td className="is-left" style={r.status === "finished" ? undefined : { color: "var(--r-text-dim)" }}>
               {STATUS[r.status]}
             </td>

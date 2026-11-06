@@ -6,11 +6,22 @@ export interface RaceSummary {
 
 export type Role = "admin" | "users" | "races" | "steward";
 
+export interface Team {
+  id: string;
+  name: string;
+}
+
 export interface Me {
   id: string;
   username: string;
   displayName: string;
   roles: Role[];
+  /** Teams whose panel this user may open. */
+  teams: Team[];
+}
+
+export interface AdminTeam extends Team {
+  members: { id: string; username: string }[];
 }
 
 export interface AdminUser {

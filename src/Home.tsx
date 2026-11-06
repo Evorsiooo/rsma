@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { RaceSummary } from "../shared/types";
+import { useMe } from "./me";
 import { Shell } from "./Shell";
 
 const AUTH_ERRORS: Record<string, string> = {
@@ -19,6 +20,7 @@ const fmt = new Intl.DateTimeFormat("en-GB", {
 
 export function Home({ races }: { races: RaceSummary[] }) {
   const nav = useNavigate();
+  const { me } = useMe();
   const [authError] = useState(() => {
     const code = new URLSearchParams(location.search).get("auth_error");
     if (code) history.replaceState(null, "", "/");
@@ -40,10 +42,17 @@ export function Home({ races }: { races: RaceSummary[] }) {
                   <td style={{ width: 200, color: "var(--r-text-dim)" }}>
                     Until {fmt.format(r.expiresAt)}
                   </td>
-                  <td style={{ width: 130, padding: 2 }}>
-                    <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/race/${r.id}`)}>
-                      Timing
-                    </button>
+                  <td style={{ width: 130 + (me?.teams.length ? 130 : 0), padding: 2 }}>
+                    <div className="r-row">
+                      <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/race/${r.id}`)}>
+                        Timing
+                      </button>
+                      {me?.teams.length ? (
+                        <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/race/${r.id}/team/${me.teams[0].id}`)}>
+                          Team
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               ))}

@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { AdminRace, AdminUser, Role, SystemInfo } from "../../shared/types";
+import type { AdminRace, AdminTeam, AdminUser, Role, SystemInfo } from "../../shared/types";
 import { admin } from "../api";
 import { useMe } from "../me";
 import { Topbar, VERSION } from "../Shell";
 import { Dialog, toast } from "../ui";
 import { NotFound } from "../NotFound";
 
-type Tab = "users" | "races" | "system";
+type Tab = "users" | "races" | "teams" | "system";
 
 const ERRORS: Record<string, string> = {
   invalid: "Invalid value.",
@@ -16,6 +16,7 @@ const ERRORS: Record<string, string> = {
   last_admin: "There must be at least one admin.",
   forbidden: "Not allowed.",
   not_found: "Not found.",
+  name_taken: "That name is already used.",
 };
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
@@ -35,7 +36,7 @@ export function AdminPage() {
   const canUsers = !!me && (me.roles.includes("admin") || me.roles.includes("users"));
   const canRaces = !!me && (me.roles.includes("admin") || me.roles.includes("races"));
   const isAdmin = !!me?.roles.includes("admin");
-  const tabs = ([canUsers && "users", canRaces && "races", isAdmin && "system"].filter(Boolean) as Tab[]);
+  const tabs = ([canUsers && "users", canRaces && "races", canUsers && "teams", isAdmin && "system"].filter(Boolean) as Tab[]);
   const [tab, setTab] = useState<Tab | null>(null);
   const active = tab && tabs.includes(tab) ? tab : tabs[0];
 
@@ -55,6 +56,7 @@ export function AdminPage() {
         <div className="page__col page__col--wide">
           {active === "users" && <Users isAdmin={isAdmin} myId={me.id} />}
           {active === "races" && <Races />}
+          {active === "teams" && <Teams />}
           {active === "system" && <System />}
         </div>
       </div>
@@ -310,6 +312,128 @@ function ExpiryDialog({ race, onDone, onClose }: { race: AdminRace; onDone: () =
       <div className="r-form-field">
         <span className="r-label">Expires</span>
         <input className="r-field" style={{ colorScheme: "dark" }} type="datetime-local" aria-label="Expires" value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+      </div>
+    </Dialog>
+  );
+}
+
+// ---- Teams (temporary) --------------------------------------------------------
+
+function Teams() {
+  const { data, failed, reload } = useLoad<AdminTeam[]>(admin.teams);
+  const [name, setName] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
+  const [del, setDel] = useState<AdminTeam | null>(null);
+  const create = async () => {
+    if (!name.trim()) return;
+    const r = await admin.createTeam(name.trim());
+    if (!r.ok) return say(r.error);
+    setName("");
+    reload();
+  };
+  const team = data?.find((t) => t.id === open);
+  return (
+    <>
+      <div className="r-panel">
+        <div className="r-header">New team</div>
+        <div className="r-row" style={{ padding: 4 }}>
+          <input className="r-field r-fill" placeholder="Name" aria-label="Team name" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+          <button className="r-btn" style={{ width: 120 }} disabled={!name.trim()} onClick={create}>Create</button>
+        </div>
+      </div>
+      <div className="r-panel">
+        <div className="r-header">Teams</div>
+        {failed ? (
+          <div className="r-empty">Could not load teams.</div>
+        ) : !data ? null : data.length === 0 ? (
+          <div className="r-empty">No teams.</div>
+        ) : (
+          <table className="r-table">
+            <thead>
+              <tr>
+                <th className="is-left">Name</th>
+                <th style={{ width: 90 }}>Members</th>
+                <th style={{ width: 250 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((t) => (
+                <tr key={t.id}>
+                  <td className="is-left">{t.name}</td>
+                  <td>{t.members.length || ""}</td>
+                  <td style={{ padding: 2 }}>
+                    <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                      <button className="r-cell" onClick={() => setOpen(t.id)}>Members</button>
+                      <button className="r-cell r-cell--red" onClick={() => setDel(t)}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {team && <MembersDialog team={team} onChange={reload} onClose={() => setOpen(null)} />}
+      {del && (
+        <Dialog
+          title="Delete team"
+          size="s"
+          onClose={() => setDel(null)}
+          foot={
+            <>
+              <button className="r-btn" onClick={() => setDel(null)}>Cancel</button>
+              <button
+                className="r-btn"
+                onClick={async () => {
+                  await admin.deleteTeam(del.id);
+                  setDel(null);
+                  reload();
+                }}
+              >
+                Delete
+              </button>
+            </>
+          }
+        >
+          <div>{del.name} and its panel access are removed. Drivers already staged keep the team name.</div>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+function MembersDialog({ team, onChange, onClose }: { team: AdminTeam; onChange: () => void; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const add = async () => {
+    if (!name.trim()) return;
+    const r = await admin.addMember(team.id, name.trim());
+    if (!r.ok) return say(r.error);
+    setName("");
+    onChange();
+  };
+  return (
+    <Dialog title={`Team panel access: ${team.name}`} size="l" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
+      {team.members.length === 0 ? (
+        <div className="r-empty">No members.</div>
+      ) : (
+        <table className="r-table">
+          <tbody>
+            {team.members.map((m) => (
+              <tr key={m.id}>
+                <td className="is-left">{m.username}</td>
+                <td style={{ width: 120, padding: 2 }}>
+                  <button className="r-btn r-cell--red" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={async () => { await admin.removeMember(team.id, m.id); onChange(); }}>
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="r-row">
+        <input className="r-field r-fill" placeholder="Roblox username" aria-label="Member username" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <button className="r-btn" style={{ width: 100 }} disabled={!name.trim()} onClick={add}>Add</button>
       </div>
     </Dialog>
   );

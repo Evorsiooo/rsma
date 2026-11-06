@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applyCommand, type Command } from "../shared/commands.ts";
-import { classify, emptyState, type RaceState } from "../shared/race.ts";
+import { classify, emptyState, viewFor, type RaceState } from "../shared/race.ts";
 
 let n = 0;
 const ctx = (now: number) => ({ now, actor: "tester", newId: () => `id${++n}` });
@@ -100,4 +100,48 @@ test("validation and immutability", () => {
   const before = JSON.stringify(s);
   run(s, { type: "flag", flag: "red" }, 0);
   assert.equal(JSON.stringify(s), before);
+});
+
+const msgs = (s: RaceState, runId: string) => s.radio.filter((m) => m.to !== "all" && m.to !== "team" && m.to.includes(runId)).map((m) => m.text);
+
+test("driver gets radio for penalty, finish position and position changes", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "alpha", plate: "a" }, 0);
+  s = run(s, { type: "add", name: "bravo", plate: "b" }, 0);
+  const [a, b] = s.runs.map((r) => r.id);
+  s = run(s, { type: "go" }, 1000); // alpha starts 4000
+  s = run(s, { type: "go" }, 2000); // bravo starts 5000
+  s = run(s, { type: "finish", runId: a }, 64000); // alpha 60.000
+  assert.match(msgs(s, a)[0], /Finished\. Time 01:00\.000\. Position P1\./);
+  s = run(s, { type: "finish", runId: b }, 62000); // bravo 57.000, ahead of alpha
+  assert.match(msgs(s, b)[0], /Position P1\./);
+  assert.deepEqual(msgs(s, a).slice(1), ["Position now P2."]);
+  s = run(s, { type: "penalty", runId: b, ruleId: "track-limit", delta: 1 }, 70000); // bravo 62.000, now behind alpha
+  assert.match(msgs(s, b).at(-2)!, /Penalty \+5\.000: Track limit/);
+  assert.equal(msgs(s, b).at(-1), "Position now P2.");
+  assert.equal(msgs(s, a).at(-1), "Position now P1.");
+  s = run(s, { type: "penalty", runId: b, ruleId: "jump-start", delta: 1 }, 71000); // still P2: penalty message only
+  assert.match(msgs(s, b).at(-1)!, /Penalty \+10\.000: Jump start/);
+});
+
+test("flag changes are announced to all, once", () => {
+  let s = emptyState();
+  s = run(s, { type: "flag", flag: "yellow" }, 1);
+  s = run(s, { type: "flag", flag: "yellow" }, 2);
+  assert.deepEqual(s.radio.map((m) => [m.to, m.text]), [["all", "Yellow flag."]]);
+});
+
+test("radio is only visible to signed-in viewers it is addressed to", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Alpha", plate: "a", team: { id: "t1", name: "Red" } }, 0);
+  s = run(s, { type: "add", name: "Bravo", plate: "b", team: { id: "t2", name: "Blue" } }, 0);
+  s = run(s, { type: "radio", to: [s.runs[0].id], text: "private" }, 1);
+  s = run(s, { type: "teamRadio", team: "t1", teamName: "Red", text: "red only" }, 2);
+  s = run(s, { type: "radio", to: "all", text: "everyone" }, 3);
+  const texts = (v: Parameters<typeof viewFor>[1]) => viewFor(s, v).radio.map((m) => m.text);
+  assert.deepEqual(texts({ staff: false, teams: [] }), []);
+  assert.deepEqual(texts({ staff: false, user: "alpha", teams: [] }), ["private", "red only", "everyone"]);
+  assert.deepEqual(texts({ staff: false, user: "bravo", teams: [] }), ["everyone"]);
+  assert.deepEqual(texts({ staff: false, user: "someone", teams: ["t1"] }), ["red only", "everyone"]);
+  assert.equal(texts({ staff: true, teams: [] }).length, 3);
 });

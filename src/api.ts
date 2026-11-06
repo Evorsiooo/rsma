@@ -1,4 +1,4 @@
-import type { AdminRace, AdminUser, Me, RaceSummary, Role, SystemInfo } from "../shared/types";
+import type { AdminRace, AdminTeam, AdminUser, Me, RaceSummary, Role, SystemInfo, Team } from "../shared/types";
 import type { Command } from "../shared/commands";
 
 async function get<T>(path: string): Promise<T> {
@@ -13,6 +13,7 @@ export const api = {
   health: () => get<{ ok: boolean }>("/api/health"),
   race: (id: string) => get<RaceSummary>(`/api/races/${id}`),
   races: () => get<RaceSummary[]>("/api/races"),
+  teams: () => get<Team[]>("/api/teams"),
 };
 
 export async function sendCommand(raceId: string, cmd: Command): Promise<string | null> {
@@ -24,6 +25,16 @@ export async function sendCommand(raceId: string, cmd: Command): Promise<string 
   if (res.ok) return null;
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   return body.error ?? "failed";
+}
+
+export async function sendTeamRadio(raceId: string, teamId: string, text: string): Promise<string | null> {
+  const res = await fetch(`/api/races/${raceId}/team/${teamId}/radio`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text }),
+  });
+  if (res.ok) return null;
+  return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? "failed";
 }
 
 export const raceAccess = (id: string) => get<{ steward: boolean }>(`/api/races/${id}/access`);
@@ -48,5 +59,10 @@ export const admin = {
     send("PATCH", `/api/admin/races/${id}`, patch),
   addSteward: (raceId: string, username: string) => send("POST", `/api/admin/races/${raceId}/stewards`, { username }),
   removeSteward: (raceId: string, userId: string) => send("DELETE", `/api/admin/races/${raceId}/stewards/${userId}`),
+  teams: () => get<AdminTeam[]>("/api/admin/teams"),
+  createTeam: (name: string) => send("POST", "/api/admin/teams", { name }),
+  deleteTeam: (id: string) => send("DELETE", `/api/admin/teams/${id}`),
+  addMember: (teamId: string, username: string) => send("POST", `/api/admin/teams/${teamId}/members`, { username }),
+  removeMember: (teamId: string, userId: string) => send("DELETE", `/api/admin/teams/${teamId}/members/${userId}`),
   system: () => get<SystemInfo>("/api/admin/system"),
 };

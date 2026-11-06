@@ -62,11 +62,18 @@ app.get("/api/races/:id/ws", async (c) => {
   const id = c.req.param("id");
   if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
   const headers = new Headers(c.req.raw.headers);
-  headers.delete("x-staff");
-  if (c.req.query("staff") === "1") {
+  for (const h of ["x-staff", "x-user", "x-teams"]) headers.delete(h);
+  if (c.req.query("staff") === "1" || c.req.query("auth") === "1") {
     const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
-    if (!(await isRaceSteward(c.env, me, id))) return c.json({ error: "forbidden" }, 403);
-    headers.set("x-staff", "1");
+    if (!me) return c.json({ error: "unauthorized" }, 401);
+    if (c.req.query("staff") === "1") {
+      if (!(await isRaceSteward(c.env, me, id))) return c.json({ error: "forbidden" }, 403);
+      headers.set("x-staff", "1");
+    } else {
+      // Signed-in feed: own radio, plus the channels of the teams this user may open.
+      headers.set("x-user", me.username);
+      headers.set("x-teams", me.teams.map((t) => t.id).join(","));
+    }
   }
   return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/ws", new Request(c.req.raw, { headers }));
 });
@@ -80,9 +87,39 @@ app.post("/api/races/:id/cmd", async (c) => {
   if (!(await isRaceSteward(c.env, me, id))) return c.json({ error: "forbidden" }, 403);
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
+  if (cmd.type === "add" && cmd.team != null) {
+    // Take the team name from the database, never from the client.
+    const team = typeof cmd.team.id === "string" ? await c.env.DB.prepare("SELECT id, name FROM teams WHERE id = ?").bind(cmd.team.id).first<{ id: string; name: string }>() : null;
+    if (!team) return c.json({ error: "invalid" }, 400);
+    cmd.team = team;
+  }
   return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/cmd", {
     method: "POST",
     body: JSON.stringify({ cmd, actor: me.username }),
+  });
+});
+
+// Team names for the staging dropdown.
+app.get("/api/teams", async (c) => {
+  const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
+  if (!me) return c.json({ error: "unauthorized" }, 401);
+  const { results } = await c.env.DB.prepare("SELECT id, name FROM teams ORDER BY lower(name)").all<{ id: string; name: string }>();
+  return c.json(results);
+});
+
+// Team radio: members of the team send to their own channel. Stewards see it in the staff feed.
+app.post("/api/races/:id/team/:teamId/radio", async (c) => {
+  const id = c.req.param("id");
+  const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
+  if (!me) return c.json({ error: "unauthorized" }, 401);
+  const team = me.teams.find((t) => t.id === c.req.param("teamId"));
+  if (!team) return c.json({ error: "forbidden" }, 403);
+  if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
+  const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
+  if (typeof body.text !== "string") return c.json({ error: "invalid" }, 400);
+  return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/cmd", {
+    method: "POST",
+    body: JSON.stringify({ cmd: { type: "teamRadio", team: team.id, teamName: team.name, text: body.text }, actor: me.username }),
   });
 });
 

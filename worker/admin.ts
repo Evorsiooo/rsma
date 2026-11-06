@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
-import type { AdminRace, AdminUser, Me, Role } from "../shared/types";
+import type { AdminRace, AdminTeam, AdminUser, Me, Role } from "../shared/types";
 import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 
@@ -161,6 +161,53 @@ admin.delete("/races/:id/stewards/:uid", guard("races"), async (c) => {
   await c.env.DB.prepare("DELETE FROM race_stewards WHERE race_id = ? AND roblox_id = ?")
     .bind(c.req.param("id"), c.req.param("uid"))
     .run();
+  return c.json({ ok: true });
+});
+
+// ---- Teams (temporary until team registration) -------------------------------
+
+admin.get("/teams", guard("users"), async (c) => {
+  const { results } = await c.env.DB.prepare("SELECT id, name FROM teams ORDER BY lower(name)").all<{ id: string; name: string }>();
+  const members = (
+    await c.env.DB.prepare(
+      "SELECT m.team_id AS teamId, u.roblox_id AS id, u.username FROM team_members m JOIN users u ON u.roblox_id = m.roblox_id ORDER BY lower(u.username)",
+    ).all<{ teamId: string; id: string; username: string }>()
+  ).results;
+  return c.json(results.map((t) => ({ ...t, members: members.filter((m) => m.teamId === t.id).map(({ id, username }) => ({ id, username })) })) satisfies AdminTeam[]);
+});
+
+admin.post("/teams", guard("users"), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
+  const name = cleanName(body.name).slice(0, 40);
+  if (!name) return c.json({ error: "invalid" }, 400);
+  const id = `team_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
+  try {
+    await c.env.DB.prepare("INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)").bind(id, name, Date.now()).run();
+  } catch {
+    return c.json({ error: "name_taken" }, 409);
+  }
+  return c.json({ id });
+});
+
+admin.delete("/teams/:id", guard("users"), async (c) => {
+  await c.env.DB.prepare("DELETE FROM teams WHERE id = ?").bind(c.req.param("id")).run();
+  return c.json({ ok: true });
+});
+
+admin.post("/teams/:id/members", guard("users"), async (c) => {
+  const id = c.req.param("id");
+  const body = (await c.req.json().catch(() => ({}))) as { username?: unknown };
+  const username = cleanUsername(body.username);
+  if (!username) return c.json({ error: "invalid_username" }, 400);
+  if (!(await c.env.DB.prepare("SELECT 1 FROM teams WHERE id = ?").bind(id).first())) return c.json({ error: "not_found" }, 404);
+  const user = await resolveUser(c.env, username);
+  if (!user) return c.json({ error: "no_such_roblox_user" }, 404);
+  await c.env.DB.prepare("INSERT OR IGNORE INTO team_members (team_id, roblox_id) VALUES (?, ?)").bind(id, user.id).run();
+  return c.json(user);
+});
+
+admin.delete("/teams/:id/members/:uid", guard("users"), async (c) => {
+  await c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(c.req.param("id"), c.req.param("uid")).run();
   return c.json({ ok: true });
 });
 

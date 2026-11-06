@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { Command } from "../../shared/commands";
 import { classify, fmtPenalty, fmtTime, type Flag, type Run } from "../../shared/race";
-import type { RaceSummary } from "../../shared/types";
+import type { RaceSummary, Team } from "../../shared/types";
 import { api, raceAccess, sendCommand } from "../api";
 import { ClassificationTable } from "../ClassificationTable";
 import { useMe } from "../me";
@@ -123,7 +123,12 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   const [plate, setPlate] = useState("");
+  const [teams, setTeams] = useState<Team[]>([]);
+  const [teamId, setTeamId] = useState("");
   const [sort, setSort] = useState<"fastest" | "last">("fastest");
+  useEffect(() => {
+    api.teams().then(setTeams, () => {});
+  }, []);
   const closeDialog = () => setDialog(null);
   const now = useNow(offset, !!state && (state.runs.some((r) => r.status === "onstage") || !!state.lastReleaseAt));
 
@@ -155,6 +160,7 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
   const counting = onTrack.filter((r) => r.startedAt! > now);
   const releaseLeft = state.lastReleaseAt ? Math.max(0, state.lastReleaseAt + state.cadenceSec * 1000 - now) : null;
   const sel = selId ? byId(selId) : undefined;
+  const bestFinal = rows.reduce<number | undefined>((m, r) => (r.finalMs != null && (m == null || r.finalMs < m) ? r.finalMs : m), undefined);
   const selIndex = sel ? queued.indexOf(sel) : -1;
   const radioTarget = to === "all" ? "all" : to.filter((i) => byId(i));
   const canTransmit = text.trim() !== "" && (radioTarget === "all" || radioTarget.length > 0);
@@ -167,7 +173,8 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
   };
   const stage = async () => {
     if (!name.trim() || !plate.trim()) return;
-    if (await send({ type: "add", name, plate })) {
+    const team = teams.find((t) => t.id === teamId);
+    if (await send({ type: "add", name, plate, team })) {
       setName("");
       setPlate("");
     }
@@ -257,6 +264,14 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
             </div>
             <div className="r-section"><span>Staging</span></div>
             <input className="r-field" placeholder="Driver" aria-label="Driver name" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
+            <div className="r-select">
+              <select aria-label="Team" value={teamId} onChange={(e) => setTeamId(e.target.value)}>
+                <option value="">Independent</option>
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>{t.name}</option>
+                ))}
+              </select>
+            </div>
             <div className="r-row">
               <input className="r-field r-fill" placeholder="Plate" aria-label="Plate" value={plate} onChange={(e) => setPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
               <button className="r-btn" style={{ width: 100 }} disabled={!name.trim() || !plate.trim()} onClick={stage}>Stage</button>
@@ -280,8 +295,9 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
                   <tr>
                     <th className="is-left" style={{ width: 36 }}>P</th>
                     <th className="is-left">Driver</th>
-                    <th className="is-left" style={{ width: 100 }}>Plate</th>
-                    <th className="is-left" style={{ width: 100 }}>Status</th>
+                    <th className="is-left" style={{ width: 90 }}>Plate</th>
+                    <th className="is-left" style={{ width: 130 }}>Team</th>
+                    <th className="is-left" style={{ width: 90 }}>Status</th>
                     <th style={{ width: 100 }}>Time</th>
                     <th style={{ width: 90 }}>Pen</th>
                     <th style={{ width: 100 }}>Final</th>
@@ -300,13 +316,14 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
                     >
                       <td className="is-left" style={{ color: "var(--r-teal)" }}>{r.rank ?? ""}</td>
                       <td className="is-left">{r.name}</td>
-                      <td className="is-left">{r.plate}</td>
+                      <td className="is-left" style={{ color: "var(--r-red)" }}>{r.plate}</td>
+                      <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.teamName ?? ""}</td>
                       <td className="is-left" style={{ color: STATUS_COLOR[r.status] }}>{STATUS_TEXT[r.status]}</td>
-                      <td>
+                      <td style={{ color: "var(--r-yellow)" }}>
                         {r.status === "onstage" ? (r.startedAt! > now ? "" : fmtLive(now - r.startedAt!)) : r.rawMs != null ? fmtTime(r.rawMs) : ""}
                       </td>
                       <td className={r.penaltyMs ? "is-red" : ""}>{r.penaltyMs ? fmtPenalty(r.penaltyMs) : ""}</td>
-                      <td className={r.finalMs != null ? "is-green" : ""}>{r.finalMs != null ? fmtTime(r.finalMs) : ""}</td>
+                      <td style={{ color: r.finalMs != null ? (r.finalMs === bestFinal ? "var(--r-magenta)" : "var(--r-green)") : undefined }}>{r.finalMs != null ? fmtTime(r.finalMs) : ""}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -318,7 +335,7 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
                 <div className="r-header">Race log</div>
                 <div className="r-log r-log--wrap" ref={logRef} style={{ flex: "1 1 0", minHeight: 0 }}>
                   {state.log.map((l, i) => (
-                    <div className="r-log__line" key={i}>
+                    <div className={`r-log__line${l.tone ? ` is-${l.tone}` : ""}`} key={i}>
                       {new Date(l.at).toLocaleTimeString("en-GB")} {l.actor}: {l.text}
                     </div>
                   ))}
