@@ -192,17 +192,18 @@ admin.post("/races/:id/sessions", guard("races"), async (c) => {
 
 admin.patch("/sessions/:id", guard("races"), async (c) => {
   const id = c.req.param("id");
-  const cur = await c.env.DB.prepare("SELECT name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed FROM sessions WHERE id = ?").bind(id).first<Pick<SessionSummary, "name" | "type" | "startsAt" | "endsAt"> & { selfTimed: number }>();
+  const cur = await c.env.DB.prepare("SELECT name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed, staging FROM sessions WHERE id = ?").bind(id).first<Pick<SessionSummary, "name" | "type" | "startsAt" | "endsAt"> & { selfTimed: number; staging: number }>();
   if (!cur) return c.json({ error: "not_found" }, 404);
-  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown; staging?: unknown };
   const name = body.name !== undefined ? cleanName(body.name) : cur.name;
   const type = body.type !== undefined ? (body.type as SessionType) : cur.type;
   const startsAt = body.startsAt !== undefined ? Number(body.startsAt) : cur.startsAt;
   const endsAt = body.endsAt !== undefined ? Number(body.endsAt) : cur.endsAt;
   if (!name || !SESSION_TYPES.includes(type)) return c.json({ error: "invalid" }, 400);
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) return c.json({ error: "invalid_times" }, 400);
+  const staging = body.staging !== undefined ? body.staging === true : !!cur.staging;
   const selfTimed = type === "practice" && (body.selfTimed !== undefined ? body.selfTimed === true : !!cur.selfTimed);
-  await c.env.DB.prepare("UPDATE sessions SET name = ?, type = ?, starts_at = ?, ends_at = ?, self_timed = ? WHERE id = ?").bind(name, type, startsAt, endsAt, selfTimed ? 1 : 0, id).run();
+  await c.env.DB.prepare("UPDATE sessions SET name = ?, type = ?, starts_at = ?, ends_at = ?, self_timed = ?, staging = ? WHERE id = ?").bind(name, type, startsAt, endsAt, selfTimed ? 1 : 0, staging ? 1 : 0, id).run();
   return c.json({ ok: true });
 });
 

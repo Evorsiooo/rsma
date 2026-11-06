@@ -15,6 +15,15 @@ interface Env extends AuthEnv {
 }
 
 const app = new Hono<{ Bindings: Env }>();
+// Live data: never let a browser or the edge reuse an API response.
+app.use("/api/*", async (c, next) => {
+  await next();
+  // Responses from the Durable Object and redirects have immutable headers, so copy them; leave WebSocket upgrades alone.
+  if (c.res.status === 101) return;
+  const res = new Response(c.res.body, c.res);
+  res.headers.set("Cache-Control", "no-store");
+  c.res = res;
+});
 
 app.route("/api/auth", auth);
 app.route("/api/admin", admin);
@@ -109,6 +118,7 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish")) return c.json({ error: "self_timed" }, 409);
   // Races are run differently for now: no live timing.
   if (info.session.type === "race" && RACE_TIMING_CMDS.includes(cmd.type)) return c.json({ error: "race_timing_off" }, 409);
+  if (cmd.type === "add" && !info.session.staging) return c.json({ error: "staging_off" }, 409);
   if (cmd.type === "add" && cmd.team != null) {
     // Take the team name from the database, never from the client.
     const team = typeof cmd.team.id === "string" ? await teamWithCar(c.env.DB, cmd.team.id) : null;

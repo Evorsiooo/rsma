@@ -11,6 +11,8 @@ export interface SessionSummary {
   endsAt: number;
   /** Teams start and stop their own cars; stewards have no Go or Stop. */
   selfTimed: boolean;
+  /** Stewards may stage drivers by hand; off unless the session has no registration to stage from. */
+  staging: boolean;
 }
 
 export interface RaceSummary {

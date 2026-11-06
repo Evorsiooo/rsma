@@ -4,7 +4,7 @@ import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, Se
 import type { Command } from "../shared/commands";
 
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path);
+  const res = await fetch(path, { cache: "no-store" });
   if (!res.ok) throw new Error(`${path} ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -65,7 +65,7 @@ export const admin = {
   removeSteward: (raceId: string, userId: string) => send("DELETE", `/api/admin/races/${raceId}/stewards/${userId}`),
   createSession: (raceId: string, s: { name: string; type: SessionType; startsAt: number; endsAt: number; selfTimed?: boolean }) =>
     send("POST", `/api/admin/races/${raceId}/sessions`, s),
-  patchSession: (id: string, patch: { name?: string; type?: SessionType; startsAt?: number; endsAt?: number; selfTimed?: boolean }) =>
+  patchSession: (id: string, patch: { name?: string; type?: SessionType; startsAt?: number; endsAt?: number; selfTimed?: boolean; staging?: boolean }) =>
     send("PATCH", `/api/admin/sessions/${id}`, patch),
   deleteSession: (id: string) => send("DELETE", `/api/admin/sessions/${id}`),
   teams: () => get<AdminTeam[]>("/api/admin/teams"),
