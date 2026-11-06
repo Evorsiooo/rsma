@@ -10,6 +10,7 @@ import {
   type RegKind,
   type Registration,
   type RegistrationView,
+  type RegSummary,
   type RegSettings,
   type RegTeam,
 } from "../shared/registration";
@@ -67,6 +68,19 @@ async function loadRegs(env: AdminEnv, sid: string, s: RegSettings): Promise<Reg
   const cut = computeCut(regs, s, factories);
   return regs.map((r) => ({ ...r, cut: cut.get(r.userId) ?? "waitlist" }));
 }
+
+/** Registration windows of sessions that have not ended, for the home page and My Team. */
+registration.get("/", async (c) => {
+  const now = Date.now();
+  const { results } = await c.env.DB.prepare(
+    `SELECT r.session_id AS sessionId, r.opens_at AS opensAt, r.deadline, r.independents
+     FROM session_registration r JOIN sessions s ON s.id = r.session_id JOIN races a ON a.id = s.race_id
+     WHERE a.status = 'active' AND a.expires_at > ?1 AND s.ends_at > ?1`,
+  )
+    .bind(now)
+    .all<Omit<RegSummary, "independents"> & { independents: number }>();
+  return c.json(results.map((r) => ({ ...r, independents: !!r.independents })) satisfies RegSummary[]);
+});
 
 registration.get("/:sid", async (c) => {
   const sid = c.req.param("sid");

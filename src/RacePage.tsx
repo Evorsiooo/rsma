@@ -48,7 +48,7 @@ export function RacePage() {
           </div>
         )}
         {cd && !race?.ended && (
-          <div className="r-banner" style={{ width: 190, flex: "none" }}>
+          <div className="r-banner" style={{ flex: "none", whiteSpace: "nowrap" }}>
             {cd.phase === "ended" ? "Session ended" : `${cd.label} ${cd.value}`}
           </div>
         )}

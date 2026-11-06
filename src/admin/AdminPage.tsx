@@ -9,8 +9,9 @@ import { Topbar, VERSION } from "../Shell";
 import { Dialog, toast } from "../ui";
 import { NotFound } from "../NotFound";
 import { AddMember, MemberTable } from "../TeamMembers";
+import { RegistrationsTab } from "./RegistrationsTab";
 
-type Tab = "users" | "races" | "teams" | "system";
+type Tab = "users" | "races" | "registrations" | "teams" | "system";
 
 const ERRORS: Record<string, string> = {
   invalid: "Invalid value. For teams, set a car (factory) or a factory team (customer).",
@@ -44,7 +45,7 @@ export function AdminPage() {
   const canUsers = !!me && (me.roles.includes("admin") || me.roles.includes("users"));
   const canRaces = !!me && (me.roles.includes("admin") || me.roles.includes("races"));
   const isAdmin = !!me?.roles.includes("admin");
-  const tabs = ([canUsers && "users", canRaces && "races", canUsers && "teams", isAdmin && "system"].filter(Boolean) as Tab[]);
+  const tabs = ([canUsers && "users", canRaces && "races", canRaces && "registrations", canUsers && "teams", isAdmin && "system"].filter(Boolean) as Tab[]);
   const [tab, setTab] = useState<Tab | null>(null);
   const active = tab && tabs.includes(tab) ? tab : tabs[0];
 
@@ -64,6 +65,7 @@ export function AdminPage() {
         <div className="page__col page__col--wide">
           {active === "users" && <Users isAdmin={isAdmin} myId={me.id} />}
           {active === "races" && <Races />}
+          {active === "registrations" && <Registrations />}
           {active === "teams" && <Teams />}
           {active === "system" && <System />}
         </div>
@@ -167,6 +169,11 @@ function Users({ isAdmin, myId }: { isAdmin: boolean; myId: string }) {
       </div>
     </>
   );
+}
+
+function Registrations() {
+  const { data } = useLoad<AdminRace[]>(admin.races);
+  return data ? <RegistrationsTab races={data} /> : null;
 }
 
 // ---- Races ------------------------------------------------------------------
@@ -631,6 +638,7 @@ function MembersDialog({ team, onChange, onClose }: { team: AdminTeam; onChange:
         members={team.members}
         canEdit
         canSetPrincipal
+        compact
         onRoles={async (m, roles) => {
           const r = await admin.setMemberRoles(team.id, m.id, roles);
           if (!r.ok) say(r.error);

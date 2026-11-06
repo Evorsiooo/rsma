@@ -4,6 +4,7 @@ import { api } from "./api";
 import { useMe } from "./me";
 
 export const VERSION = "v0.1.0";
+export const DISCORD_URL = "https://discord.gg/29TEDUnRR7";
 
 /** Top bar: brand link, optional left items, then the signed-in user or the sign-in button. */
 export function Topbar({ children }: { children?: ReactNode }) {
@@ -18,6 +19,11 @@ export function Topbar({ children }: { children?: ReactNode }) {
       <div className="r-topbar__end">
         {me ? (
           <>
+            {me.memberships.length > 0 && (
+              <button className="r-btn" onClick={() => nav("/my-team")}>
+                My Team
+              </button>
+            )}
             {me.roles.some((r) => r !== "steward") && (
               <button className="r-btn" onClick={() => nav("/admin")}>
                 Admin
@@ -56,7 +62,7 @@ export function Shell({ children, wide }: { children: ReactNode; wide?: boolean 
         <div className={`page__col${wide ? " page__col--wide" : ""}`}>{children}</div>
       </div>
       <div className="r-statusbar">
-        <a href="https://discord.gg/29TEDUnRR7" target="_blank" rel="noreferrer">
+        <a href={DISCORD_URL} target="_blank" rel="noreferrer">
           Discord
         </a>
         <Link to="/terms">Terms</Link>

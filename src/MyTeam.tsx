@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
-import type { MyTeam as MyTeamData } from "../shared/types";
+import type { RegSummary } from "../shared/registration";
+import type { MyTeam as MyTeamData, RaceSummary } from "../shared/types";
 import { hasAny, MANAGER_ROLES, TEAM_ROLE_LABEL } from "../shared/teams";
-import { myTeam } from "./api";
+import { api, myTeam, registrationApi } from "./api";
+import { fmtWhen, regStatus, upcomingSessions } from "./regUi";
 import { useMe } from "./me";
 import { Shell } from "./Shell";
 import { AddMember, MemberTable } from "./TeamMembers";
@@ -57,6 +59,12 @@ export function MyTeamPage() {
   const [team, setTeam] = useState<MyTeamData | null>(null);
   const [missing, setMissing] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [races, setRaces] = useState<RaceSummary[]>([]);
+  const [regs, setRegs] = useState<RegSummary[]>([]);
+  useEffect(() => {
+    api.races().then(setRaces, () => {});
+    registrationApi.list().then(setRegs, () => {});
+  }, []);
   const load = useCallback(() => myTeam.get(teamId).then(setTeam, () => setMissing(true)), [teamId]);
   useEffect(() => {
     load();
@@ -72,8 +80,40 @@ export function MyTeamPage() {
     await load();
     return r.ok;
   };
+  const now = Date.now();
+  const sessions = upcomingSessions(races, regs, now);
+  const panel = me.teams.some((t) => t.id === team.id);
   return (
     <Shell wide>
+      {sessions.length > 0 && (
+        <div className="r-panel">
+          <div className="r-header">Upcoming sessions</div>
+          <table className="r-table">
+            <tbody>
+              {sessions.map(({ race, session, reg }) => {
+                const st = reg ? regStatus(reg, now) : null;
+                return (
+                  <tr key={session.id}>
+                    <td className="is-left">{race.name} · {session.name}</td>
+                    <td className="is-left" style={{ width: 150, color: "var(--r-text-dim)" }}>{fmtWhen(session.startsAt)}</td>
+                    <td className="is-left" style={{ width: 190, color: "var(--r-text-dim)" }}>{st?.text ?? ""}</td>
+                    <td style={{ width: 260, padding: 2 }}>
+                      <div className="r-row">
+                        {canEdit && st?.phase === "open" && (
+                          <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/session/${session.id}/register`)}>Register</button>
+                        )}
+                        {panel && (
+                          <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/session/${session.id}/team/${team.id}`)}>Team panel</button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
       <div className="r-panel">
         <div className="r-header">{team.name}{sub ? ` · ${sub}` : ""}</div>
         <MemberTable
