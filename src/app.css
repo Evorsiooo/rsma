@@ -7,3 +7,4 @@ a { color: inherit; }
 .page { display: flex; flex-direction: column; height: 100%; }
 .page__body { flex: 1 1 0; min-height: 0; overflow: auto; display: flex; justify-content: center; padding: 16px; }
 .page__col { width: 100%; max-width: 760px; display: flex; flex-direction: column; gap: 8px; align-self: flex-start; }
+.page__col--wide { max-width: 1000px; }

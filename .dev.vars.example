@@ -6,3 +6,4 @@ SESSION_SECRET=any-long-random-string
 INITIAL_ADMIN_ROBLOX_ID=
 # Optional: point sign-in at a mock server instead of apis.roblox.com.
 # ROBLOX_OAUTH_BASE=http://localhost:8788
+# ROBLOX_USERS_BASE=http://localhost:8788

@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import { useMe } from "./me";
 
@@ -8,6 +8,7 @@ export const VERSION = "v0.1.0";
 /** Top bar: brand link, optional left items, then the signed-in user or the sign-in button. */
 export function Topbar({ children }: { children?: ReactNode }) {
   const { me, setMe } = useMe();
+  const nav = useNavigate();
   return (
     <div className="r-topbar">
       <Link to="/" className="r-text" style={{ textDecoration: "none" }}>
@@ -17,6 +18,11 @@ export function Topbar({ children }: { children?: ReactNode }) {
       <div className="r-topbar__end">
         {me ? (
           <>
+            {me.roles.some((r) => r !== "steward") && (
+              <button className="r-btn" onClick={() => nav("/admin")}>
+                Admin
+              </button>
+            )}
             <span className="r-user">
               <span className="r-avatar">{me.username[0].toUpperCase()}</span>
               {me.username}

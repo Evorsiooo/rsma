@@ -8,6 +8,7 @@ import { RacePage } from "./RacePage";
 import { Privacy, Terms } from "./Legal";
 import { DriverPage } from "./DriverPage";
 import { StewardPage } from "./steward/StewardPage";
+import { AdminPage } from "./admin/AdminPage";
 import { NotFound } from "./NotFound";
 
 export function App() {
@@ -29,6 +30,7 @@ export function App() {
         <Route path="/race/:id" element={<RacePage />} />
         <Route path="/race/:id/driver" element={<DriverPage />} />
         <Route path="/race/:id/steward" element={<StewardPage />} />
+        <Route path="/admin" element={<AdminPage />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
         <Route path="*" element={<NotFound />} />
