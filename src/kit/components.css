@@ -1,0 +1,82 @@
+/* RSMA UI: components. Naming: r-<part>, r-<part>__<slot>, r-<part>--<variant>, state classes is-*. */
+
+/* ---- r-header: the grey raised title strip. One per panel/module. ---- */
+.r-header{flex-shrink:0;height:var(--r-header-h);box-sizing:border-box;display:flex;align-items:center;justify-content:center;padding-top:4px;
+  font:400 var(--r-size-pixel)/1 var(--r-font-pixel);letter-spacing:0;text-transform:uppercase;white-space:nowrap;overflow:hidden;color:var(--r-ink);
+  border:1px solid var(--r-bevel-line);box-shadow:inset 3px 3px 0 var(--r-bevel-hi),inset -3px -3px 0 var(--r-bevel-lo);
+  background:linear-gradient(#9a9da2 0,#999ca1 3px,#8c8f94 4px,#adb0b5 5px,#b6babb 9px,#b4b8b9 14px,#a9aaac 15px,#97989a 19px,#9c9d9f 21px)}
+
+/* ---- r-panel: header + dark body. Slots: r-header, then any body part (r-log, r-table, r-grid of r-cell...) ---- */
+.r-panel{display:flex;flex-direction:column;background:var(--r-panel);overflow:hidden;box-sizing:border-box;min-width:0}
+
+/* ---- r-module: header + chrome well (for clocks/lamps/toggles). Slots: r-header, r-module__well ---- */
+.r-module{position:relative;display:flex;flex-direction:column;min-width:0;flex-shrink:0}
+.r-module__well{flex-grow:1;background:var(--r-chrome);padding:5px 6px;display:flex;box-sizing:border-box}
+.r-module__well>*{flex-grow:1}
+.r-module__well--bare{padding:0 4px;align-items:center;gap:6px}  /* controls directly in the well */
+.r-module__well--bare>*{flex-grow:0}
+
+/* ---- r-lcd: black display for seven-segment digits (see rsma-ui.js RSMA.lcd) ---- */
+.r-lcd{background:var(--r-lcd-bg);border:1px solid var(--r-edge);box-sizing:border-box;display:flex;align-items:center;justify-content:center;overflow:hidden}
+.r-lcd--stack{flex-direction:column;justify-content:space-evenly}
+.r-blank{background:var(--r-panel);border:1px solid var(--r-edge);box-sizing:border-box}   /* empty display slot */
+
+/* ---- r-btn: bevelled grey push button. Variants: --advance (tall, inner frame). States: :active, is-on (latched). ---- */
+.r-btn{font:400 var(--r-size-pixel)/1 var(--r-font-pixel);letter-spacing:.14em;text-transform:uppercase;color:#3d3f40;
+  background:linear-gradient(var(--r-btn-top),var(--r-btn-bot));border:2px solid;border-color:var(--r-btn-hi) var(--r-btn-lo) var(--r-btn-lo) var(--r-btn-hi);
+  height:var(--r-btn-h);padding:3px 4px 0;border-radius:0;cursor:pointer;box-sizing:border-box;text-shadow:0 1px 0 #bdbdbd;white-space:nowrap;overflow:hidden}
+.r-btn--advance{height:var(--r-btn-adv-h);padding:0;letter-spacing:.1em}
+.r-btn--advance>span{display:block;border:1px solid #7d7f80;margin:2px;line-height:34px;height:34px;box-sizing:border-box;overflow:hidden;white-space:nowrap}
+
+/* ---- r-cell: flat dark action key (steward actions). States: :hover, :active, is-disabled ---- */
+.r-cell{font:700 var(--r-size-label) var(--r-font-label);color:var(--r-text);background:var(--r-key);border:0;height:var(--r-btn-h);cursor:pointer;letter-spacing:.02em;text-transform:uppercase;border-radius:0}
+.r-cell:hover{background:var(--r-key-hover)}
+.r-cell.is-disabled{color:var(--r-key-disabled);cursor:default}
+.r-cell.is-disabled:hover{background:var(--r-key)}
+
+/* ---- r-toggle: round silver switch with red half-dome. State: aria-pressed true/false. Variant: --grille ---- */
+.r-toggle{width:var(--r-toggle);height:var(--r-toggle);border-radius:50%;border:2px solid #3b3f41;padding:0;display:flex;align-items:center;justify-content:center;cursor:pointer;
+  background:radial-gradient(circle at 50% 30%,#e4e4e4,#9a9a9a 60%,#6d6d6d)}
+.r-toggle>i{display:block;width:22px;height:22px;border-radius:50%;border:1px solid #444;box-sizing:content-box;
+  background:linear-gradient(#a8a8a8 0 25%,#7d1d30 25% 75%,#a8a8a8 75%);background-size:100% 200%;background-position:0 0}
+.r-toggle[aria-pressed="false"]>i{background-position:0 100%}
+.r-toggle--grille>i{background:repeating-linear-gradient(#7d7f80 0 2px,#b0b0b0 2px 4px);border-radius:2px}
+.r-toggle__label{font:700 var(--r-size-label)/11px var(--r-font-label);color:var(--r-text);text-transform:uppercase;letter-spacing:.02em;text-align:center;white-space:nowrap}
+.r-toggle-group{display:flex;flex-direction:column;align-items:center}   /* label / r-toggle / label */
+
+/* ---- r-lamp: flat status lamp. Variants none. States: is-on (default), is-off. No glow. ---- */
+.r-lamp{height:20px;background:var(--r-green);color:var(--r-panel);border:1px solid var(--r-edge);font:700 var(--r-size-label) var(--r-font-label);display:flex;align-items:center;justify-content:center;letter-spacing:.02em;box-sizing:border-box}
+.r-lamp.is-off{background:#12301a;color:#12301a}
+
+/* ---- r-plate: big status word on black ("RUNNING") ---- */
+.r-plate{background:#1b1b1b;border:1px solid #0a0a0a;color:var(--r-text);font:700 24px Verdana,Arial,Helvetica,sans-serif;letter-spacing:.02em;display:flex;align-items:center;justify-content:center;box-sizing:border-box}
+
+/* ---- r-section: caption with outer-tick bracket line ("FLAGS") ---- */
+.r-section{display:flex;align-items:flex-end;gap:4px;color:var(--r-text);font:700 var(--r-size-label) var(--r-font-label);letter-spacing:.04em;text-transform:uppercase;margin:6px 0 3px}
+.r-section::before,.r-section::after{content:'';flex:1;height:5px;border-top:1px solid var(--r-text-dim);margin-bottom:5px}
+.r-section::before{border-left:1px solid var(--r-text-dim)} .r-section::after{border-right:1px solid var(--r-text-dim)}
+.r-section>span{line-height:12px}
+
+/* ---- r-field: text input ---- */
+.r-field{background:var(--r-panel);color:var(--r-text);border:2px solid;border-color:#000 #4f585b #4f585b #000;height:24px;font:400 var(--r-size-pixel) var(--r-font-pixel);padding:0 6px;box-sizing:border-box;border-radius:0}
+
+/* ---- r-log: scrolling pixel-text list. Slot: r-log__line. Colour a line with is-yellow / is-green / is-red / is-magenta ---- */
+.r-log{flex-grow:1;overflow:hidden;padding:2px 6px;font:400 var(--r-size-pixel)/var(--r-line-pixel) var(--r-font-pixel);background:var(--r-panel);color:var(--r-text);white-space:nowrap}
+.r-log__line.is-yellow,.r-log.is-yellow{color:var(--r-yellow)} .is-green{color:var(--r-green)} .is-red{color:var(--r-red)} .is-magenta{color:var(--r-magenta)}
+.r-log--title{flex-grow:0;text-align:center;height:24px;line-height:18px}
+
+/* ---- r-table: timing table, fixed layout. th/td right-aligned; .is-left for text columns; tr.is-selected ---- */
+.r-table{border-collapse:collapse;width:100%;table-layout:fixed;font:400 var(--r-size-pixel) var(--r-font-pixel);color:var(--r-text)}
+.r-table th,.r-table td{box-sizing:border-box;padding:0 6px;text-align:right;white-space:nowrap}
+.r-table th{height:20px;font-weight:400}
+.r-table td{height:19px}
+.r-table .is-left{text-align:left}
+.r-table tr.is-selected{background:var(--r-selected)}
+
+/* ---- r-text: any other pixel-font text (status line, map labels) ---- */
+.r-text{font:400 var(--r-size-pixel)/var(--r-line-pixel) var(--r-font-pixel);color:var(--r-text)}
+.r-text--dim{color:var(--r-text-dim)}
+.r-menubar{height:24px;background:#f6f6f6;color:#111;font:12px Arial,Helvetica,sans-serif;display:flex;align-items:center;gap:18px;padding:0 10px;border-bottom:1px solid #c9c9c9}
+
+/* focus ring (keyboard only) */
+.r-btn:focus-visible,.r-cell:focus-visible,.r-toggle:focus-visible,.r-field:focus-visible{outline:2px solid var(--r-teal);outline-offset:1px}

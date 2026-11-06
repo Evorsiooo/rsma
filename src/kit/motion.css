@@ -1,0 +1,33 @@
+/* RSMA UI: motion. Pixel feel = instant press, short stepped release. No glow, no easing curves, no fades. */
+
+/* r-btn: pressed-in. Bevel inverts, face goes flat/darker, label drops 1px right+down. Latched with .is-on / aria-pressed="true" */
+.r-btn{transition:border-color var(--r-t-release) steps(2,end),background-color var(--r-t-release) steps(2,end),padding var(--r-t-release) steps(2,end)}
+.r-btn:active,.r-btn.is-on,.r-btn[aria-pressed="true"]{
+  border-color:var(--r-btn-lo) var(--r-btn-hi) var(--r-btn-hi) var(--r-btn-lo);background:var(--r-btn-down);padding:4px 3px 0 5px;text-shadow:none;transition-duration:var(--r-t-press)}
+.r-btn--advance:active,.r-btn--advance.is-on,.r-btn--advance[aria-pressed="true"]{padding:0}
+.r-btn--advance:active>span,.r-btn--advance.is-on>span,.r-btn--advance[aria-pressed="true"]>span{border-color:#a4a6a7;margin:3px 1px 1px 3px}
+.r-btn--advance>span{transition:margin var(--r-t-release) steps(2,end),border-color var(--r-t-release) steps(2,end)}
+
+/* r-cell: flat key sinks to black with a 1px inset edge, label drops 1px */
+.r-cell{transition:background-color var(--r-t-release) steps(2,end),box-shadow var(--r-t-release) steps(2,end),padding var(--r-t-release) steps(2,end)}
+.r-cell:active:not(.is-disabled),.r-cell.is-on{background:var(--r-panel);box-shadow:inset 1px 1px 0 #000,inset -1px -1px 0 #4f585b;padding:2px 0 0 2px;transition-duration:var(--r-t-press)}
+
+/* r-toggle: dome flips mechanically in 3 steps; ring presses in on :active */
+.r-toggle>i{transition:background-position var(--r-t-flip) steps(3,end),transform var(--r-t-release) steps(2,end)}
+.r-toggle:active{border-color:#1c1f21 #6d7174 #6d7174 #1c1f21}
+.r-toggle:active>i{transform:translate(1px,1px)}
+
+/* r-log: a freshly added line flashes once (apply .is-new to the newest line) */
+@keyframes r-new-line{0%,66%{background:#1d2a20}100%{background:transparent}}
+.r-log__line.is-new{animation:r-new-line 450ms steps(1,end) 1}
+
+/* r-lamp: state changes are instant. Optional alarm blink, hard on/off, 1Hz */
+@keyframes r-blink{0%,49%{opacity:1}50%,100%{opacity:.25}}
+.r-lamp.is-blink{animation:r-blink 1s steps(1,end) infinite}
+
+/* Everything else is deliberately NOT animated: header, panel, module, plate, section, field, table (incl. selected row), LCD digits, text. */
+
+@media (prefers-reduced-motion:reduce){
+  .r-btn,.r-btn--advance>span,.r-cell,.r-toggle>i{transition:none}
+  .r-log__line.is-new,.r-lamp.is-blink{animation:none}
+}

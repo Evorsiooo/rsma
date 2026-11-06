@@ -1,0 +1,9 @@
+/* RSMA UI: layout primitives. Compose these; do not write per-screen CSS. */
+.r-stack{display:flex;flex-direction:column;gap:var(--r-gap);min-width:0}
+.r-row{display:flex;gap:var(--r-gap);min-width:0}
+.r-grid{display:grid;gap:var(--r-gap);grid-template-columns:repeat(var(--cols,2),minmax(0,1fr))}   /* --cols: 2,3,4 */
+.r-fill{flex:1 1 0;min-width:0}          /* take remaining space */
+.r-grow{flex:1 0 auto;min-width:0}         /* grow but never shrink below content */
+.r-fixed{flex:0 0 auto}                   /* keep own width */
+.r-pad{padding:var(--r-gap)}
+.r-window{background:var(--r-chrome);color:var(--r-text);box-sizing:border-box}
