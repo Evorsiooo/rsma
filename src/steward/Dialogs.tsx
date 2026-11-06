@@ -38,6 +38,31 @@ export function ConfirmReset({ onClose, send }: { onClose: () => void; send: Sen
   );
 }
 
+export function ConfirmDelete({ run, onClose, send }: { run: Run; onClose: () => void; send: Send }) {
+  return (
+    <Dialog
+      title={`Delete time: ${run.name}`}
+      size="s"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button
+            className="r-btn"
+            onClick={async () => {
+              if (await send({ type: "delRun", runId: run.id })) onClose();
+            }}
+          >
+            Delete
+          </button>
+        </>
+      }
+    >
+      <div>Delete the time of {run.name} ({run.plate})? The run is removed from the results.</div>
+    </Dialog>
+  );
+}
+
 export function ConfirmDnf({ run, onClose, send }: { run: Run; onClose: () => void; send: Send }) {
   return (
     <Dialog

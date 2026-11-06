@@ -11,3 +11,8 @@ a { color: inherit; }
 
 /* Teal log lines for team traffic; the kit colours lines yellow, green, red and magenta. */
 .r-log__line.is-teal{color:var(--r-teal)}
+
+/* Graduation under the pit window timeline. */
+.r-scale{position:relative;height:22px;border-top:1px solid var(--r-text-dim);margin-bottom:2px}
+.r-scale__tick{position:absolute;top:0;padding-top:4px;border-left:1px solid var(--r-text-dim);padding-left:2px;color:var(--r-text-dim);font:400 var(--r-size-pixel)/1 var(--r-font-pixel);white-space:nowrap}
+.r-scale__tick:last-child{transform:translateX(-100%);border-left:0;border-right:1px solid var(--r-text-dim);padding-left:0;padding-right:2px}

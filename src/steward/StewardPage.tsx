@@ -12,7 +12,7 @@ import { Topbar } from "../Shell";
 import { SessionSelect } from "../SessionSelect";
 import { fmtLive, sessionCountdown, toast, useClock, useNow } from "../ui";
 import { useRaceLive } from "../useRaceLive";
-import { AssignDialog, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, RulesDialog, TeamsDialog } from "./Dialogs";
+import { AssignDialog, ConfirmDelete, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, RulesDialog, TeamsDialog } from "./Dialogs";
 
 const ERRORS: Record<string, string> = {
   not_queued: "Only queued drivers can be removed.",
@@ -23,6 +23,8 @@ const ERRORS: Record<string, string> = {
   forbidden: "You are not a steward of this race.",
   unauthorized: "Sign in again.",
   race_ended: "This race has ended.",
+  self_timed: "The teams time this session.",
+  not_finished: "Only finished or DNF runs can be deleted.",
 };
 
 type DialogState =
@@ -34,6 +36,7 @@ type DialogState =
   | { kind: "notes"; runId: string }
   | { kind: "penalty"; runId: string }
   | { kind: "dnf"; runId: string }
+  | { kind: "delete"; runId: string }
   | { kind: "assign"; ts: number };
 
 const PRESETS = [15, 30, 45, 60];
@@ -234,16 +237,20 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
         </div>
 
         <div className="r-row" style={{ height: 42, flex: "none" }}>
-          <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!next} onClick={() => send({ type: "go" })}>
-            <span>Go</span>
-          </button>
+          {!session.selfTimed && (
+            <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!next} onClick={() => send({ type: "go" })}>
+              <span>Go</span>
+            </button>
+          )}
           <div className={`r-plate is-${state.flag}`} style={{ width: 120 }}>{FLAG_WORD[state.flag]}</div>
           <div className="r-plate r-fill">
             {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : next ? `${next.name}  ${next.plate}` : ""}
           </div>
-          <button className="r-btn r-btn--advance" style={{ width: 150 }} onClick={() => send({ type: "finish" })}>
-            <span>Stop timer</span>
-          </button>
+          {!session.selfTimed && (
+            <button className="r-btn r-btn--advance" style={{ width: 150 }} onClick={() => send({ type: "finish" })}>
+              <span>Stop timer</span>
+            </button>
+          )}
         </div>
 
         <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
@@ -352,7 +359,13 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                       <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => send({ type: "finish", runId: sel.id })}>Finish</button>
                     </>
                   )}
-                  {sel?.status === "finished" && <button className="r-cell" onClick={() => setDialog({ kind: "penalty", runId: sel.id })}>Penalty</button>}
+                  {sel?.status === "finished" && (
+                    <>
+                      <button className="r-cell" onClick={() => setDialog({ kind: "penalty", runId: sel.id })}>Penalty</button>
+                      <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "delete", runId: sel.id })}>Delete time</button>
+                    </>
+                  )}
+                  {sel?.status === "dnf" && <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "delete", runId: sel.id })}>Delete time</button>}
                 </div>
                 {sel && (
                   <div className="r-grid" style={{ ["--cols" as string]: 1 }}>
@@ -370,6 +383,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
       {dialog?.kind === "reset" && <ConfirmReset onClose={closeDialog} send={send} />}
       {dialog?.kind === "rules" && <RulesDialog state={state} onClose={closeDialog} send={send} />}
       {dialog?.kind === "penalty" && dialogRun && <PenaltyDialog run={dialogRun} state={state} onClose={closeDialog} send={send} />}
+      {dialog?.kind === "delete" && dialogRun && <ConfirmDelete run={dialogRun} onClose={closeDialog} send={send} />}
       {dialog?.kind === "dnf" && dialogRun && <ConfirmDnf run={dialogRun} onClose={closeDialog} send={send} />}
       {dialog?.kind === "recipients" && (
         <RecipientsDialog

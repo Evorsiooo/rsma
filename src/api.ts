@@ -61,12 +61,11 @@ export const admin = {
     send("PATCH", `/api/admin/races/${id}`, patch),
   addSteward: (raceId: string, username: string) => send("POST", `/api/admin/races/${raceId}/stewards`, { username }),
   removeSteward: (raceId: string, userId: string) => send("DELETE", `/api/admin/races/${raceId}/stewards/${userId}`),
-  createSession: (raceId: string, s: { name: string; type: SessionType; startsAt: number; endsAt: number }) =>
+  createSession: (raceId: string, s: { name: string; type: SessionType; startsAt: number; endsAt: number; selfTimed?: boolean }) =>
     send("POST", `/api/admin/races/${raceId}/sessions`, s),
-  patchSession: (id: string, patch: { name?: string; type?: SessionType; startsAt?: number; endsAt?: number }) =>
+  patchSession: (id: string, patch: { name?: string; type?: SessionType; startsAt?: number; endsAt?: number; selfTimed?: boolean }) =>
     send("PATCH", `/api/admin/sessions/${id}`, patch),
   deleteSession: (id: string) => send("DELETE", `/api/admin/sessions/${id}`),
-  moveSession: (id: string, dir: -1 | 1) => send("POST", `/api/admin/sessions/${id}/move`, { dir }),
   teams: () => get<AdminTeam[]>("/api/admin/teams"),
   createTeam: (name: string) => send("POST", "/api/admin/teams", { name }),
   deleteTeam: (id: string) => send("DELETE", `/api/admin/teams/${id}`),
@@ -89,3 +88,5 @@ export const addPitWindow = (sessionId: string, teamId: string, fromMs: number, 
   teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/pit`, { fromMs, toMs });
 export const removePitWindow = (sessionId: string, teamId: string, windowId: string) =>
   teamCall("DELETE", `/api/sessions/${sessionId}/team/${teamId}/pit/${windowId}`);
+export const teamTiming = (sessionId: string, teamId: string, action: "go" | "finish", runId?: string) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/timing`, { action, runId });

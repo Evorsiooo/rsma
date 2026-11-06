@@ -60,6 +60,7 @@ export function RacePage() {
           <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>
         )}
       </div>
+      {info?.session.selfTimed && !race?.ended && <div className="r-banner is-teal">Self-timed session. Times are recorded by the teams.</div>}
       <div className="r-panel">
         <div className="r-header">{race?.name ?? " "}</div>
         {rows.length === 0 ? (

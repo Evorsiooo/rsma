@@ -187,3 +187,18 @@ test("pit windows are validated, ordered and visible to their team", () => {
   assert.equal(viewFor(s, { staff: false, teams: [] }).pitWindows.length, 0);
   assert.equal(fails(s, { type: "pitDel", team: "t1", id: s.pitWindows.find((w) => w.team === "t2")!.id }, 4), "not_found"); // another team's window
 });
+
+test("self-timed: a team starts and stops only its own cars, and times can be deleted", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "ann", plate: "a-1", team: { id: "t1", name: "Red" } }, 0);
+  s = run(s, { type: "add", name: "bob", plate: "b-1", team: { id: "t2", name: "Blue" } }, 0);
+  s = run(s, { type: "teamGo", team: "t2" }, 1000);
+  assert.equal(s.runs[0].status, "queued");
+  assert.equal(s.runs[1].status, "onstage");
+  assert.equal(fails(s, { type: "teamFinish", team: "t1" }, 9000), "not_running");
+  s = run(s, { type: "teamFinish", team: "t2" }, 31000);
+  assert.equal(s.runs[1].rawMs, 27000);
+  assert.equal(fails(s, { type: "delRun", runId: s.runs[0].id }, 32000), "not_finished");
+  s = run(s, { type: "delRun", runId: s.runs[1].id }, 33000);
+  assert.equal(s.runs.length, 1);
+});
