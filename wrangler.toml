@@ -21,3 +21,7 @@ class_name = "RaceDO"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["RaceDO"]
+
+[vars]
+# Roblox user id that becomes admin on first sign-in while no admin exists.
+INITIAL_ADMIN_ROBLOX_ID = "242304445"

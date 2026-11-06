@@ -9,7 +9,7 @@ The Worker reads these three secrets by name, the same names the old `rsma` Work
 | `ROBLOX_CLIENT_SECRET` | Roblox OAuth app |
 | `SESSION_SECRET` | Key that signs the session cookie (HMAC-SHA256). Changing it signs everyone out. |
 
-Optional plain variable: `INITIAL_ADMIN_ROBLOX_ID`, the Roblox user id that becomes admin on first sign-in while no admin exists.
+Plain variable in `wrangler.toml`: `INITIAL_ADMIN_ROBLOX_ID` (242304445), the Roblox user that becomes admin on first sign-in while no admin exists.
 
 Secrets are never written in `wrangler.toml`. Secrets set in the dashboard or with `wrangler secret put` stay in place across `wrangler deploy`. Plain `[vars]` in the config do overwrite dashboard variables, which is why none are set there.
 
