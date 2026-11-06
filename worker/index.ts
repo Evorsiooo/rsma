@@ -15,6 +15,15 @@ interface Env extends AuthEnv {
 }
 
 const app = new Hono<{ Bindings: Env }>();
+// Live data: never let a browser or the edge reuse an API response.
+app.use("/api/*", async (c, next) => {
+  await next();
+  // Responses from the Durable Object and redirects have immutable headers, so copy them; leave WebSocket upgrades alone.
+  if (c.res.status === 101) return;
+  const res = new Response(c.res.body, c.res);
+  res.headers.set("Cache-Control", "no-store");
+  c.res = res;
+});
 
 app.route("/api/auth", auth);
 app.route("/api/admin", admin);
