@@ -59,13 +59,16 @@ interface DialogProps {
 /** Modal dialog: Esc closes, focus moves in and returns, Tab stays inside. */
 export function Dialog({ title, onClose, size, children, foot }: DialogProps) {
   const box = useRef<HTMLDivElement>(null);
+  // Parents pass a new onClose every render; keep it in a ref so the focus effect runs once, on open.
+  const close = useRef(onClose);
+  close.current = onClose;
   useEffect(() => {
     const prev = document.activeElement as HTMLElement | null;
     const focusable = () =>
       Array.from(box.current!.querySelectorAll<HTMLElement>("button:not(:disabled),input:not(:disabled),select,textarea"));
     focusable()[0]?.focus();
     const key = (e: KeyboardEvent) => {
-      if (e.key === "Escape") return onClose();
+      if (e.key === "Escape") return close.current();
       if (e.key !== "Tab") return;
       const l = focusable();
       if (!l.length) return;
@@ -84,7 +87,7 @@ export function Dialog({ title, onClose, size, children, foot }: DialogProps) {
       document.removeEventListener("keydown", key);
       prev?.focus?.();
     };
-  }, [onClose]);
+  }, []);
   return (
     <div className="r-backdrop">
       <div className={`r-dialog${size ? ` r-dialog--${size}` : ""}`} role="dialog" aria-modal="true" aria-label={title} ref={box}>
