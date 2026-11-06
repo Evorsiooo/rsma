@@ -17,6 +17,7 @@ const ERRORS: Record<string, string> = {
   invalid: "Invalid value. For teams, set a car (factory) or a factory team (customer).",
   invalid_username: "Enter a Roblox username (3-20 letters, numbers or underscores).",
   no_such_roblox_user: "No Roblox user with that name.",
+  lookup_failed: "Could not reach Roblox. Try again in a moment.",
   last_admin: "There must be at least one admin.",
   forbidden: "Not allowed.",
   not_found: "Not found.",

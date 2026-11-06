@@ -16,6 +16,7 @@ const ERRORS: Record<string, string> = {
   not_member: "That person is not in this team.",
   wrong_role: "Drivers need the Driver role, employees a staff role.",
   no_such_roblox_user: "No Roblox user with that name.",
+  lookup_failed: "Could not reach Roblox. Try again in a moment.",
   invalid: "Invalid value.",
   invalid_discord: "Enter your Discord username.",
   group_required: "Say whether you joined the group or your request is pending.",

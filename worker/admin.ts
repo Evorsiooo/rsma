@@ -5,10 +5,12 @@ import { cleanRoles, parseRoles, type TeamRole } from "../shared/teams";
 import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { sessionsOf } from "./sessions";
+import { resolveUserId } from "./roblox-users";
 
 export interface AdminEnv extends AuthEnv {
   /** Local development only: point username lookups at a mock server. */
   ROBLOX_USERS_BASE?: string;
+  ROBLOX_WWW_BASE?: string;
 }
 type C = Context<{ Bindings: AdminEnv; Variables: { me: Me } }>;
 
@@ -24,24 +26,11 @@ const guard = (...roles: Role[]) => async (c: C, next: () => Promise<void>) => {
   await next();
 };
 
-/** Find a user by Roblox username, creating the record from Roblox when they have not signed in yet. */
-export async function resolveUser(env: AdminEnv, username: string): Promise<{ id: string; username: string } | null> {
-  const local = await env.DB.prepare("SELECT roblox_id AS id, username FROM users WHERE lower(username) = lower(?)")
-    .bind(username)
-    .first<{ id: string; username: string }>();
-  if (local) return local;
-  const res = await fetch(`${env.ROBLOX_USERS_BASE ?? "https://users.roblox.com"}/v1/usernames/users`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ usernames: [username], excludeBannedUsers: false }),
-  }).catch(() => null);
-  if (!res?.ok) return null;
-  const hit = ((await res.json()) as { data?: { id: number; name: string; displayName: string }[] }).data?.[0];
-  if (!hit) return null;
-  await env.DB.prepare("INSERT OR IGNORE INTO users (roblox_id, username, display_name, created_at) VALUES (?, ?, ?, ?)")
-    .bind(String(hit.id), hit.name, hit.displayName, Date.now())
-    .run();
-  return { id: String(hit.id), username: hit.name };
+/** Resolve a Roblox username to a user we hold by Roblox ID, or the error response to send. */
+export async function resolveUser(c: { env: AdminEnv; json: (b: { error: string }, status: 404 | 503) => Response }, username: string): Promise<{ id: string; username: string } | Response> {
+  const r = await resolveUserId(c.env, username);
+  if ("user" in r) return r.user;
+  return c.json({ error: r.error }, r.error === "lookup_failed" ? 503 : 404);
 }
 
 const newSessionId = () => `ses_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
@@ -65,8 +54,8 @@ admin.post("/users", guard("users"), async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { username?: unknown };
   const username = cleanUsername(body.username);
   if (!username) return c.json({ error: "invalid_username" }, 400);
-  const user = await resolveUser(c.env, username);
-  return user ? c.json(user) : c.json({ error: "no_such_roblox_user" }, 404);
+  const user = await resolveUser(c, username);
+  return user instanceof Response ? user : c.json(user);
 });
 
 admin.put("/users/:id/roles", guard("users"), async (c) => {
@@ -161,8 +150,8 @@ admin.post("/races/:id/stewards", guard("races"), async (c) => {
   const username = cleanUsername(body.username);
   if (!username) return c.json({ error: "invalid_username" }, 400);
   if (!(await c.env.DB.prepare("SELECT 1 FROM races WHERE id = ?").bind(id).first())) return c.json({ error: "not_found" }, 404);
-  const user = await resolveUser(c.env, username);
-  if (!user) return c.json({ error: "no_such_roblox_user" }, 404);
+  const user = await resolveUser(c, username);
+  if (user instanceof Response) return user;
   await c.env.DB.prepare("INSERT OR IGNORE INTO race_stewards (race_id, roblox_id) VALUES (?, ?)").bind(id, user.id).run();
   return c.json(user);
 });
@@ -338,8 +327,8 @@ admin.post("/teams/:id/members", guard("users"), async (c) => {
   const roles = body.roles === undefined ? (["driver"] as TeamRole[]) : cleanRoles(body.roles);
   if (!roles) return c.json({ error: "invalid_roles" }, 400);
   if (!(await c.env.DB.prepare("SELECT 1 FROM teams WHERE id = ?").bind(id).first())) return c.json({ error: "not_found" }, 404);
-  const user = await resolveUser(c.env, username);
-  if (!user) return c.json({ error: "no_such_roblox_user" }, 404);
+  const user = await resolveUser(c, username);
+  if (user instanceof Response) return user;
   if (roles.includes("principal") && (await principalTaken(c.env, id, user.id))) return c.json({ error: "has_principal" }, 409);
   await c.env.DB.prepare("INSERT OR IGNORE INTO team_members (team_id, roblox_id, roles) VALUES (?, ?, ?)").bind(id, user.id, roles.join(",")).run();
   return c.json(user);

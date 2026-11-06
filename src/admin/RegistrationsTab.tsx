@@ -7,6 +7,7 @@ import { Dialog, toast } from "../ui";
 const ERRORS: Record<string, string> = {
   taken: "Already registered, by another team or as an independent.",
   no_such_roblox_user: "No Roblox user with that name.",
+  lookup_failed: "Could not reach Roblox. Try again in a moment.",
   invalid: "Invalid value.",
   forbidden: "Not allowed.",
 };
