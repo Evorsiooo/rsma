@@ -12,12 +12,14 @@ const STATUS: Record<RunStatus, string> = {
 export function ClassificationTable({ rows, action, mine }: { rows: Row[]; action?: (r: Row) => ReactNode; mine?: (r: Row) => boolean }) {
   const teams = rows.some((r) => r.teamName);
   const cars = rows.some((r) => r.car);
+  const numbers = rows.some((r) => r.number);
   const best = Math.min(...rows.map((r) => r.finalMs ?? Infinity));
   return (
     <table className="r-table">
       <thead>
         <tr>
           <th style={{ width: 40 }}>Pos</th>
+          {numbers && <th className="is-left" style={{ width: 50 }}>No</th>}
           <th className="is-left">Driver</th>
           <th className="is-left" style={{ width: 80 }}>Plate</th>
           {teams && <th className="is-left" style={{ width: 120 }}>Team</th>}
@@ -33,6 +35,7 @@ export function ClassificationTable({ rows, action, mine }: { rows: Row[]; actio
         {rows.map((r) => (
           <tr key={r.id} className={mine?.(r) ? "is-selected" : ""}>
             <td style={{ color: "var(--r-teal)" }}>{r.rank ?? ""}</td>
+            {numbers && <td className="is-left">{r.number ?? ""}</td>}
             <td className="is-left">{r.name}</td>
             <td className="is-left" style={{ color: "var(--r-red)" }}>{r.plate}</td>
             {teams && <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.teamName ?? ""}</td>}

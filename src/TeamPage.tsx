@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { classify, fmtPenalty, type Flag, type RadioMsg } from "../shared/race";
+import { classify, fmtPenalty, fmtTime, type Flag, type RadioMsg, type Run } from "../shared/race";
 import { fmtClock } from "../shared/sessions";
 import type { SessionInfo } from "../shared/types";
 import { addPitWindow, api, askDriver, moveOwnCar, removePitWindow, sendTeamRadio, teamRunCmd, teamTiming } from "./api";
@@ -25,6 +25,8 @@ const ERRORS: Record<string, string> = {
   not_running: "No car of your team is running.",
   not_self_timed: "This session is timed by the stewards.",
   forbidden: "You are not in this team.",
+  too_soon: "Lap just recorded.",
+  has_laps: "Laps are recorded, so this car stays on long run.",
   unauthorized: "Sign in again.",
 };
 const mmss = (ms: number) => {
@@ -123,6 +125,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const mineQueued = queued.filter((r) => r.team === team.id).length;
   const drivers = [...new Set(state.runs.filter((r) => r.team === team.id).map((r) => r.name))];
   const dialogRun = dialog ? state.runs.find((r) => r.id === dialog.runId) : undefined;
+  const modeText = (r: Run) => (r.team !== team.id ? "" : r.mode === "long" ? `Long run${r.laps?.length ? ` (${r.laps.length})` : ""}` : "Quali");
   const ownQueue = queued.filter((r) => r.team === team.id);
   const selOwnIdx = sel && sel.status === "queued" && sel.team === team.id ? ownQueue.indexOf(sel) : -1;
   const windows = state.pitWindows.filter((w) => w.team === team.id);
@@ -152,8 +155,8 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
     const err = await addPitWindow(sessionId, team.id, fromMs, toMs);
     if (err) toast(ERRORS[err] ?? "Window not added.");
   };
-  const timing = async (action: "go" | "finish") => {
-    const err = await teamTiming(sessionId, team.id, action);
+  const timing = async (action: "go" | "finish", runId?: string) => {
+    const err = await teamTiming(sessionId, team.id, action, runId);
     if (err) toast(ERRORS[err] ?? "Command failed.");
   };
   const send = async (cmd: Command) => {
@@ -275,7 +278,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
 
           <div className="r-stack r-fill">
             <div className="r-panel r-fill" style={{ overflow: "auto" }}>
-              <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} mine={(r) => r.team === team.id} />
+              <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} mine={(r) => r.team === team.id} modeLabel={session.selfTimed ? modeText : undefined} />
             </div>
 
             <div className="r-row" style={{ height: 270, flex: "none" }}>
@@ -298,6 +301,9 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                 <div className="r-header">Selected car</div>
                 <div className="r-log r-log--title">{sel ? `${sel.name}  ${sel.plate}` : ""}</div>
                 <div className="r-log" style={{ flex: "1 1 0", minHeight: 0 }}>
+                  {sel?.laps?.map((l, i) => (
+                    <div className={`r-log__line${l === Math.min(...sel.laps!) ? " is-magenta" : ""}`} key={`l${i}`}>Lap {i + 1} {fmtTime(l)}</div>
+                  ))}
                   {sel?.penalties.map((p, i) => (
                     <div className="r-log__line is-red" key={i}>{fmtPenalty(p.ms)} {p.name}</div>
                   ))}
@@ -314,10 +320,21 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                       <>
                         <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "dnf", runId: sel.id })}>DNF</button>
                         <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => setDialog({ kind: "attribute", runId: sel.id })}>Attribute time</button>
+                        {sel.mode === "long" && (
+                          <>
+                            <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => send({ type: "lap", runId: sel.id })}>Lap</button>
+                            <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => timing("finish", sel.id)}>Finish</button>
+                          </>
+                        )}
                       </>
                     )}
                     {sel.status === "finished" && sel.startedAt != null && (
                       <button className="r-cell" onClick={() => send({ type: "unattribute", runId: sel.id })}>Remove time</button>
+                    )}
+                    {(sel.status === "queued" || sel.status === "onstage") && (
+                      <button className="r-cell" aria-pressed={sel.mode === "long"} disabled={!!sel.laps?.length && sel.mode === "long"} onClick={() => send({ type: "setMode", runId: sel.id, mode: sel.mode === "long" ? "quali" : "long" })}>
+                        {sel.mode === "long" ? "Long run" : "Quali"}
+                      </button>
                     )}
                     <button className="r-cell" onClick={() => setDialog({ kind: "setTime", runId: sel.id })}>Set time</button>
                   </div>
