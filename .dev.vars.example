@@ -1,0 +1,9 @@
+# Copy to .dev.vars (git-ignored). Real values live as Cloudflare secrets, never in the repo.
+DEV=1
+ROBLOX_CLIENT_ID=
+ROBLOX_CLIENT_SECRET=
+SESSION_SECRET=any-long-random-string
+# Optional: Roblox user id that becomes admin on first sign-in while no admin exists.
+INITIAL_ADMIN_ROBLOX_ID=
+# Optional: point sign-in at a mock server instead of apis.roblox.com.
+# ROBLOX_OAUTH_BASE=http://localhost:8788

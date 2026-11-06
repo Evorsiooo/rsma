@@ -1,0 +1,33 @@
+name = "rsma"
+main = "worker/index.ts"
+compatibility_date = "2026-10-01"
+
+[assets]
+not_found_handling = "single-page-application"
+# Navigations to /api/* (OAuth redirects) must reach the Worker, not the SPA fallback.
+run_worker_first = ["/api/*"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "flagman"
+# New database for Flagman. The old rsma-d1 is not used.
+database_id = "ce4c5c5d-0dcd-4d80-b818-ad431dc627fc"
+migrations_dir = "migrations"
+
+[[durable_objects.bindings]]
+name = "RACE"
+class_name = "RaceDO"
+
+# The old site's Worker is already at tag v1 (class RaceControlDO). v1 is kept so v2 can delete it.
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RaceControlDO"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["RaceControlDO"]
+new_sqlite_classes = ["RaceDO"]
+
+[vars]
+# Roblox user id that becomes admin on first sign-in while no admin exists.
+INITIAL_ADMIN_ROBLOX_ID = "242304445"

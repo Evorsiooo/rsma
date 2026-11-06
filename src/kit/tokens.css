@@ -1,0 +1,28 @@
+/* RSMA UI: tokens. One value per role. Change here to restyle everything. */
+@font-face{font-family:'PerfectDOSVGA';src:url(./PerfectDOSVGA437Win.ttf) format('truetype');font-display:block}
+:root{
+  /* colour roles */
+  --r-chrome:#313b3f;      /* window / module background */
+  --r-panel:#0a0b0b;       /* every dark content area */
+  --r-edge:#0c1112;        /* hairline around dark wells */
+  --r-text:#f0f0e8;
+  --r-text-dim:#8d9396;
+  --r-yellow:#e8d44d; --r-green:#3ee05a; --r-red:#e63a2e; --r-magenta:#d060e0; --r-teal:#3fd0b0;
+  --r-selected:#4d3513;    /* selected table row */
+  --r-key:#1d1f20;         /* flat action cell */
+  --r-key-hover:#2a2d2e;
+  --r-key-disabled:#65696b;
+  --r-lcd-bg:#010302; --r-lcd-on:#3ee05a; --r-lcd-off:#071a0a; --r-lcd-ghost:#171a18;
+  --r-ink:#2c3033;         /* dark text on grey bevel parts */
+  /* bevel (raised grey parts: header, button) */
+  --r-bevel-hi:#e4e6e8; --r-bevel-lo:#55595d; --r-bevel-line:#1c1f21;
+  --r-btn-hi:#cfcfd0; --r-btn-lo:#55585a; --r-btn-top:#a9a9aa; --r-btn-bot:#8d8d8e; --r-btn-down:#858586;
+  /* type */
+  --r-font-pixel:'PerfectDOSVGA','Lucida Console',monospace; /* design size 16px, use 16 only */
+  --r-font-label:Arial,Helvetica,sans-serif;
+  --r-size-pixel:16px; --r-line-pixel:18px; --r-size-label:10px;
+  /* size */
+  --r-gap:4px; --r-header-h:22px; --r-btn-h:30px; --r-btn-adv-h:42px; --r-toggle:38px;
+  /* motion: pixel feel = few discrete steps, short */
+  --r-t-press:0ms; --r-t-release:80ms; --r-t-flip:120ms;
+}
