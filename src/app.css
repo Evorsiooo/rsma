@@ -1,6 +1,6 @@
 /* App-level glue only. Look and feel comes from src/kit. */
 html, body, #root { height: 100%; margin: 0; }
-body { background: var(--r-chrome); color: var(--r-text); }
+body { background: var(--r-chrome); color: var(--r-text); font: 400 var(--r-size-pixel)/var(--r-line-pixel) var(--r-font-pixel); }
 a { color: inherit; }
 .r-statusbar a { color: inherit; text-decoration: none; }
 .r-statusbar a:hover { color: var(--r-text); text-decoration: underline; }

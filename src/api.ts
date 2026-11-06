@@ -1,4 +1,4 @@
-import type { GroupStatus, RegKind, RegSettings, RegistrationView } from "../shared/registration";
+import type { GroupStatus, RegKind, RegSettings, RegSummary, RegistrationView } from "../shared/registration";
 import type { TeamRole } from "../shared/teams";
 import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
 import type { Command } from "../shared/commands";
@@ -121,10 +121,11 @@ export const myTeam = {
 
 const reg = (sid: string, path = "") => `/api/registration/${sid}${path}`;
 export const registrationApi = {
+  list: () => get<RegSummary[]>("/api/registration"),
   get: (sid: string) => get<RegistrationView>(reg(sid)),
   teamAdd: (sid: string, teamId: string, username: string, kind: RegKind) => send("POST", reg(sid, `/team/${teamId}`), { username, kind }),
   teamRemove: (sid: string, teamId: string, userId: string) => send("DELETE", reg(sid, `/team/${teamId}/${userId}`)),
-  independent: (sid: string, discord: string, group: "joined" | "pending") => send("POST", reg(sid, "/independent"), { discord, group }),
+  independent: (sid: string, discord: string) => send("POST", reg(sid, "/independent"), { discord, group: "pending" }),
   withdraw: (sid: string) => send("DELETE", reg(sid, "/independent")),
   selfGroup: (sid: string, group: GroupStatus) => send("PUT", reg(sid, "/self/group"), { group }),
   staffAdd: (sid: string, b: { username: string; kind: RegKind; teamId: string | null; discord?: string; group?: GroupStatus }) => send("POST", reg(sid, "/staff"), b),

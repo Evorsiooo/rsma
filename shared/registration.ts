@@ -5,7 +5,8 @@ export const REG_KIND_LABEL: Record<RegKind, string> = { driver: "Driver", emplo
 /** Roblox group membership: joined, join request pending, or not yet confirmed. */
 export type GroupStatus = "joined" | "pending" | "unverified";
 export const GROUP_STATUSES: GroupStatus[] = ["joined", "pending", "unverified"];
-export const GROUP_LABEL: Record<GroupStatus, string> = { joined: "Joined", pending: "Pending", unverified: "Not confirmed" };
+/** Staff only care that the person joined or has a request pending. */
+export const inGroup = (g: GroupStatus) => g !== "unverified";
 export const GROUP_URL = "https://www.roblox.com/communities/33125027/Ro-State-Motorsport-Association#!/about";
 
 export interface RegSettings {
@@ -16,6 +17,13 @@ export interface RegSettings {
   spectators: number;
   /** Driver slots held for each factory team. */
   factoryReserved: number;
+  independents: boolean;
+}
+
+export interface RegSummary {
+  sessionId: string;
+  opensAt: number;
+  deadline: number;
   independents: boolean;
 }
 

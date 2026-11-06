@@ -12,12 +12,15 @@ export function MemberTable({
   members,
   canEdit,
   canSetPrincipal,
+  compact,
   onRoles,
   onRemove,
 }: {
   members: Member[];
   canEdit: boolean;
   canSetPrincipal?: boolean;
+  /** Narrow columns with wrapping headers, for dialogs. */
+  compact?: boolean;
   onRoles: (m: Member, roles: TeamRole[]) => void;
   onRemove: (m: Member) => void;
 }) {
@@ -28,9 +31,9 @@ export function MemberTable({
         <tr>
           <th className="is-left">Username</th>
           {TEAM_ROLES.map((r) => (
-            <th key={r} style={{ width: 160 }}>{TEAM_ROLE_LABEL[r]}</th>
+            <th key={r} style={{ width: compact ? 94 : 160, whiteSpace: "normal", verticalAlign: "bottom" }}>{TEAM_ROLE_LABEL[r]}</th>
           ))}
-          {canEdit && <th style={{ width: 100 }} />}
+          {canEdit && <th style={{ width: compact ? 80 : 100 }} />}
         </tr>
       </thead>
       <tbody>
