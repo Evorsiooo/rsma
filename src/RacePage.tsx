@@ -30,16 +30,20 @@ export function RacePage() {
   return (
     <Shell>
       <div className="r-row" style={{ alignItems: "center" }}>
-        <div className={`r-banner r-fill${state ? FLAG[state.flag].tone : ""}`} style={{ visibility: state ? "visible" : "hidden" }}>
-          {state ? FLAG[state.flag].label : " "}
-        </div>
-        <button
+        {race?.ended ? (
+          <div className="r-banner r-fill">Race ended</div>
+        ) : (
+          <div className={`r-banner r-fill${state ? FLAG[state.flag].tone : ""}`} style={{ visibility: state ? "visible" : "hidden" }}>
+            {state ? FLAG[state.flag].label : " "}
+          </div>
+        )}
+        {!race?.ended && <button
           className="r-btn"
           onClick={() => window.open(`/race/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}
         >
           Radio
-        </button>
-        {live ? (
+        </button>}
+        {race?.ended ? null : live ? (
           <div className="r-lamp r-lamp--fixed">LIVE</div>
         ) : (
           <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>

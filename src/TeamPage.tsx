@@ -69,7 +69,7 @@ export function TeamPage() {
     const t = text.trim();
     if (!t) return;
     const err = await sendTeamRadio(id, teamId, t);
-    if (err) toast("Message not sent.");
+    if (err) toast(err === "race_ended" ? "This race has ended." : "Message not sent.");
     else setText("");
   };
 

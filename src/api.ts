@@ -13,6 +13,7 @@ export const api = {
   health: () => get<{ ok: boolean }>("/api/health"),
   race: (id: string) => get<RaceSummary>(`/api/races/${id}`),
   races: () => get<RaceSummary[]>("/api/races"),
+  pastRaces: () => get<RaceSummary[]>("/api/races/past"),
   teams: () => get<Team[]>("/api/teams"),
 };
 

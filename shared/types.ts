@@ -2,6 +2,8 @@ export interface RaceSummary {
   id: string;
   name: string;
   expiresAt: number;
+  /** Archived or past its expiry: results stay visible, nothing can be changed. */
+  ended: boolean;
 }
 
 export type Role = "admin" | "users" | "races" | "steward";

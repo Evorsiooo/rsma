@@ -20,6 +20,7 @@ const ERRORS: Record<string, string> = {
   invalid: "Invalid value.",
   forbidden: "You are not a steward of this race.",
   unauthorized: "Sign in again.",
+  race_ended: "This race has ended.",
 };
 
 type DialogState =
@@ -187,6 +188,7 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
         <button className="r-btn" onClick={() => nav(`/race/${raceId}`)}>Timing</button>
       </Topbar>
       <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
+        {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended. Commands are disabled.</div>}
         <div className="r-row" style={{ height: 90, flex: "none" }}>
           <div className="r-module" style={{ width: 84 }}>
             <div className="r-header">Link</div>

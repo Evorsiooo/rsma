@@ -24,25 +24,46 @@ app.get("/api/health", async (c) => {
   return c.json({ ok: true });
 });
 
+const RACE_COLS = "id, name, expires_at AS expiresAt, (status = 'archived' OR expires_at <= ?1) AS ended";
+const asRace = (r: Omit<RaceSummary, "ended"> & { ended: number }): RaceSummary => ({ ...r, ended: !!r.ended });
+
 // Public: races that are active and not expired.
 app.get("/api/races", async (c) => {
   const { results } = await c.env.DB.prepare(
-    "SELECT id, name, expires_at AS expiresAt FROM races WHERE status = 'active' AND expires_at > ? ORDER BY expires_at ASC",
+    `SELECT ${RACE_COLS} FROM races WHERE status = 'active' AND expires_at > ?1 ORDER BY expires_at ASC`,
   )
     .bind(Date.now())
-    .all<RaceSummary>();
-  return c.json(results);
+    .all<Omit<RaceSummary, "ended"> & { ended: number }>();
+  return c.json(results.map(asRace));
+});
+
+// Public: archived or expired races, newest first. Their results stay readable.
+app.get("/api/races/past", async (c) => {
+  const { results } = await c.env.DB.prepare(
+    `SELECT ${RACE_COLS} FROM races WHERE status = 'archived' OR expires_at <= ?1 ORDER BY expires_at DESC LIMIT 50`,
+  )
+    .bind(Date.now())
+    .all<Omit<RaceSummary, "ended"> & { ended: number }>();
+  return c.json(results.map(asRace));
 });
 
 async function raceExists(db: D1Database, id: string) {
   return db.prepare("SELECT 1 FROM races WHERE id = ?").bind(id).first();
 }
 
+async function raceEnded(db: D1Database, id: string) {
+  const row = await db
+    .prepare("SELECT (status = 'archived' OR expires_at <= ?) AS ended FROM races WHERE id = ?")
+    .bind(Date.now(), id)
+    .first<{ ended: number }>();
+  return row ? !!row.ended : null;
+}
+
 app.get("/api/races/:id", async (c) => {
-  const row = await c.env.DB.prepare("SELECT id, name, expires_at AS expiresAt FROM races WHERE id = ?")
-    .bind(c.req.param("id"))
-    .first<RaceSummary>();
-  return row ? c.json(row) : c.json({ error: "not_found" }, 404);
+  const row = await c.env.DB.prepare(`SELECT ${RACE_COLS} FROM races WHERE id = ?2`)
+    .bind(Date.now(), c.req.param("id"))
+    .first<Omit<RaceSummary, "ended"> & { ended: number }>();
+  return row ? c.json(asRace(row)) : c.json({ error: "not_found" }, 404);
 });
 
 app.get("/api/races/:id/state", async (c) => {
@@ -85,6 +106,7 @@ app.post("/api/races/:id/cmd", async (c) => {
   if (!me) return c.json({ error: "unauthorized" }, 401);
   if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
   if (!(await isRaceSteward(c.env, me, id))) return c.json({ error: "forbidden" }, 403);
+  if (await raceEnded(c.env.DB, id)) return c.json({ error: "race_ended" }, 409);
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
   if (cmd.type === "add" && cmd.team != null) {
@@ -115,6 +137,7 @@ app.post("/api/races/:id/team/:teamId/radio", async (c) => {
   const team = me.teams.find((t) => t.id === c.req.param("teamId"));
   if (!team) return c.json({ error: "forbidden" }, 403);
   if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
+  if (await raceEnded(c.env.DB, id)) return c.json({ error: "race_ended" }, 409);
   const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
   if (typeof body.text !== "string") return c.json({ error: "invalid" }, 400);
   return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/cmd", {
