@@ -17,4 +17,6 @@ Secrets are never written in `wrangler.toml`. Secrets set in the dashboard or wi
 `https://<site>/api/auth/roblox/callback`. This is the path the old site used, so for `rsma.euno.cc` the URI already registered in the Roblox Creator Hub keeps working.
 
 ## Cutting over from the old `rsma` Worker
-Secrets live on the Worker named `rsma`, so Flagman has to deploy under that name to inherit them (`name = "rsma"` in `wrangler.toml`). Deploying replaces the old site, and the old Durable Object class `RaceControlDO` needs a delete migration (`deleted_classes`) in the same deploy. The old D1 database `rsma_d1` is not touched; Flagman uses its own database.
+Secrets live on the Worker named `rsma`, so `wrangler.toml` uses that name and Flagman inherits them. Deploying replaces the old site. The old Durable Object class `RaceControlDO` is deleted by migration `v2`, and Flagman uses its own D1 database `flagman` (the old `rsma-d1` is not used).
+
+Cloudflare Workers Builds on the repo: build command `npm run build`, deploy command `npx wrangler deploy`. D1 migrations are not applied by a deploy; after adding a file in `migrations/`, run `npx wrangler d1 migrations apply flagman --remote`.

@@ -1,4 +1,4 @@
-name = "flagman"
+name = "rsma"
 main = "worker/index.ts"
 compatibility_date = "2026-10-01"
 
@@ -10,16 +10,22 @@ run_worker_first = ["/api/*"]
 [[d1_databases]]
 binding = "DB"
 database_name = "flagman"
-# Replace with the id from `wrangler d1 create flagman` before deploying.
-database_id = "00000000-0000-0000-0000-000000000000"
+# New database for Flagman. The old rsma-d1 is not used.
+database_id = "ce4c5c5d-0dcd-4d80-b818-ad431dc627fc"
 migrations_dir = "migrations"
 
 [[durable_objects.bindings]]
 name = "RACE"
 class_name = "RaceDO"
 
+# The old site's Worker is already at tag v1 (class RaceControlDO). v1 is kept so v2 can delete it.
 [[migrations]]
 tag = "v1"
+new_sqlite_classes = ["RaceControlDO"]
+
+[[migrations]]
+tag = "v2"
+deleted_classes = ["RaceControlDO"]
 new_sqlite_classes = ["RaceDO"]
 
 [vars]
