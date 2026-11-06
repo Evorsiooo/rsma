@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { classify, type Flag } from "../shared/race";
 import { ClassificationTable } from "./ClassificationTable";
 import type { SessionInfo } from "../shared/types";
-import { api } from "./api";
+import { api, registrationApi } from "./api";
 import { NotFound } from "./NotFound";
 import { Shell } from "./Shell";
 import { SessionSelect } from "./SessionSelect";
@@ -20,6 +20,11 @@ export function RacePage() {
   const { id = "" } = useParams();
   const [info, setInfo] = useState<SessionInfo | null | undefined>(undefined);
   const { state, live, offset } = useRaceLive(id);
+  const nav = useNavigate();
+  const [hasReg, setHasReg] = useState(false);
+  useEffect(() => {
+    registrationApi.get(id).then((v) => setHasReg(!!v.settings), () => setHasReg(false));
+  }, [id]);
   const now = useClock(offset);
 
   useEffect(() => {
@@ -48,6 +53,7 @@ export function RacePage() {
           </div>
         )}
         {info && <SessionSelect sessions={info.race.sessions} current={info.session.id} bar />}
+        {hasReg && !race?.ended && <button className="r-btn" onClick={() => nav(`/session/${id}/register`)}>Register</button>}
         {!race?.ended && <button
           className="r-btn"
           onClick={() => window.open(`/session/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}

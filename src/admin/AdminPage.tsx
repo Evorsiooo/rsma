@@ -2,7 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { currentSession } from "../../shared/sessions";
 import type { AdminRace, AdminTeam, AdminUser, Role, SessionSummary, SessionType, SystemInfo } from "../../shared/types";
-import { admin } from "../api";
+import { admin, registrationApi } from "../api";
+import type { RegSettings } from "../../shared/registration";
 import { useMe } from "../me";
 import { Topbar, VERSION } from "../Shell";
 import { Dialog, toast } from "../ui";
@@ -270,9 +271,11 @@ const TYPE_LABEL: Record<SessionType, string> = { practice: "Practice", timed: "
 function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange: () => void; onClose: () => void }) {
   const [form, setForm] = useState<{ session?: SessionSummary } | null>(null);
   const [del, setDel] = useState<SessionSummary | null>(null);
+  const [regFor, setRegFor] = useState<SessionSummary | null>(null);
   return (
     <>
-      {!form && !del && (
+      {regFor && <RegistrationDialog session={regFor} onClose={() => setRegFor(null)} />}
+      {!form && !del && !regFor && (
       <Dialog title={`Sessions: ${race.name}`} size="l" onClose={onClose} foot={<><button className="r-btn" onClick={() => setForm({})}>Add session</button><button className="r-btn" onClick={onClose}>Close</button></>}>
         {race.sessions.length === 0 ? (
           <div className="r-empty">No sessions.</div>
@@ -293,9 +296,10 @@ function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
                     <div>{dateFmt.format(s.startsAt)}</div>
                     <div style={{ color: "var(--r-text-dim)" }}>{dateFmt.format(s.endsAt)}</div>
                   </td>
-                  <td style={{ width: 130, padding: 2 }}>
-                    <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                  <td style={{ width: 260, padding: 2 }}>
+                    <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
                       <button className="r-cell" onClick={() => setForm({ session: s })}>Edit</button>
+                      <button className="r-cell" onClick={() => setRegFor(s)}>Registration</button>
                       <button className="r-cell r-cell--red" onClick={() => setDel(s)}>Delete</button>
                     </div>
                   </td>
@@ -686,5 +690,87 @@ function System() {
         </table>
       )}
     </div>
+  );
+}
+
+function RegistrationDialog({ session, onClose }: { session: SessionSummary; onClose: () => void }) {
+  const [loaded, setLoaded] = useState(false);
+  const [on, setOn] = useState(false);
+  const [opens, setOpens] = useState(inDays(0));
+  const [deadline, setDeadline] = useState(toLocalInput(session.startsAt));
+  const [n, setN] = useState({ drivers: "20", employees: "10", spectators: "10", factoryReserved: "1" });
+  const [independents, setIndependents] = useState(false);
+  useEffect(() => {
+    registrationApi.get(session.id).then(({ settings: s }) => {
+      if (s) {
+        setOn(true);
+        setOpens(toLocalInput(s.opensAt));
+        setDeadline(toLocalInput(s.deadline));
+        setN({ drivers: String(s.drivers), employees: String(s.employees), spectators: String(s.spectators), factoryReserved: String(s.factoryReserved) });
+        setIndependents(s.independents);
+      }
+      setLoaded(true);
+    }, () => setLoaded(true));
+  }, [session.id]);
+  const num = (v: string) => (/^\d{1,3}$/.test(v) ? Number(v) : NaN);
+  const settings: RegSettings = {
+    opensAt: fromLocalInput(opens),
+    deadline: fromLocalInput(deadline),
+    drivers: num(n.drivers),
+    employees: num(n.employees),
+    spectators: num(n.spectators),
+    factoryReserved: num(n.factoryReserved),
+    independents,
+  };
+  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && settings.deadline > settings.opensAt;
+  const save = async () => {
+    const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
+    if (!r.ok) return say(r.error);
+    onClose();
+  };
+  const field = (label: string, key: keyof typeof n) => (
+    <label className="r-row" style={{ alignItems: "center" }}>
+      <span style={{ width: 240, flex: "none" }}>{label}</span>
+      <input className="r-field r-fill" inputMode="numeric" aria-label={label} value={n[key]} onChange={(e) => setN({ ...n, [key]: e.target.value })} />
+    </label>
+  );
+  return (
+    <Dialog
+      title={`Registration: ${session.name}`}
+      size="l"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn" disabled={!loaded || (on && !valid)} onClick={save}>Save</button>
+        </>
+      }
+    >
+      <label className="r-check">
+        <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />
+        <span>Registration open for this session</span>
+      </label>
+      {on && (
+        <>
+          <label className="r-row" style={{ alignItems: "center" }}>
+            <span style={{ width: 240, flex: "none" }}>Opens</span>
+            <input className="r-field r-fill" type="datetime-local" aria-label="Registration opens" value={opens} onChange={(e) => setOpens(e.target.value)} />
+          </label>
+          <label className="r-row" style={{ alignItems: "center" }}>
+            <span style={{ width: 240, flex: "none" }}>Deadline</span>
+            <input className="r-field r-fill" type="datetime-local" aria-label="Registration deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
+          </label>
+          {field("Driver spots", "drivers")}
+          {field("Reserved per factory team", "factoryReserved")}
+          {field("Employee spots", "employees")}
+          {field("Spectator spots", "spectators")}
+          <label className="r-check">
+            <input type="checkbox" checked={independents} onChange={(e) => setIndependents(e.target.checked)} />
+            <span>Independent drivers can register</span>
+          </label>
+        </>
+      )}
+      {!on && <div style={{ color: "var(--r-text-dim)" }}>Saving with this off removes registration and every entry for this session.</div>}
+    </Dialog>
   );
 }
