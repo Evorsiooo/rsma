@@ -1,11 +1,12 @@
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import type { AdminRace, AdminTeam, AdminUser, Me, Role, SessionSummary, SessionType, TeamKind } from "../shared/types";
+import { cleanRoles, parseRoles, type TeamRole } from "../shared/teams";
 import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { sessionsOf } from "./sessions";
 
-interface AdminEnv extends AuthEnv {
+export interface AdminEnv extends AuthEnv {
   /** Local development only: point username lookups at a mock server. */
   ROBLOX_USERS_BASE?: string;
 }
@@ -24,7 +25,7 @@ const guard = (...roles: Role[]) => async (c: C, next: () => Promise<void>) => {
 };
 
 /** Find a user by Roblox username, creating the record from Roblox when they have not signed in yet. */
-async function resolveUser(env: AdminEnv, username: string): Promise<{ id: string; username: string } | null> {
+export async function resolveUser(env: AdminEnv, username: string): Promise<{ id: string; username: string } | null> {
   const local = await env.DB.prepare("SELECT roblox_id AS id, username FROM users WHERE lower(username) = lower(?)")
     .bind(username)
     .first<{ id: string; username: string }>();
@@ -47,7 +48,7 @@ const newSessionId = () => `ses_${crypto.randomUUID().replace(/-/g, "").slice(0,
 const SESSION_TYPES: SessionType[] = ["practice", "timed", "race"];
 
 const cleanName = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 60) : "");
-const cleanUsername = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_]{3,20}$/.test(v.trim()) ? v.trim() : "");
+export const cleanUsername = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_]{3,20}$/.test(v.trim()) ? v.trim() : "");
 
 // ---- Users ----------------------------------------------------------------
 
@@ -230,10 +231,10 @@ admin.get("/teams", guard("users"), async (c) => {
   const results = rows.map((t) => ({ ...t, factoryName: rows.find((f) => f.id === t.factoryId)?.name ?? null }));
   const members = (
     await c.env.DB.prepare(
-      "SELECT m.team_id AS teamId, u.roblox_id AS id, u.username FROM team_members m JOIN users u ON u.roblox_id = m.roblox_id ORDER BY lower(u.username)",
-    ).all<{ teamId: string; id: string; username: string }>()
+      "SELECT m.team_id AS teamId, u.roblox_id AS id, u.username, m.roles FROM team_members m JOIN users u ON u.roblox_id = m.roblox_id ORDER BY lower(u.username)",
+    ).all<{ teamId: string; id: string; username: string; roles: string }>()
   ).results;
-  return c.json(results.map((t) => ({ ...t, members: members.filter((m) => m.teamId === t.id).map(({ id, username }) => ({ id, username })) })) satisfies AdminTeam[]);
+  return c.json(results.map((t) => ({ ...t, members: members.filter((m) => m.teamId === t.id).map(({ id, username, roles }) => ({ id, username, roles: parseRoles(roles) })) })) satisfies AdminTeam[]);
 });
 
 /** Factory teams need a car; customer teams need the factory team whose car they run. */
@@ -284,16 +285,37 @@ admin.delete("/teams/:id", guard("users"), async (c) => {
   return c.json({ ok: true });
 });
 
+/** Only one Team Principal per team. */
+async function principalTaken(env: AdminEnv, teamId: string, exceptUser: string) {
+  const { results } = await env.DB.prepare("SELECT roblox_id AS id, roles FROM team_members WHERE team_id = ?").bind(teamId).all<{ id: string; roles: string }>();
+  return results.some((m) => m.id !== exceptUser && parseRoles(m.roles).includes("principal"));
+}
+
 admin.post("/teams/:id/members", guard("users"), async (c) => {
-  const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as { username?: unknown };
+  const id = c.req.param("id") ?? "";
+  const body = (await c.req.json().catch(() => ({}))) as { username?: unknown; roles?: unknown };
   const username = cleanUsername(body.username);
   if (!username) return c.json({ error: "invalid_username" }, 400);
+  const roles = body.roles === undefined ? (["driver"] as TeamRole[]) : cleanRoles(body.roles);
+  if (!roles) return c.json({ error: "invalid_roles" }, 400);
   if (!(await c.env.DB.prepare("SELECT 1 FROM teams WHERE id = ?").bind(id).first())) return c.json({ error: "not_found" }, 404);
   const user = await resolveUser(c.env, username);
   if (!user) return c.json({ error: "no_such_roblox_user" }, 404);
-  await c.env.DB.prepare("INSERT OR IGNORE INTO team_members (team_id, roblox_id) VALUES (?, ?)").bind(id, user.id).run();
+  if (roles.includes("principal") && (await principalTaken(c.env, id, user.id))) return c.json({ error: "has_principal" }, 409);
+  await c.env.DB.prepare("INSERT OR IGNORE INTO team_members (team_id, roblox_id, roles) VALUES (?, ?, ?)").bind(id, user.id, roles.join(",")).run();
   return c.json(user);
+});
+
+admin.put("/teams/:id/members/:uid/roles", guard("users"), async (c) => {
+  const id = c.req.param("id") ?? "";
+  const uid = c.req.param("uid") ?? "";
+  const body = (await c.req.json().catch(() => ({}))) as { roles?: unknown };
+  const roles = cleanRoles(body.roles);
+  if (!roles) return c.json({ error: "invalid_roles" }, 400);
+  if (!(await c.env.DB.prepare("SELECT 1 FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(id, uid).first())) return c.json({ error: "not_found" }, 404);
+  if (roles.includes("principal") && (await principalTaken(c.env, id, uid))) return c.json({ error: "has_principal" }, 409);
+  await c.env.DB.prepare("UPDATE team_members SET roles = ? WHERE team_id = ? AND roblox_id = ?").bind(roles.join(","), id, uid).run();
+  return c.json({ ok: true });
 });
 
 admin.delete("/teams/:id/members/:uid", guard("users"), async (c) => {

@@ -70,6 +70,16 @@ export function Home({ races }: { races: RaceSummary[] }) {
           </table>
         )}
       </div>
+      <div className="r-row">
+        <button className="r-btn" style={{ width: 200 }} onClick={() => nav("/team-registration")}>
+          Team registration
+        </button>
+        {me?.memberships.length ? (
+          <button className="r-btn" style={{ width: 200 }} onClick={() => nav("/my-team")}>
+            My Team
+          </button>
+        ) : null}
+      </div>
       {past.length > 0 && (
         <div className="r-panel">
           <div className="r-header">Past events</div>
