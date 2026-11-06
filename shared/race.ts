@@ -1,21 +1,81 @@
 export type Flag = "green" | "yellow" | "red";
 export type RunStatus = "queued" | "onstage" | "finished" | "dnf";
 
+export interface Penalty {
+  ruleId: string;
+  name: string;
+  ms: number;
+}
+
 export interface Run {
   id: string;
   name: string;
   plate: string;
   status: RunStatus;
+  /** Server time (ms) the timer starts. In the future during the start countdown. */
+  startedAt?: number;
   /** Raw stage time in ms, set when finished. */
   rawMs?: number;
-  /** Sum of applied penalties in ms. */
+  penalties: Penalty[];
+  /** Sum of penalties in ms. */
   penaltyMs: number;
+}
+
+export interface Rule {
+  id: string;
+  name: string;
+  seconds: number;
+}
+
+export interface RadioMsg {
+  id: string;
+  at: number;
+  /** "all" or the ids of the runs addressed. */
+  to: "all" | string[];
+  text: string;
+  from: string;
+}
+
+export interface LogEntry {
+  at: number;
+  actor: string;
+  text: string;
 }
 
 export interface RaceState {
   flag: Flag;
   runs: Run[];
+  rules: Rule[];
+  /** Seconds between releases. */
+  cadenceSec: number;
+  lastReleaseAt?: number;
+  /** Finish-line timestamps not yet attributed to a car. */
+  pending: number[];
+  radio: RadioMsg[];
+  /** Staff only: stripped from the public view. */
+  log: LogEntry[];
 }
+
+export const COUNTDOWN_MS = 3000;
+
+export const DEFAULT_RULES: Rule[] = [
+  { id: "track-limit", name: "Track limit", seconds: 5 },
+  { id: "jump-start", name: "Jump start", seconds: 10 },
+  { id: "unsafe-reentry", name: "Unsafe re-entry", seconds: 15 },
+  { id: "missed-checkpoint", name: "Missed checkpoint", seconds: 30 },
+];
+
+export const emptyState = (): RaceState => ({
+  flag: "green",
+  runs: [],
+  rules: structuredClone(DEFAULT_RULES),
+  cadenceSec: 30,
+  pending: [],
+  radio: [],
+  log: [],
+});
+
+export const publicView = (s: RaceState): RaceState => ({ ...s, log: [] });
 
 export interface Row extends Run {
   /** 1-based rank, only for finished runs. */
@@ -45,7 +105,7 @@ export function classify(runs: Run[]): Row[] {
 export function fmtTime(ms: number): string {
   const m = Math.floor(ms / 60000);
   const s = Math.floor((ms % 60000) / 1000);
-  const t = ms % 1000;
+  const t = Math.floor(ms % 1000);
   return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}.${String(t).padStart(3, "0")}`;
 }
 
@@ -53,5 +113,3 @@ export function fmtTime(ms: number): string {
 export function fmtPenalty(ms: number): string {
   return `+${(ms / 1000).toFixed(3)}`;
 }
-
-export const EMPTY_STATE: RaceState = { flag: "green", runs: [] };

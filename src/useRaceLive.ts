@@ -1,10 +1,15 @@
 import { useEffect, useState } from "react";
 import type { RaceState } from "../shared/race";
 
-/** Live race state over WebSocket; reconnects with a short backoff. */
-export function useRaceLive(id: string) {
+/**
+ * Live race state over WebSocket; reconnects with a short backoff.
+ * `offset` is server time minus local time, so timers can run on server time.
+ * With `staff`, connects to the staff feed (full state incl. audit log).
+ */
+export function useRaceLive(id: string, staff = false) {
   const [state, setState] = useState<RaceState | null>(null);
   const [live, setLive] = useState(false);
+  const [offset, setOffset] = useState(0);
 
   useEffect(() => {
     let ws: WebSocket | null = null;
@@ -14,12 +19,16 @@ export function useRaceLive(id: string) {
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/api/races/${id}/ws`);
+      ws = new WebSocket(`${proto}://${location.host}/api/races/${id}/ws${staff ? "?staff=1" : ""}`);
       ws.onopen = () => {
         delay = 1000;
         setLive(true);
       };
-      ws.onmessage = (e) => setState(JSON.parse(e.data) as RaceState);
+      ws.onmessage = (e) => {
+        const f = JSON.parse(e.data) as { state: RaceState; now: number };
+        setOffset(f.now - Date.now());
+        setState(f.state);
+      };
       ws.onclose = () => {
         setLive(false);
         if (closed) return;
@@ -33,7 +42,7 @@ export function useRaceLive(id: string) {
       clearTimeout(timer);
       ws?.close();
     };
-  }, [id]);
+  }, [id, staff]);
 
-  return { state, live };
+  return { state, live, offset };
 }

@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type { RaceSummary } from "../shared/types";
-import { auth, getMe, type AuthEnv } from "./auth";
+import type { Me } from "../shared/types";
+import { auth, getMe, hasRole, type AuthEnv } from "./auth";
 import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE } from "./auth/session";
 
@@ -8,8 +9,6 @@ export { RaceDO } from "./race-do";
 
 interface Env extends AuthEnv {
   RACE: DurableObjectNamespace;
-  /** "1" only in local development (.dev.vars). Enables /api/dev routes. */
-  DEV?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -50,17 +49,46 @@ app.get("/api/races/:id/state", async (c) => {
   return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/state");
 });
 
+async function isRaceSteward(env: Env, me: Me | null, raceId: string) {
+  if (!me) return false;
+  if (hasRole(me, "steward")) return true;
+  return !!(await env.DB.prepare("SELECT 1 FROM race_stewards WHERE race_id = ? AND roblox_id = ?").bind(raceId, me.id).first());
+}
+
+// Public live feed, or the staff feed (full state with audit log) for stewards.
 app.get("/api/races/:id/ws", async (c) => {
   const id = c.req.param("id");
   if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
-  return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/ws", c.req.raw);
+  const headers = new Headers(c.req.raw.headers);
+  headers.delete("x-staff");
+  if (c.req.query("staff") === "1") {
+    const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
+    if (!(await isRaceSteward(c.env, me, id))) return c.json({ error: "forbidden" }, 403);
+    headers.set("x-staff", "1");
+  }
+  return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/ws", new Request(c.req.raw, { headers }));
 });
 
-// Local development only: set a race's live state until the steward panel exists.
-app.put("/api/dev/races/:id/state", async (c) => {
-  if (c.env.DEV !== "1") return c.json({ error: "not_found" }, 404);
-  const stub = c.env.RACE.get(c.env.RACE.idFromName(c.req.param("id")));
-  return stub.fetch("http://do/state", { method: "PUT", body: await c.req.text() });
+// Steward commands. The role check happens here; the Durable Object validates and applies.
+app.post("/api/races/:id/cmd", async (c) => {
+  const id = c.req.param("id");
+  const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
+  if (!me) return c.json({ error: "unauthorized" }, 401);
+  if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
+  if (!(await isRaceSteward(c.env, me, id))) return c.json({ error: "forbidden" }, 403);
+  const cmd = await c.req.json().catch(() => null);
+  if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
+  return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/cmd", {
+    method: "POST",
+    body: JSON.stringify({ cmd, actor: me.username }),
+  });
+});
+
+// Whether the signed-in user may steward this race (drives the UI gate; the API checks again).
+app.get("/api/races/:id/access", async (c) => {
+  const id = c.req.param("id");
+  const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
+  return c.json({ steward: await isRaceSteward(c.env, me, id) });
 });
 
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
