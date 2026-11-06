@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { classify, fmtPenalty, fmtTime, type Flag, type RunStatus } from "../shared/race";
+import { classify, type Flag } from "../shared/race";
+import { ClassificationTable } from "./ClassificationTable";
 import type { RaceSummary } from "../shared/types";
 import { api } from "./api";
 import { NotFound } from "./NotFound";
@@ -11,13 +12,6 @@ const FLAG: Record<Flag, { label: string; tone: string }> = {
   green: { label: "Green flag", tone: " is-green" },
   yellow: { label: "Yellow flag", tone: "" },
   red: { label: "Red flag", tone: " is-red" },
-};
-
-const STATUS: Record<RunStatus, string> = {
-  queued: "Queued",
-  onstage: "On stage",
-  finished: "Finished",
-  dnf: "DNF",
 };
 
 export function RacePage() {
@@ -50,34 +44,7 @@ export function RacePage() {
         {rows.length === 0 ? (
           <div className="r-empty">{state ? "No runs recorded." : ""}</div>
         ) : (
-          <table className="r-table">
-            <thead>
-              <tr>
-                <th style={{ width: 40 }}>Pos</th>
-                <th className="is-left">Driver</th>
-                <th className="is-left" style={{ width: 100 }}>Plate</th>
-                <th className="is-left" style={{ width: 100 }}>Status</th>
-                <th style={{ width: 110 }}>Raw</th>
-                <th style={{ width: 90 }}>Pen</th>
-                <th style={{ width: 110 }}>Final</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r) => (
-                <tr key={r.id}>
-                  <td>{r.rank ?? ""}</td>
-                  <td className="is-left">{r.name}</td>
-                  <td className="is-left">{r.plate}</td>
-                  <td className="is-left" style={r.status === "finished" ? undefined : { color: "var(--r-text-dim)" }}>
-                    {STATUS[r.status]}
-                  </td>
-                  <td>{r.rawMs != null ? fmtTime(r.rawMs) : ""}</td>
-                  <td className={r.penaltyMs > 0 ? "is-red" : ""}>{r.penaltyMs > 0 ? fmtPenalty(r.penaltyMs) : ""}</td>
-                  <td className={r.finalMs != null ? "is-green" : ""}>{r.finalMs != null ? fmtTime(r.finalMs) : ""}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ClassificationTable rows={rows} />
         )}
       </div>
     </Shell>

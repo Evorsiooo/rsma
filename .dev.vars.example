@@ -1,5 +1,4 @@
 # Copy to .dev.vars (git-ignored). Real values live as Cloudflare secrets, never in the repo.
-DEV=1
 ROBLOX_CLIENT_ID=
 ROBLOX_CLIENT_SECRET=
 SESSION_SECRET=any-long-random-string

@@ -8,7 +8,7 @@ export interface BootData {
 }
 
 type Step = "wait" | "ok" | "fail";
-const VERSION = "v0.1.0";
+export const VERSION = "v0.1.0";
 
 export function Boot({ onReady }: { onReady: (data: BootData) => void }) {
   const [server, setServer] = useState<Step>("wait");

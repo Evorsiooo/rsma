@@ -1,0 +1,232 @@
+import { useState } from "react";
+import { fmtPenalty, type RaceState, type Run } from "../../shared/race";
+import { Dialog } from "../ui";
+
+type Send = (cmd: import("../../shared/commands").Command) => Promise<boolean>;
+
+export function ConfirmReset({ onClose, send }: { onClose: () => void; send: Send }) {
+  const [text, setText] = useState("");
+  const ok = text === "RESET";
+  const submit = async () => {
+    if (ok && (await send({ type: "reset" }))) onClose();
+  };
+  return (
+    <Dialog
+      title="Reset stage"
+      size="s"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn" disabled={!ok} onClick={submit}>Reset</button>
+        </>
+      }
+    >
+      <div>This clears all times, penalties and radio history. Drivers still in the queue stay.</div>
+      <div className="r-form-field">
+        <span className="r-label is-req">Type RESET to confirm</span>
+        <input
+          className={`r-field${text && !ok ? " is-invalid" : ""}`}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && submit()}
+          aria-label="Type RESET to confirm"
+        />
+      </div>
+    </Dialog>
+  );
+}
+
+export function ConfirmDnf({ run, onClose, send }: { run: Run; onClose: () => void; send: Send }) {
+  return (
+    <Dialog
+      title={`DNF: ${run.name}`}
+      size="s"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button
+            className="r-btn"
+            onClick={async () => {
+              if (await send({ type: "dnf", runId: run.id })) onClose();
+            }}
+          >
+            DNF
+          </button>
+        </>
+      }
+    >
+      <div>Mark {run.name} as did not finish? This cannot be undone.</div>
+    </Dialog>
+  );
+}
+
+export function PenaltyDialog({ run, state, onClose, send }: { run: Run; state: RaceState; onClose: () => void; send: Send }) {
+  const count = (ruleId: string) => run.penalties.filter((p) => p.ruleId === ruleId).length;
+  // Penalties whose rule was deleted later stay on the run and can still be removed.
+  const orphans = [...new Map(run.penalties.filter((p) => !state.rules.some((r) => r.id === p.ruleId)).map((p) => [p.ruleId, p])).values()];
+  const row = (ruleId: string, name: string, ms: number | null) => (
+    <tr key={ruleId}>
+      <td className="is-left">{name}</td>
+      <td style={{ width: 90, color: "var(--r-text-dim)" }}>{ms == null ? "" : fmtPenalty(ms)}</td>
+      <td style={{ width: 130 }}>
+        <div className="r-stepper" style={{ justifyContent: "flex-end" }}>
+          <button className="r-cell" style={{ height: 19 }} aria-label={`Remove ${name}`} disabled={count(ruleId) === 0}
+            onClick={() => send({ type: "penalty", runId: run.id, ruleId, delta: -1 })}>-</button>
+          <div className={`r-readout${count(ruleId) ? " is-red" : ""}`} style={{ height: 19, minWidth: 36, padding: "2px 6px 0" }}>{count(ruleId)}</div>
+          <button className="r-cell" style={{ height: 19 }} aria-label={`Add ${name}`} disabled={ms == null}
+            onClick={() => send({ type: "penalty", runId: run.id, ruleId, delta: 1 })}>+</button>
+        </div>
+      </td>
+    </tr>
+  );
+  return (
+    <Dialog title={`Penalties: ${run.name}`} size="l" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
+      <table className="r-table">
+        <tbody>
+          {state.rules.map((r) => row(r.id, r.name, r.seconds * 1000))}
+          {orphans.map((p) => row(p.ruleId, p.name, null))}
+        </tbody>
+      </table>
+      <div className="r-row" style={{ justifyContent: "space-between" }}>
+        <span className="r-label">Total</span>
+        <span className={run.penaltyMs ? "is-red" : ""}>{run.penaltyMs ? fmtPenalty(run.penaltyMs) : "0.000"}</span>
+      </div>
+    </Dialog>
+  );
+}
+
+export function RulesDialog({ state, onClose, send }: { state: RaceState; onClose: () => void; send: Send }) {
+  const [name, setName] = useState("");
+  const [secs, setSecs] = useState("5");
+  const valid = name.trim() !== "" && /^\d+$/.test(secs) && Number(secs) <= 600;
+  const add = async () => {
+    if (valid && (await send({ type: "ruleAdd", name, seconds: Number(secs) }))) {
+      setName("");
+      setSecs("5");
+    }
+  };
+  return (
+    <Dialog title="Penalty rules" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
+      <table className="r-table">
+        <thead>
+          <tr>
+            <th className="is-left">Rule</th>
+            <th style={{ width: 90 }}>Seconds</th>
+            <th style={{ width: 90 }} />
+          </tr>
+        </thead>
+        <tbody>
+          {state.rules.map((r) => (
+            <tr key={r.id}>
+              <td className="is-left">{r.name}</td>
+              <td>
+                <SecondsField value={r.seconds} onCommit={(n) => send({ type: "ruleSet", id: r.id, seconds: n })} label={`Seconds for ${r.name}`} />
+              </td>
+              <td>
+                <button className="r-cell r-cell--red" style={{ height: 19 }} onClick={() => send({ type: "ruleDel", id: r.id })}>Delete</button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <div className="r-row" style={{ alignItems: "flex-end" }}>
+        <div className="r-form-field r-fill">
+          <span className="r-label">New rule</span>
+          <input className="r-field" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} aria-label="New rule name" />
+        </div>
+        <div className="r-form-field" style={{ width: 70 }}>
+          <span className="r-label">Seconds</span>
+          <input className="r-field" value={secs} onChange={(e) => setSecs(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} aria-label="New rule seconds" />
+        </div>
+        <button className="r-btn" style={{ width: 80 }} disabled={!valid} onClick={add}>Add</button>
+      </div>
+    </Dialog>
+  );
+}
+
+function SecondsField({ value, onCommit, label }: { value: number; onCommit: (n: number) => void; label: string }) {
+  const [text, setText] = useState(String(value));
+  const [seen, setSeen] = useState(value);
+  if (value !== seen) {
+    setSeen(value);
+    setText(String(value));
+  }
+  const commit = () => {
+    if (/^\d+$/.test(text) && Number(text) <= 600) {
+      if (Number(text) !== value) onCommit(Number(text));
+    } else setText(String(value));
+  };
+  return (
+    <input className="r-field" style={{ height: 19, textAlign: "right" }} value={text} aria-label={label}
+      onChange={(e) => setText(e.target.value)} onBlur={commit} onKeyDown={(e) => e.key === "Enter" && commit()} />
+  );
+}
+
+export function RecipientsDialog({ runs, selected, onClose, onConfirm }: { runs: Run[]; selected: string[]; onClose: () => void; onConfirm: (ids: string[]) => void }) {
+  const [ids, setIds] = useState(selected);
+  const toggle = (id: string) => setIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
+  return (
+    <Dialog
+      title="Recipients"
+      size="s"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn" disabled={ids.length === 0} onClick={() => onConfirm(ids)}>Confirm</button>
+        </>
+      }
+    >
+      {runs.length === 0 && <div className="r-text--dim">No drivers.</div>}
+      {runs.map((r) => (
+        <label className="r-check" key={r.id}>
+          <input type="checkbox" checked={ids.includes(r.id)} onChange={() => toggle(r.id)} />
+          {r.name}
+        </label>
+      ))}
+    </Dialog>
+  );
+}
+
+export function AssignDialog({ ts, cars, onClose, send }: { ts: number; cars: Run[]; onClose: () => void; send: Send }) {
+  const [id, setId] = useState(cars[0]?.id ?? "");
+  const time = new Date(ts).toLocaleTimeString("en-GB");
+  return (
+    <Dialog
+      title={`Pending finish ${time}`}
+      size="s"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button
+            className="r-btn"
+            disabled={!id}
+            onClick={async () => {
+              if (await send({ type: "assign", ts, runId: id })) onClose();
+            }}
+          >
+            Assign
+          </button>
+        </>
+      }
+    >
+      {cars.length === 0 ? (
+        <div className="r-text--dim">No car was running at that time.</div>
+      ) : (
+        <div className="r-form-field">
+          <span className="r-label">Car</span>
+          <div className="r-select">
+            <select value={id} onChange={(e) => setId(e.target.value)} aria-label="Car">
+              {cars.map((c) => (
+                <option key={c.id} value={c.id}>{c.name} ({c.plate})</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      )}
+    </Dialog>
+  );
+}
