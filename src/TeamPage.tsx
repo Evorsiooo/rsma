@@ -3,14 +3,14 @@ import { useNavigate, useParams } from "react-router-dom";
 import { classify, fmtPenalty, type Flag, type RadioMsg } from "../shared/race";
 import { fmtClock } from "../shared/sessions";
 import type { SessionInfo } from "../shared/types";
-import { addPitWindow, api, removePitWindow, sendTeamRadio, teamTiming } from "./api";
+import { addPitWindow, api, askDriver, removePitWindow, sendTeamRadio, teamTiming } from "./api";
 import { Lcd } from "./Lcd";
 import { useMe } from "./me";
 import { NotFound } from "./NotFound";
 import { SessionSelect } from "./SessionSelect";
 import { Topbar } from "./Shell";
 import { TimingTable } from "./TimingTable";
-import { sessionCountdown, toast, useClock, useNow } from "./ui";
+import { Dialog, sessionCountdown, toast, useClock, useNow } from "./ui";
 import { useRaceLive } from "./useRaceLive";
 
 const FLAG_WORD: Record<Flag, string> = { green: "GREEN", yellow: "YELLOW", red: "RED" };
@@ -83,6 +83,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const [sort, setSort] = useState<"fastest" | "last">("fastest");
   const [text, setText] = useState("");
   const [toStewards, setToStewards] = useState(false);
+  const [asking, setAsking] = useState(false);
   const logRef = useRef<HTMLDivElement>(null);
 
   const lengthMs = session.endsAt - session.startsAt;
@@ -117,6 +118,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const releaseAt = nextMine < 0 || !state.lastReleaseAt ? null : state.lastReleaseAt + (nextMine + 1) * state.cadenceSec * 1000;
   const mineOnTrack = onTrack.filter((r) => r.team === team.id).length;
   const mineQueued = queued.filter((r) => r.team === team.id).length;
+  const drivers = [...new Set(state.runs.filter((r) => r.team === team.id).map((r) => r.name))];
   const windows = state.pitWindows.filter((w) => w.team === team.id);
   const elapsed = now - session.startsAt;
   // Graduation under the timeline: about five labelled marks, on round minutes.
@@ -269,9 +271,10 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                 </div>
                 <div className="r-header">Team message</div>
                 <input className="r-field" style={{ width: "100%" }} aria-label="Team message" maxLength={200} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && transmit()} />
-                <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
+                <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
                   <button className={`r-cell${!toStewards ? " is-on" : ""}`} aria-pressed={!toStewards} onClick={() => setToStewards(false)}>Team</button>
                   <button className={`r-cell${toStewards ? " is-on" : ""}`} aria-pressed={toStewards} onClick={() => setToStewards(true)}>Stewards</button>
+                  <button className="r-cell" disabled={race.ended || drivers.length === 0} onClick={() => setAsking(true)}>Ask driver</button>
                   <button className="r-cell" disabled={!text.trim() || race.ended} onClick={transmit}>Transmit</button>
                 </div>
               </div>
@@ -289,6 +292,66 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
           </div>
         </div>
       </div>
+      {asking && <AskDialog sessionId={sessionId} teamId={team.id} drivers={drivers} onClose={() => setAsking(false)} />}
     </div>
+  );
+}
+
+/** Ask a driver a question: Yes/No, or up to four options. The driver answers with one tap. */
+function AskDialog({ sessionId, teamId, drivers, onClose }: { sessionId: string; teamId: string; drivers: string[]; onClose: () => void }) {
+  const [driver, setDriver] = useState(drivers[0] ?? "");
+  const [text, setText] = useState("");
+  const [custom, setCustom] = useState(false);
+  const [opts, setOpts] = useState(["", "", "", ""]);
+  const filled = opts.map((o) => o.trim()).filter(Boolean);
+  const ok = !!driver && !!text.trim() && (!custom || filled.length >= 2);
+  const send = async () => {
+    const err = await askDriver(sessionId, teamId, driver, text.trim(), custom ? filled : undefined);
+    if (err) return toast(ERRORS[err] ?? "Question not sent.");
+    onClose();
+  };
+  return (
+    <Dialog
+      title="Ask driver"
+      size="l"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn" disabled={!ok} onClick={send}>Send</button>
+        </>
+      }
+    >
+      <div className="r-form-field">
+        <span className="r-label">Driver</span>
+        <div className="r-select">
+          <select aria-label="Driver" value={driver} onChange={(e) => setDriver(e.target.value)}>
+            {drivers.map((d) => (
+              <option key={d} value={d}>{d}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+      <div className="r-form-field">
+        <span className="r-label">Question</span>
+        <input className="r-field" aria-label="Question" maxLength={200} value={text} onChange={(e) => setText(e.target.value)} />
+      </div>
+      <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+        <button className="r-btn" aria-pressed={!custom} onClick={() => setCustom(false)}>Yes / No</button>
+        <button className="r-btn" aria-pressed={custom} onClick={() => setCustom(true)}>Options</button>
+      </div>
+      {custom &&
+        opts.map((o, i) => (
+          <input
+            key={i}
+            className="r-field"
+            aria-label={`Option ${i + 1}`}
+            placeholder={`Option ${i + 1}`}
+            maxLength={40}
+            value={o}
+            onChange={(e) => setOpts(opts.map((x, k) => (k === i ? e.target.value : x)))}
+          />
+        ))}
+    </Dialog>
   );
 }

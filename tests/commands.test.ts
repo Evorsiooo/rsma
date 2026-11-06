@@ -202,3 +202,26 @@ test("self-timed: a team starts and stops only its own cars, and times can be de
   s = run(s, { type: "delRun", runId: s.runs[1].id }, 33000);
   assert.equal(s.runs.length, 1);
 });
+
+test("team asks a driver, the driver answers, and chat reaches the team", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Ann", plate: "a-1", team: { id: "t1", name: "Red" } }, 0);
+  s = run(s, { type: "add", name: "bob", plate: "b-1", team: { id: "t2", name: "Blue" } }, 0);
+  assert.equal(fails(s, { type: "ask", team: "t2", teamName: "Blue", driver: "ann", text: "Box?" }, 10), "invalid"); // not their driver
+  assert.equal(fails(s, { type: "ask", team: "t1", teamName: "Red", driver: "ann", text: "Box?", options: ["one"] }, 10), "invalid");
+  s = run(s, { type: "ask", team: "t1", teamName: "Red", driver: "ann", text: "Box?" }, 10);
+  const q = s.radio[0];
+  assert.deepEqual(q.ask?.options, ["Yes", "No"]);
+  assert.ok(viewFor(s, { staff: false, user: "ann", teams: [] }).radio.some((m) => m.id === q.id));
+  assert.ok(!viewFor(s, { staff: false, user: "bob", teams: [] }).radio.some((m) => m.id === q.id));
+  assert.equal(applyCommand(s, { type: "answer", msgId: q.id, index: 0 }, { ...ctx(20), actor: "bob" }).hasOwnProperty("error"), true);
+  const r = applyCommand(s, { type: "answer", msgId: q.id, index: 1 }, { ...ctx(20), actor: "Ann" });
+  assert.ok("state" in r);
+  s = r.state;
+  assert.equal(s.radio[0].ask?.answered?.index, 1);
+  assert.equal(s.radio[1].tone, "red");
+  assert.ok(viewFor(s, { staff: false, teams: ["t1"], user: "x" }).radio.some((m) => m.to === "team"));
+  const c = applyCommand(s, { type: "driverRadio", text: "Tyres gone" }, { ...ctx(30), actor: "ann" });
+  assert.ok("state" in c && c.state.radio.at(-1)?.team === "t1");
+  assert.ok("error" in applyCommand(s, { type: "driverRadio", text: "hi" }, { ...ctx(30), actor: "nobody" }));
+});

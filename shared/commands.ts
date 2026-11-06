@@ -14,6 +14,9 @@ export type Command =
   | { type: "flag"; flag: Flag }
   | { type: "add"; name: string; plate: string; team?: { id: string; name: string } }
   | { type: "teamRadio"; team: string; teamName: string; text: string; to?: "team" | "stewards" }
+  | { type: "ask"; team: string; teamName: string; driver: string; text: string; options?: string[] }
+  | { type: "answer"; msgId: string; index: number }
+  | { type: "driverRadio"; text: string }
   | { type: "radioTeams"; teams: { id: string; name: string }[]; text: string }
   | { type: "note"; runId: string; text: string }
   | { type: "noteDel"; id: string }
@@ -110,6 +113,55 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       next.startedAt = ctx.now + COUNTDOWN_MS;
       s.lastReleaseAt = ctx.now;
       note(`Released ${next.name}`);
+      break;
+    }
+    case "ask": {
+      const text = clean(cmd.text, 200);
+      const team = clean(cmd.team, 60);
+      const driver = clean(cmd.driver, 40).toLowerCase();
+      const mine = s.runs.filter((r) => r.team === team && r.name.toLowerCase() === driver);
+      const target = mine.find((r) => r.status === "onstage") ?? mine.find((r) => r.status === "queued") ?? mine[mine.length - 1];
+      if (!text || !target) return { error: "invalid" };
+      const options = Array.isArray(cmd.options) ? cmd.options.map((o) => clean(o, 40)).filter(Boolean).slice(0, 4) : [];
+      if (Array.isArray(cmd.options) && cmd.options.length > 0 && options.length < 2) return { error: "invalid" };
+      const yesNo = options.length === 0;
+      const opts = yesNo ? ["Yes", "No"] : options;
+      const say = yesNo ? text : `${text} ${opts.map((o, i) => `Option ${i + 1}: ${o}.`).join(" ")}`;
+      s.radio.push({ id: ctx.newId(), at: ctx.now, to: [target.id], team, teamName: clean(cmd.teamName, 40), text, say, from: ctx.actor, ask: { options: opts, yesNo } });
+      if (s.radio.length > MAX_RADIO) s.radio.splice(0, s.radio.length - MAX_RADIO);
+      note(`Question to ${target.name}, ${clean(cmd.teamName, 40) || team}: ${text}`, "teal");
+      break;
+    }
+    case "answer": {
+      const m = s.radio.find((x) => x.id === cmd.msgId && x.ask);
+      if (!m || !m.ask || !Array.isArray(m.to)) return { error: "not_found" };
+      if (!s.runs.some((r) => (m.to as string[]).includes(r.id) && r.name.toLowerCase() === ctx.actor.toLowerCase())) return { error: "forbidden" };
+      if (m.ask.answered) return { error: "answered" };
+      if (!Number.isInteger(cmd.index) || cmd.index < 0 || cmd.index >= m.ask.options.length) return { error: "invalid" };
+      m.ask.answered = { index: cmd.index, at: ctx.now };
+      const label = m.ask.options[cmd.index];
+      s.radio.push({
+        id: ctx.newId(),
+        at: ctx.now,
+        to: "team",
+        team: m.team,
+        teamName: m.teamName,
+        text: `${label}, to "${m.text}"`,
+        from: ctx.actor,
+        tone: m.ask.yesNo ? (cmd.index === 0 ? "green" : "red") : undefined,
+      });
+      note(`${ctx.actor} answered "${label}" to "${m.text}"`, "teal");
+      break;
+    }
+    case "driverRadio": {
+      const text = clean(cmd.text, 200);
+      const mine = s.runs.filter((r) => r.name.toLowerCase() === ctx.actor.toLowerCase() && r.team);
+      const r = mine.find((x) => x.status === "onstage") ?? mine.find((x) => x.status === "queued") ?? mine[mine.length - 1];
+      if (!text) return { error: "invalid" };
+      if (!r) return { error: "no_team" };
+      s.radio.push({ id: ctx.newId(), at: ctx.now, to: "team", team: r.team, teamName: r.teamName, text, from: ctx.actor });
+      if (s.radio.length > MAX_RADIO) s.radio.splice(0, s.radio.length - MAX_RADIO);
+      note(`${ctx.actor} to ${r.teamName ?? r.team}: ${text}`, "teal");
       break;
     }
     case "teamGo": {

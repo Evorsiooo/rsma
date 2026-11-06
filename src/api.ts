@@ -90,3 +90,8 @@ export const removePitWindow = (sessionId: string, teamId: string, windowId: str
   teamCall("DELETE", `/api/sessions/${sessionId}/team/${teamId}/pit/${windowId}`);
 export const teamTiming = (sessionId: string, teamId: string, action: "go" | "finish", runId?: string) =>
   teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/timing`, { action, runId });
+export const askDriver = (sessionId: string, teamId: string, driver: string, text: string, options?: string[]) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/ask`, { driver, text, options });
+export const answerAsk = (sessionId: string, msgId: string, index: number) =>
+  teamCall("POST", `/api/sessions/${sessionId}/driver/answer`, { msgId, index });
+export const driverRadio = (sessionId: string, text: string) => teamCall("POST", `/api/sessions/${sessionId}/driver/radio`, { text });

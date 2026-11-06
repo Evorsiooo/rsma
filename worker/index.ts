@@ -90,7 +90,7 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
   // Team commands only come through the team routes; self-timed sessions have no steward Go or Stop.
-  if (cmd.type === "teamGo" || cmd.type === "teamFinish") return c.json({ error: "invalid" }, 400);
+  if (["teamGo", "teamFinish", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
   if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish")) return c.json({ error: "self_timed" }, 409);
   if (cmd.type === "add" && cmd.team != null) {
     // Take the team name from the database, never from the client.
@@ -154,6 +154,49 @@ app.post("/api/sessions/:id/team/:teamId/pit", async (c) => {
   if ("error" in r) return r.error;
   const body = (await c.req.json().catch(() => ({}))) as { fromMs?: unknown; toMs?: unknown };
   const cmd = { type: "pitAdd", team: r.team.id, teamName: r.team.name, fromMs: Number(body.fromMs), toMs: Number(body.toMs), lengthMs: r.info.session.endsAt - r.info.session.startsAt };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+// A team asks one of its drivers a question: Yes/No, or up to four options.
+app.post("/api/sessions/:id/team/:teamId/ask", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  const body = (await c.req.json().catch(() => ({}))) as { driver?: unknown; text?: unknown; options?: unknown };
+  const cmd = {
+    type: "ask",
+    team: r.team.id,
+    teamName: r.team.name,
+    driver: typeof body.driver === "string" ? body.driver : "",
+    text: typeof body.text === "string" ? body.text : "",
+    options: Array.isArray(body.options) ? body.options : undefined,
+  };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+// Driver side: answer a question, or write to the team. Any signed-in user; the reducer matches them to their run.
+async function driverSession(c: Context<{ Bindings: Env }>) {
+  const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
+  if (!me) return { error: c.json({ error: "unauthorized" }, 401) };
+  const id = c.req.param("id") ?? "";
+  const info = await loadSession(c.env.DB, id);
+  if (!info) return { error: c.json({ error: "not_found" }, 404) };
+  if (info.race.ended) return { error: c.json({ error: "race_ended" }, 409) };
+  return { me, id };
+}
+
+app.post("/api/sessions/:id/driver/answer", async (c) => {
+  const r = await driverSession(c);
+  if ("error" in r) return r.error;
+  const body = (await c.req.json().catch(() => ({}))) as { msgId?: unknown; index?: unknown };
+  const cmd = { type: "answer", msgId: typeof body.msgId === "string" ? body.msgId : "", index: Number(body.index) };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+app.post("/api/sessions/:id/driver/radio", async (c) => {
+  const r = await driverSession(c);
+  if ("error" in r) return r.error;
+  const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
+  const cmd = { type: "driverRadio", text: typeof body.text === "string" ? body.text : "" };
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 
