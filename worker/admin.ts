@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
-import type { AdminRace, AdminTeam, AdminUser, Me, Role, SessionSummary, SessionType } from "../shared/types";
+import type { AdminRace, AdminTeam, AdminUser, Me, Role, SessionSummary, SessionType, TeamKind } from "../shared/types";
 import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { sessionsOf } from "./sessions";
@@ -226,7 +226,8 @@ admin.delete("/sessions/:id", guard("races"), async (c) => {
 // ---- Teams (temporary until team registration) -------------------------------
 
 admin.get("/teams", guard("users"), async (c) => {
-  const { results } = await c.env.DB.prepare("SELECT id, name FROM teams ORDER BY lower(name)").all<{ id: string; name: string }>();
+  const { results: rows } = await c.env.DB.prepare("SELECT id, name, kind, car, factory_id AS factoryId FROM teams ORDER BY lower(name)").all<{ id: string; name: string; kind: TeamKind; car: string | null; factoryId: string | null }>();
+  const results = rows.map((t) => ({ ...t, factoryName: rows.find((f) => f.id === t.factoryId)?.name ?? null }));
   const members = (
     await c.env.DB.prepare(
       "SELECT m.team_id AS teamId, u.roblox_id AS id, u.username FROM team_members m JOIN users u ON u.roblox_id = m.roblox_id ORDER BY lower(u.username)",
@@ -235,20 +236,50 @@ admin.get("/teams", guard("users"), async (c) => {
   return c.json(results.map((t) => ({ ...t, members: members.filter((m) => m.teamId === t.id).map(({ id, username }) => ({ id, username })) })) satisfies AdminTeam[]);
 });
 
+/** Factory teams need a car; customer teams need the factory team whose car they run. */
+async function teamKindFields(env: AdminEnv, body: { kind?: unknown; car?: unknown; factoryId?: unknown }, selfId?: string) {
+  if (body.kind === "customer") {
+    const factoryId = typeof body.factoryId === "string" ? body.factoryId : "";
+    const f = factoryId && factoryId !== selfId ? await env.DB.prepare("SELECT 1 FROM teams WHERE id = ? AND kind = 'factory'").bind(factoryId).first() : null;
+    return f ? { kind: "customer" as const, car: null, factoryId } : null;
+  }
+  const car = cleanName(body.car).slice(0, 40);
+  return body.kind === "factory" && car ? { kind: "factory" as const, car, factoryId: null } : null;
+}
+
 admin.post("/teams", guard("users"), async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; kind?: unknown; car?: unknown; factoryId?: unknown };
   const name = cleanName(body.name).slice(0, 40);
-  if (!name) return c.json({ error: "invalid" }, 400);
+  const k = await teamKindFields(c.env, body);
+  if (!name || !k) return c.json({ error: "invalid" }, 400);
   const id = `team_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
   try {
-    await c.env.DB.prepare("INSERT INTO teams (id, name, created_at) VALUES (?, ?, ?)").bind(id, name, Date.now()).run();
+    await c.env.DB.prepare("INSERT INTO teams (id, name, created_at, kind, car, factory_id) VALUES (?, ?, ?, ?, ?, ?)").bind(id, name, Date.now(), k.kind, k.car, k.factoryId).run();
   } catch {
     return c.json({ error: "name_taken" }, 409);
   }
   return c.json({ id });
 });
 
+admin.patch("/teams/:id", guard("users"), async (c) => {
+  const id = c.req.param("id") ?? "";
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; kind?: unknown; car?: unknown; factoryId?: unknown };
+  const cur = await c.env.DB.prepare("SELECT name, kind FROM teams WHERE id = ?").bind(id).first<{ name: string; kind: string }>();
+  if (!cur) return c.json({ error: "not_found" }, 404);
+  const name = body.name !== undefined ? cleanName(body.name).slice(0, 40) : cur.name;
+  const k = await teamKindFields(c.env, body, id);
+  if (!name || !k) return c.json({ error: "invalid" }, 400);
+  if (k.kind === "customer" && (await c.env.DB.prepare("SELECT 1 FROM teams WHERE factory_id = ?").bind(id).first())) return c.json({ error: "has_customers" }, 409);
+  try {
+    await c.env.DB.prepare("UPDATE teams SET name = ?, kind = ?, car = ?, factory_id = ? WHERE id = ?").bind(name, k.kind, k.car, k.factoryId, id).run();
+  } catch {
+    return c.json({ error: "name_taken" }, 409);
+  }
+  return c.json({ ok: true });
+});
+
 admin.delete("/teams/:id", guard("users"), async (c) => {
+  if (await c.env.DB.prepare("SELECT 1 FROM teams WHERE factory_id = ?").bind(c.req.param("id")).first()) return c.json({ error: "has_customers" }, 409);
   await c.env.DB.prepare("DELETE FROM teams WHERE id = ?").bind(c.req.param("id")).run();
   return c.json({ ok: true });
 });

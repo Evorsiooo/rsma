@@ -50,6 +50,15 @@ app.get("/api/sessions/:id/state", async (c) => {
   return doOf(c.env, id).fetch("http://do/state");
 });
 
+/** A team with the car its drivers run: its own for a factory team, the factory team's for a customer team. */
+async function teamWithCar(db: D1Database, id: string) {
+  const t = await db.prepare("SELECT id, name, kind, car, factory_id AS factoryId FROM teams WHERE id = ?").bind(id).first<{ id: string; name: string; kind: string; car: string | null; factoryId: string | null }>();
+  if (!t) return null;
+  let car = t.car;
+  if (t.kind === "customer" && t.factoryId) car = (await db.prepare("SELECT car FROM teams WHERE id = ?").bind(t.factoryId).first<{ car: string | null }>())?.car ?? null;
+  return { id: t.id, name: t.name, car: car ?? undefined };
+}
+
 async function isRaceSteward(env: Env, me: Me | null, raceId: string) {
   if (!me) return false;
   if (hasRole(me, "steward")) return true;
@@ -90,11 +99,11 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
   // Team commands only come through the team routes; self-timed sessions have no steward Go or Stop.
-  if (["teamGo", "teamFinish", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
+  if (["teamGo", "teamFinish", "teamMove", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
   if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish")) return c.json({ error: "self_timed" }, 409);
   if (cmd.type === "add" && cmd.team != null) {
     // Take the team name from the database, never from the client.
-    const team = typeof cmd.team.id === "string" ? await c.env.DB.prepare("SELECT id, name FROM teams WHERE id = ?").bind(cmd.team.id).first<{ id: string; name: string }>() : null;
+    const team = typeof cmd.team.id === "string" ? await teamWithCar(c.env.DB, cmd.team.id) : null;
     if (!team) return c.json({ error: "invalid" }, 400);
     cmd.team = team;
   }
@@ -197,6 +206,16 @@ app.post("/api/sessions/:id/driver/radio", async (c) => {
   if ("error" in r) return r.error;
   const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
   const cmd = { type: "driverRadio", text: typeof body.text === "string" ? body.text : "" };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+// Self-timed practice: a team puts its own queued cars in the order it wants.
+app.post("/api/sessions/:id/team/:teamId/move", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  if (!r.info.session.selfTimed) return c.json({ error: "not_self_timed" }, 409);
+  const body = (await c.req.json().catch(() => ({}))) as { runId?: unknown; dir?: unknown };
+  const cmd = { type: "teamMove", team: r.team.id, runId: typeof body.runId === "string" ? body.runId : "", dir: body.dir === -1 ? -1 : body.dir === 1 ? 1 : 0 };
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 

@@ -12,7 +12,8 @@ import {
 
 export type Command =
   | { type: "flag"; flag: Flag }
-  | { type: "add"; name: string; plate: string; team?: { id: string; name: string } }
+  | { type: "add"; name: string; plate: string; team?: { id: string; name: string; car?: string } }
+  | { type: "teamMove"; team: string; runId: string; dir: -1 | 1 }
   | { type: "teamRadio"; team: string; teamName: string; text: string; to?: "team" | "stewards" }
   | { type: "ask"; team: string; teamName: string; driver: string; text: string; options?: string[] }
   | { type: "answer"; msgId: string; index: number }
@@ -83,7 +84,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const plate = clean(cmd.plate, 12).toUpperCase();
       if (!name || !plate) return { error: "invalid" };
       const team = cmd.team && clean(cmd.team.id, 60) && clean(cmd.team.name, 40) ? { id: clean(cmd.team.id, 60), name: clean(cmd.team.name, 40) } : undefined;
-      s.runs.push({ id: ctx.newId(), name, plate, status: "queued", penalties: [], penaltyMs: 0, team: team?.id, teamName: team?.name });
+      s.runs.push({ id: ctx.newId(), name, plate, status: "queued", penalties: [], penaltyMs: 0, team: team?.id, teamName: team?.name, car: team ? clean(cmd.team?.car, 40) || undefined : undefined });
       note(`Staged ${name} (${plate})${team ? `, ${team.name}` : ""}`);
       break;
     }
@@ -162,6 +163,21 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       s.radio.push({ id: ctx.newId(), at: ctx.now, to: "team", team: r.team, teamName: r.teamName, text, from: ctx.actor });
       if (s.radio.length > MAX_RADIO) s.radio.splice(0, s.radio.length - MAX_RADIO);
       note(`${ctx.actor} to ${r.teamName ?? r.team}: ${text}`, "teal");
+      break;
+    }
+    case "teamMove": {
+      const r = run(cmd.runId);
+      if (!r || r.team !== cmd.team) return { error: "not_found" };
+      if (r.status !== "queued") return { error: "not_queued" };
+      const mine = s.runs.filter((x) => x.status === "queued" && x.team === cmd.team);
+      const i = mine.indexOf(r);
+      const j = i + cmd.dir;
+      if (cmd.dir !== -1 && cmd.dir !== 1) return { error: "invalid" };
+      if (j < 0 || j >= mine.length) return { error: "invalid" };
+      // Swap with the neighbouring car of the same team; other teams' places in the queue do not change.
+      const a = s.runs.indexOf(mine[i]);
+      const b = s.runs.indexOf(mine[j]);
+      [s.runs[a], s.runs[b]] = [s.runs[b], s.runs[a]];
       break;
     }
     case "teamGo": {

@@ -33,7 +33,7 @@ export function RacePage() {
   const rows = state ? classify(state.runs) : [];
 
   return (
-    <Shell>
+    <Shell wide>
       <div className="r-row" style={{ alignItems: "center" }}>
         {race?.ended ? (
           <div className="r-banner r-fill">Race ended</div>

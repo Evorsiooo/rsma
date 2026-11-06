@@ -11,7 +11,7 @@ import { NotFound } from "../NotFound";
 type Tab = "users" | "races" | "teams" | "system";
 
 const ERRORS: Record<string, string> = {
-  invalid: "Invalid value.",
+  invalid: "Invalid value. For teams, set a car (factory) or a factory team (customer).",
   invalid_username: "Enter a Roblox username (3-20 letters, numbers or underscores).",
   no_such_roblox_user: "No Roblox user with that name.",
   last_admin: "There must be at least one admin.",
@@ -20,6 +20,7 @@ const ERRORS: Record<string, string> = {
   name_taken: "That name is already used.",
   invalid_times: "The end must be after the start.",
   race_disabled: "Race sessions are not available yet.",
+  has_customers: "Customer teams still run this factory team's car.",
 };
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
@@ -455,16 +456,52 @@ function ExpiryDialog({ race, onDone, onClose }: { race: AdminRace; onDone: () =
 
 // ---- Teams (temporary) --------------------------------------------------------
 
+interface TeamDraft {
+  name: string;
+  kind: "factory" | "customer";
+  car: string;
+  factoryId: string;
+}
+const emptyDraft: TeamDraft = { name: "", kind: "factory", car: "", factoryId: "" };
+const draftOk = (d: TeamDraft) => !!d.name.trim() && (d.kind === "factory" ? !!d.car.trim() : !!d.factoryId);
+const draftBody = (d: TeamDraft) => ({ name: d.name.trim(), kind: d.kind, car: d.kind === "factory" ? d.car.trim() : undefined, factoryId: d.kind === "customer" ? d.factoryId : undefined });
+
+/** Factory team (own car) or customer team (a factory team's car). */
+function TeamKindFields({ draft, setDraft, factories }: { draft: TeamDraft; setDraft: (d: TeamDraft) => void; factories: AdminTeam[] }) {
+  return (
+    <>
+      <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+        <button className="r-btn" aria-pressed={draft.kind === "factory"} onClick={() => setDraft({ ...draft, kind: "factory" })}>Factory team</button>
+        <button className="r-btn" aria-pressed={draft.kind === "customer"} onClick={() => setDraft({ ...draft, kind: "customer" })}>Customer team</button>
+      </div>
+      {draft.kind === "factory" ? (
+        <input className="r-field" placeholder="Car name" aria-label="Car name" maxLength={40} value={draft.car} onChange={(e) => setDraft({ ...draft, car: e.target.value })} />
+      ) : (
+        <div className="r-select">
+          <select aria-label="Factory team" value={draft.factoryId} onChange={(e) => setDraft({ ...draft, factoryId: e.target.value })}>
+            <option value="">Factory team</option>
+            {factories.map((f) => (
+              <option key={f.id} value={f.id}>{f.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+    </>
+  );
+}
+
 function Teams() {
   const { data, failed, reload } = useLoad<AdminTeam[]>(admin.teams);
-  const [name, setName] = useState("");
+  const [draft, setDraft] = useState<TeamDraft>(emptyDraft);
   const [open, setOpen] = useState<string | null>(null);
+  const [edit, setEdit] = useState<AdminTeam | null>(null);
   const [del, setDel] = useState<AdminTeam | null>(null);
+  const factories = (data ?? []).filter((t) => t.kind === "factory");
   const create = async () => {
-    if (!name.trim()) return;
-    const r = await admin.createTeam(name.trim());
+    if (!draftOk(draft)) return;
+    const r = await admin.createTeam(draftBody(draft));
     if (!r.ok) return say(r.error);
-    setName("");
+    setDraft(emptyDraft);
     reload();
   };
   const team = data?.find((t) => t.id === open);
@@ -472,9 +509,10 @@ function Teams() {
     <>
       <div className="r-panel">
         <div className="r-header">New team</div>
-        <div className="r-row" style={{ padding: 4 }}>
-          <input className="r-field r-fill" placeholder="Name" aria-label="Team name" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
-          <button className="r-btn" style={{ width: 120 }} disabled={!name.trim()} onClick={create}>Create</button>
+        <div className="r-stack" style={{ padding: 4 }}>
+          <input className="r-field" placeholder="Name" aria-label="Team name" maxLength={40} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+          <TeamKindFields draft={draft} setDraft={setDraft} factories={factories} />
+          <button className="r-btn" disabled={!draftOk(draft)} onClick={create}>Create</button>
         </div>
       </div>
       <div className="r-panel">
@@ -488,17 +526,22 @@ function Teams() {
             <thead>
               <tr>
                 <th className="is-left">Name</th>
-                <th style={{ width: 90 }}>Members</th>
-                <th style={{ width: 250 }} />
+                <th className="is-left" style={{ width: 110 }}>Type</th>
+                <th className="is-left" style={{ width: 160 }}>Car or factory</th>
+                <th style={{ width: 80 }}>Members</th>
+                <th style={{ width: 300 }} />
               </tr>
             </thead>
             <tbody>
               {data.map((t) => (
                 <tr key={t.id}>
                   <td className="is-left">{t.name}</td>
+                  <td className="is-left" style={{ color: "var(--r-text-dim)" }}>{t.kind === "factory" ? "Factory" : "Customer"}</td>
+                  <td className="is-left">{t.kind === "factory" ? t.car ?? "" : t.factoryName ?? ""}</td>
                   <td>{t.members.length || ""}</td>
                   <td style={{ padding: 2 }}>
-                    <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                    <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
+                      <button className="r-cell" onClick={() => setEdit(t)}>Edit</button>
                       <button className="r-cell" onClick={() => setOpen(t.id)}>Members</button>
                       <button className="r-cell r-cell--red" onClick={() => setDel(t)}>Delete</button>
                     </div>
@@ -509,6 +552,17 @@ function Teams() {
           </table>
         )}
       </div>
+      {edit && (
+        <EditTeamDialog
+          team={edit}
+          factories={factories.filter((f) => f.id !== edit.id)}
+          onDone={() => {
+            setEdit(null);
+            reload();
+          }}
+          onClose={() => setEdit(null)}
+        />
+      )}
       {team && <MembersDialog team={team} onChange={reload} onClose={() => setOpen(null)} />}
       {del && (
         <Dialog
@@ -535,6 +589,31 @@ function Teams() {
         </Dialog>
       )}
     </>
+  );
+}
+
+function EditTeamDialog({ team, factories, onDone, onClose }: { team: AdminTeam; factories: AdminTeam[]; onDone: () => void; onClose: () => void }) {
+  const [draft, setDraft] = useState<TeamDraft>({ name: team.name, kind: team.kind, car: team.car ?? "", factoryId: team.factoryId ?? "" });
+  const save = async () => {
+    const r = await admin.patchTeam(team.id, draftBody(draft));
+    if (!r.ok) return say(r.error);
+    onDone();
+  };
+  return (
+    <Dialog
+      title={`Edit team: ${team.name}`}
+      size="l"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn" disabled={!draftOk(draft)} onClick={save}>Save</button>
+        </>
+      }
+    >
+      <input className="r-field" aria-label="Team name" maxLength={40} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
+      <TeamKindFields draft={draft} setDraft={setDraft} factories={factories} />
+    </Dialog>
   );
 }
 

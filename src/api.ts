@@ -67,7 +67,8 @@ export const admin = {
     send("PATCH", `/api/admin/sessions/${id}`, patch),
   deleteSession: (id: string) => send("DELETE", `/api/admin/sessions/${id}`),
   teams: () => get<AdminTeam[]>("/api/admin/teams"),
-  createTeam: (name: string) => send("POST", "/api/admin/teams", { name }),
+  createTeam: (t: TeamFields & { name: string }) => send("POST", "/api/admin/teams", t),
+  patchTeam: (id: string, t: TeamFields & { name: string }) => send("PATCH", `/api/admin/teams/${id}`, t),
   deleteTeam: (id: string) => send("DELETE", `/api/admin/teams/${id}`),
   addMember: (teamId: string, username: string) => send("POST", `/api/admin/teams/${teamId}/members`, { username }),
   removeMember: (teamId: string, userId: string) => send("DELETE", `/api/admin/teams/${teamId}/members/${userId}`),
@@ -88,6 +89,8 @@ export const addPitWindow = (sessionId: string, teamId: string, fromMs: number, 
   teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/pit`, { fromMs, toMs });
 export const removePitWindow = (sessionId: string, teamId: string, windowId: string) =>
   teamCall("DELETE", `/api/sessions/${sessionId}/team/${teamId}/pit/${windowId}`);
+export const moveOwnCar = (sessionId: string, teamId: string, runId: string, dir: -1 | 1) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/move`, { runId, dir });
 export const teamTiming = (sessionId: string, teamId: string, action: "go" | "finish", runId?: string) =>
   teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/timing`, { action, runId });
 export const askDriver = (sessionId: string, teamId: string, driver: string, text: string, options?: string[]) =>
@@ -95,3 +98,9 @@ export const askDriver = (sessionId: string, teamId: string, driver: string, tex
 export const answerAsk = (sessionId: string, msgId: string, index: number) =>
   teamCall("POST", `/api/sessions/${sessionId}/driver/answer`, { msgId, index });
 export const driverRadio = (sessionId: string, text: string) => teamCall("POST", `/api/sessions/${sessionId}/driver/radio`, { text });
+
+export interface TeamFields {
+  kind: "factory" | "customer";
+  car?: string;
+  factoryId?: string;
+}

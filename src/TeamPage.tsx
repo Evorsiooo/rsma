@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { classify, fmtPenalty, type Flag, type RadioMsg } from "../shared/race";
 import { fmtClock } from "../shared/sessions";
 import type { SessionInfo } from "../shared/types";
-import { addPitWindow, api, askDriver, removePitWindow, sendTeamRadio, teamTiming } from "./api";
+import { addPitWindow, api, askDriver, moveOwnCar, removePitWindow, sendTeamRadio, teamTiming } from "./api";
 import { Lcd } from "./Lcd";
 import { useMe } from "./me";
 import { NotFound } from "./NotFound";
@@ -119,6 +119,8 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const mineOnTrack = onTrack.filter((r) => r.team === team.id).length;
   const mineQueued = queued.filter((r) => r.team === team.id).length;
   const drivers = [...new Set(state.runs.filter((r) => r.team === team.id).map((r) => r.name))];
+  const ownQueue = queued.filter((r) => r.team === team.id);
+  const selOwnIdx = sel && sel.status === "queued" && sel.team === team.id ? ownQueue.indexOf(sel) : -1;
   const windows = state.pitWindows.filter((w) => w.team === team.id);
   const elapsed = now - session.startsAt;
   // Graduation under the timeline: about five labelled marks, on round minutes.
@@ -149,6 +151,10 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const timing = async (action: "go" | "finish") => {
     const err = await teamTiming(sessionId, team.id, action);
     if (err) toast(ERRORS[err] ?? "Command failed.");
+  };
+  const moveCar = async (runId: string, dir: -1 | 1) => {
+    const err = await moveOwnCar(sessionId, team.id, runId, dir);
+    if (err) toast(ERRORS[err] ?? "Not moved.");
   };
   const delWindow = async (wid: string) => {
     const err = await removePitWindow(sessionId, team.id, wid);
@@ -287,6 +293,12 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                     <div className="r-log__line is-red" key={i}>{fmtPenalty(p.ms)} {p.name}</div>
                   ))}
                 </div>
+                {session.selfTimed && selOwnIdx >= 0 && (
+                  <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                    <button className="r-cell" disabled={selOwnIdx === 0 || race.ended} onClick={() => moveCar(sel!.id, -1)}>Up</button>
+                    <button className="r-cell" disabled={selOwnIdx === ownQueue.length - 1 || race.ended} onClick={() => moveCar(sel!.id, 1)}>Down</button>
+                  </div>
+                )}
               </div>
             </div>
           </div>

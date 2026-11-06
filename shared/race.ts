@@ -22,6 +22,8 @@ export interface Run {
   /** Team the driver races for; absent for independent drivers. */
   team?: string;
   teamName?: string;
+  /** Car the driver runs, taken from the team when staged. */
+  car?: string;
 }
 
 export interface Rule {

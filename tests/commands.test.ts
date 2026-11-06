@@ -225,3 +225,17 @@ test("team asks a driver, the driver answers, and chat reaches the team", () => 
   assert.ok("state" in c && c.state.radio.at(-1)?.team === "t1");
   assert.ok("error" in applyCommand(s, { type: "driverRadio", text: "hi" }, { ...ctx(30), actor: "nobody" }));
 });
+
+test("a team reorders only its own queued cars; cars carry the team's car", () => {
+  let s = emptyState();
+  const red = { id: "t1", name: "Red", car: "GT3" };
+  s = run(s, { type: "add", name: "r1", plate: "r-1", team: red }, 0);
+  s = run(s, { type: "add", name: "b1", plate: "b-1", team: { id: "t2", name: "Blue" } }, 0);
+  s = run(s, { type: "add", name: "r2", plate: "r-2", team: red }, 0);
+  assert.equal(s.runs[0].car, "GT3");
+  assert.equal(s.runs[1].car, undefined);
+  s = run(s, { type: "teamMove", team: "t1", runId: s.runs[2].id, dir: -1 }, 1);
+  assert.deepEqual(s.runs.map((r) => r.name), ["r2", "b1", "r1"]);
+  assert.equal(fails(s, { type: "teamMove", team: "t1", runId: s.runs[1].id, dir: 1 }, 2), "not_found"); // Blue's car
+  assert.equal(fails(s, { type: "teamMove", team: "t1", runId: s.runs[0].id, dir: -1 }, 2), "invalid"); // already first
+});
