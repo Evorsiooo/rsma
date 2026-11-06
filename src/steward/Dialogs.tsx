@@ -374,6 +374,38 @@ export function AttributeDialog({ run, state, team, onClose, send }: { run: Run;
   );
 }
 
+/** Plate and driver number, filled in by stewards once the car is handed over. */
+export function EditInfoDialog({ run, onClose, send }: { run: Run; onClose: () => void; send: Send }) {
+  const [plate, setPlate] = useState(run.plate);
+  const [number, setNumber] = useState(run.number ?? "");
+  const ok = !!plate.trim();
+  const submit = async () => {
+    if (ok && (await send({ type: "editInfo", runId: run.id, plate, number }))) onClose();
+  };
+  return (
+    <Dialog
+      title={`Edit info: ${run.name}`}
+      size="s"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn" disabled={!ok} onClick={submit}>Save</button>
+        </>
+      }
+    >
+      <div className="r-form-field">
+        <span className="r-label">Plate</span>
+        <input className="r-field" aria-label="Plate" maxLength={12} value={plate} onChange={(e) => setPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+      </div>
+      <div className="r-form-field">
+        <span className="r-label">Driver number</span>
+        <input className="r-field" aria-label="Driver number" maxLength={4} value={number} onChange={(e) => setNumber(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+      </div>
+    </Dialog>
+  );
+}
+
 /** Enter a stage time by hand, as mm:ss.mmm. */
 export function SetTimeDialog({ run, team, onClose, send }: { run: Run; team?: string; onClose: () => void; send: Send }) {
   const [text, setText] = useState(run.rawMs != null ? fmtTime(run.rawMs) : "");
