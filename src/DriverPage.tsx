@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { classify, fmtPenalty, fmtTime, type Flag, type Run } from "../shared/race";
-import type { RaceSummary } from "../shared/types";
+import type { SessionInfo } from "../shared/types";
 import { api } from "./api";
 import { enableAudio, setVolume, speak, startBeeps } from "./audio";
 import { NotFound } from "./NotFound";
 import { useMe } from "./me";
+import { sessionCountdown, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
 
 const FLAG: Record<Flag, { label: string; tone: string }> = {
@@ -42,9 +43,10 @@ const hhmm = (t: number) => new Date(t).toLocaleTimeString("en-GB");
 /** Driver radio pop-out: flag, own status, spoken steward messages, start beeps and result announcements. */
 export function DriverPage() {
   const { id = "" } = useParams();
-  const [race, setRace] = useState<RaceSummary | null | undefined>(undefined);
+  const [info, setInfo] = useState<SessionInfo | null | undefined>(undefined);
   const { me: user } = useMe();
   const { state, live, offset } = useRaceLive(id, user ? "auth" : "public");
+  const clock = useClock(offset);
   const [audioOn, setAudioOn] = useState(false);
   const name = user?.username ?? "";
   const [vol, setVol] = useState(() => Number(store.get("vol") ?? 100));
@@ -53,7 +55,7 @@ export function DriverPage() {
   const [rx, setRx] = useState(false);
 
   useEffect(() => {
-    api.race(id).then(setRace, () => setRace(null));
+    api.session(id).then(setInfo, () => setInfo(null));
   }, [id]);
   useEffect(() => {
     const load = () => setVoices(speechSynthesis.getVoices());
@@ -107,7 +109,7 @@ export function DriverPage() {
     if (transcript.current) transcript.current.scrollTop = transcript.current.scrollHeight;
   }, [messages.length]);
 
-  if (race === null) return <NotFound />;
+  if (info === null) return <NotFound />;
   if (!user)
     return (
       <div className="r-window r-stack" style={{ minHeight: "100%", padding: 4, boxSizing: "border-box" }}>
@@ -134,6 +136,15 @@ export function DriverPage() {
         {live ? <div className="r-lamp r-lamp--fixed">LIVE</div> : <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>}
         <div className={`r-lamp r-lamp--fixed${rx ? "" : " is-off"}`}>RX</div>
       </div>
+
+      {info && !info.race.ended && (
+        <div className="r-banner">
+          {(() => {
+            const cd = sessionCountdown(info.session, clock);
+            return `${info.session.name}: ${cd.phase === "ended" ? "ended" : `${cd.label.toLowerCase()} ${cd.value}`}`;
+          })()}
+        </div>
+      )}
 
       {!audioOn && (
         <div className="r-banner">
@@ -175,7 +186,7 @@ export function DriverPage() {
         <div className="r-header">Radio</div>
         <div className="r-log r-log--wrap r-fill" ref={transcript}>
           {messages.map((m) => (
-            <div className="r-log__line" key={m.id}>{hhmm(m.at)} {m.text}</div>
+            <div className={`r-log__line${m.tone ? ` is-${m.tone}` : ""}`} key={m.id}>{hhmm(m.at)} {m.text}</div>
           ))}
         </div>
       </div>

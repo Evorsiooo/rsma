@@ -7,7 +7,7 @@ export class RaceDO extends DurableObject {
   private state: RaceState | null = null;
 
   private async load(): Promise<RaceState> {
-    if (!this.state) this.state = (await this.ctx.storage.get<RaceState>("state")) ?? emptyState();
+    if (!this.state) this.state = { ...emptyState(), ...(await this.ctx.storage.get<RaceState>("state")) };
     return this.state;
   }
 

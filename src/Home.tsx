@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { currentSession } from "../shared/sessions";
 import type { RaceSummary } from "../shared/types";
 import { useMe } from "./me";
 import { api } from "./api";
@@ -54,7 +55,10 @@ export function Home({ races }: { races: RaceSummary[] }) {
                         Timing
                       </button>
                       {me?.teams.length ? (
-                        <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/race/${r.id}/team/${me.teams[0].id}`)}>
+                        <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => {
+                          const cur = currentSession(r.sessions, Date.now());
+                          if (cur) nav(`/session/${cur.id}/team/${me.teams[0].id}`);
+                        }}>
                           Team
                         </button>
                       ) : null}

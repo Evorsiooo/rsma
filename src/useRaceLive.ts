@@ -21,7 +21,7 @@ export function useRaceLive(id: string, mode: "public" | "staff" | "auth" | bool
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/api/races/${id}/ws${feed === "staff" ? "?staff=1" : feed === "auth" ? "?auth=1" : ""}`);
+      ws = new WebSocket(`${proto}://${location.host}/api/sessions/${id}/ws${feed === "staff" ? "?staff=1" : feed === "auth" ? "?auth=1" : ""}`);
       ws.onopen = () => {
         delay = 1000;
         setLive(true);

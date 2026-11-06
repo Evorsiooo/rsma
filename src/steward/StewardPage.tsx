@@ -2,15 +2,17 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { Command } from "../../shared/commands";
 import { classify, fmtPenalty, fmtTime, type Flag, type Run } from "../../shared/race";
-import type { RaceSummary, Team } from "../../shared/types";
+import type { SessionInfo, Team } from "../../shared/types";
 import { api, raceAccess, sendCommand } from "../api";
-import { ClassificationTable } from "../ClassificationTable";
+import { Lcd } from "../Lcd";
+import { TimingTable } from "../TimingTable";
 import { useMe } from "../me";
 import { NotFound } from "../NotFound";
 import { Topbar } from "../Shell";
-import { fmtLive, toast, useNow } from "../ui";
+import { SessionSelect } from "../SessionSelect";
+import { fmtLive, sessionCountdown, toast, useClock, useNow } from "../ui";
 import { useRaceLive } from "../useRaceLive";
-import { AssignDialog, ConfirmDnf, ConfirmReset, PenaltyDialog, RecipientsDialog, RulesDialog } from "./Dialogs";
+import { AssignDialog, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, RulesDialog, TeamsDialog } from "./Dialogs";
 
 const ERRORS: Record<string, string> = {
   not_queued: "Only queued drivers can be removed.",
@@ -28,6 +30,8 @@ type DialogState =
   | { kind: "reset" }
   | { kind: "rules" }
   | { kind: "recipients" }
+  | { kind: "teams" }
+  | { kind: "notes"; runId: string }
   | { kind: "penalty"; runId: string }
   | { kind: "dnf"; runId: string }
   | { kind: "assign"; ts: number };
@@ -38,18 +42,18 @@ export function StewardPage() {
   const { id = "" } = useParams();
   const { me, setMe } = useMe();
   const nav = useNavigate();
-  const [race, setRace] = useState<RaceSummary | null | undefined>(undefined);
+  const [info, setInfo] = useState<SessionInfo | null | undefined>(undefined);
   const [access, setAccess] = useState<boolean | null>(null);
 
   useEffect(() => {
-    api.race(id).then(setRace, () => setRace(null));
+    api.session(id).then(setInfo, () => setInfo(null));
   }, [id]);
   useEffect(() => {
     setAccess(null);
     if (me) raceAccess(id).then((a) => setAccess(a.steward), () => setAccess(false));
   }, [id, me]);
 
-  if (race === null) return <NotFound />;
+  if (info === null) return <NotFound />;
   if (!me) {
     return (
       <div className="r-screen">
@@ -89,38 +93,34 @@ export function StewardPage() {
       </div>
     );
   }
-  if (!access || !race) return <div className="r-screen" />;
-  return <Panel raceId={id} race={race} />;
+  if (!access || !info) return <div className="r-screen" />;
+  return <Panel raceId={id} info={info} />;
 }
 
-function Lcd({ value, h, ghost = 0, label }: { value: string; h: number; ghost?: number; label: string }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    (window as unknown as { RSMA: { lcd: (el: HTMLElement, v: string, o: object) => void } }).RSMA.lcd(ref.current!, value, {
-      h,
-      skew: -4,
-      ghost,
-      label,
-    });
-  }, [value, h, ghost, label]);
-  return <div className="r-lcd" ref={ref} />;
+/** Countdown to the end of the session (or its start), on an LCD like the other timers. */
+function SessionClockLcd({ session, offset }: { session: SessionInfo["session"]; offset: number }) {
+  const now = useClock(offset);
+  const cd = sessionCountdown(session, now);
+  return (
+    <>
+      <div className="r-header">{cd.phase === "upcoming" ? "Session starts" : "Session ends"}</div>
+      <div className="r-module__well">
+        <Lcd value={cd.phase === "ended" ? "--:--" : cd.value} h={36} label="Time to session end" />
+      </div>
+    </>
+  );
 }
 
 const FLAG_WORD: Record<Flag, string> = { green: "GREEN", yellow: "YELLOW", red: "RED" };
-const STATUS_TEXT = { queued: "Queued", onstage: "On stage", finished: "Finished", dnf: "DNF" } as const;
-const STATUS_COLOR = {
-  queued: "var(--r-text-dim)",
-  onstage: "var(--r-yellow)",
-  finished: "var(--r-green)",
-  dnf: "var(--r-red)",
-} as const;
 
-function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
+function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
+  const { race, session } = info;
   const nav = useNavigate();
   const { state, live, offset } = useRaceLive(raceId, true);
   const [dialog, setDialog] = useState<DialogState>(null);
   const [selId, setSelId] = useState<string | null>(null);
   const [to, setTo] = useState<string[] | "all">("all");
+  const [teamTo, setTeamTo] = useState<string[] | null>(null);
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   const [plate, setPlate] = useState("");
@@ -161,16 +161,19 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
   const counting = onTrack.filter((r) => r.startedAt! > now);
   const releaseLeft = state.lastReleaseAt ? Math.max(0, state.lastReleaseAt + state.cadenceSec * 1000 - now) : null;
   const sel = selId ? byId(selId) : undefined;
+  const selNotes = sel ? state.notes.filter((n) => n.driver.toLowerCase() === sel.name.toLowerCase()) : [];
   const bestFinal = rows.reduce<number | undefined>((m, r) => (r.finalMs != null && (m == null || r.finalMs < m) ? r.finalMs : m), undefined);
   const selIndex = sel ? queued.indexOf(sel) : -1;
   const radioTarget = to === "all" ? "all" : to.filter((i) => byId(i));
-  const canTransmit = text.trim() !== "" && (radioTarget === "all" || radioTarget.length > 0);
+  const teamTarget = teamTo ? teams.filter((t) => teamTo.includes(t.id)) : null;
+  const canTransmit = text.trim() !== "" && (teamTarget ? teamTarget.length > 0 : radioTarget === "all" || radioTarget.length > 0);
   const dialogRun = dialog && "runId" in dialog ? byId(dialog.runId) : undefined;
   const fmtMMSS = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 
   const transmit = async () => {
     if (!canTransmit) return;
-    if (await send({ type: "radio", to: radioTarget, text })) setText("");
+    const cmd: Command = teamTarget ? { type: "radioTeams", teams: teamTarget, text } : { type: "radio", to: radioTarget, text };
+    if (await send(cmd)) setText("");
   };
   const stage = async () => {
     if (!name.trim() || !plate.trim()) return;
@@ -185,7 +188,8 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
     <div className="page">
       <Topbar>
         <span className="r-text r-text--dim">{race.name}</span>
-        <button className="r-btn" onClick={() => nav(`/race/${raceId}`)}>Timing</button>
+        <SessionSelect sessions={race.sessions} current={session.id} suffix="/steward" width={180} />
+        <button className="r-btn" onClick={() => nav(`/session/${raceId}`)}>Timing</button>
       </Topbar>
       <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
         {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended. Commands are disabled.</div>}
@@ -195,6 +199,9 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
             <div className="r-module__well r-module__well--bare">
               {live ? <div className="r-lamp r-lamp--fixed">LIVE</div> : <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>}
             </div>
+          </div>
+          <div className="r-module" style={{ width: 150 }}>
+            <SessionClockLcd session={session} offset={offset} />
           </div>
           <div className="r-module" style={{ width: 170 }}>
             <div className="r-header">Next release</div>
@@ -292,44 +299,7 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
 
           <div className="r-stack r-fill">
             <div className="r-panel r-fill" style={{ overflow: "auto" }}>
-              <table className="r-table">
-                <thead>
-                  <tr>
-                    <th className="is-left" style={{ width: 36 }}>P</th>
-                    <th className="is-left">Driver</th>
-                    <th className="is-left" style={{ width: 90 }}>Plate</th>
-                    <th className="is-left" style={{ width: 130 }}>Team</th>
-                    <th className="is-left" style={{ width: 90 }}>Status</th>
-                    <th style={{ width: 100 }}>Time</th>
-                    <th style={{ width: 90 }}>Pen</th>
-                    <th style={{ width: 100 }}>Final</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr
-                      key={r.id}
-                      className={r.id === selId ? "is-selected" : ""}
-                      style={{ cursor: "pointer" }}
-                      tabIndex={0}
-                      aria-selected={r.id === selId}
-                      onClick={() => setSelId(r.id)}
-                      onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && setSelId(r.id)}
-                    >
-                      <td className="is-left" style={{ color: "var(--r-teal)" }}>{r.rank ?? ""}</td>
-                      <td className="is-left">{r.name}</td>
-                      <td className="is-left" style={{ color: "var(--r-red)" }}>{r.plate}</td>
-                      <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.teamName ?? ""}</td>
-                      <td className="is-left" style={{ color: STATUS_COLOR[r.status] }}>{STATUS_TEXT[r.status]}</td>
-                      <td style={{ color: "var(--r-yellow)" }}>
-                        {r.status === "onstage" ? (r.startedAt! > now ? "" : fmtLive(now - r.startedAt!)) : r.rawMs != null ? fmtTime(r.rawMs) : ""}
-                      </td>
-                      <td className={r.penaltyMs ? "is-red" : ""}>{r.penaltyMs ? fmtPenalty(r.penaltyMs) : ""}</td>
-                      <td style={{ color: r.finalMs != null ? (r.finalMs === bestFinal ? "var(--r-magenta)" : "var(--r-green)") : undefined }}>{r.finalMs != null ? fmtTime(r.finalMs) : ""}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} />
             </div>
 
             <div className="r-row" style={{ height: 200, flex: "none" }}>
@@ -344,10 +314,13 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
                 </div>
                 <div className="r-header">Radio message</div>
                 <input className="r-field" style={{ width: "100%" }} aria-label="Radio message" maxLength={200} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && transmit()} />
-                <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
-                  <button className={`r-cell${to === "all" ? " is-on" : ""}`} aria-pressed={to === "all"} onClick={() => setTo("all")}>All drivers</button>
-                  <button className={`r-cell${to !== "all" ? " is-on" : ""}`} aria-pressed={to !== "all"} onClick={() => setDialog({ kind: "recipients" })}>
-                    {to === "all" ? "Selected" : `Selected (${radioTarget.length})`}
+                <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
+                  <button className={`r-cell${!teamTo && to === "all" ? " is-on" : ""}`} aria-pressed={!teamTo && to === "all"} onClick={() => { setTo("all"); setTeamTo(null); }}>All drivers</button>
+                  <button className={`r-cell${!teamTo && to !== "all" ? " is-on" : ""}`} aria-pressed={!teamTo && to !== "all"} onClick={() => setDialog({ kind: "recipients" })}>
+                    {to === "all" || teamTo ? "Drivers" : `Drivers (${radioTarget.length})`}
+                  </button>
+                  <button className={`r-cell${teamTo ? " is-on" : ""}`} aria-pressed={!!teamTo} onClick={() => setDialog({ kind: "teams" })}>
+                    {teamTo ? `Teams (${teamTarget?.length ?? 0})` : "Teams"}
                   </button>
                   <button className="r-cell" disabled={!canTransmit} onClick={transmit}>Transmit</button>
                 </div>
@@ -359,6 +332,9 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
                 <div className="r-log" style={{ flex: "1 1 0", minHeight: 0 }}>
                   {sel?.penalties.map((p, i) => (
                     <div className="r-log__line is-red" key={i}>{fmtPenalty(p.ms)} {p.name}</div>
+                  ))}
+                  {selNotes.map((n) => (
+                    <div className="r-log__line is-dim" key={n.id}>{n.text}</div>
                   ))}
                 </div>
                 <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
@@ -378,6 +354,13 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
                   )}
                   {sel?.status === "finished" && <button className="r-cell" onClick={() => setDialog({ kind: "penalty", runId: sel.id })}>Penalty</button>}
                 </div>
+                {sel && (
+                  <div className="r-grid" style={{ ["--cols" as string]: 1 }}>
+                    <button className="r-cell" onClick={() => setDialog({ kind: "notes", runId: sel.id })}>
+                      {selNotes.length ? `Notes (${selNotes.length})` : "Notes"}
+                    </button>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -395,10 +378,23 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
           onClose={closeDialog}
           onConfirm={(ids) => {
             setTo(ids);
+            setTeamTo(null);
             closeDialog();
           }}
         />
       )}
+      {dialog?.kind === "teams" && (
+        <TeamsDialog
+          teams={teams}
+          selected={teamTo ?? []}
+          onClose={closeDialog}
+          onConfirm={(ids) => {
+            setTeamTo(ids);
+            closeDialog();
+          }}
+        />
+      )}
+      {dialog?.kind === "notes" && dialogRun && <NotesDialog run={dialogRun} notes={state.notes} onClose={closeDialog} send={send} />}
       {dialog?.kind === "assign" && (
         <AssignDialog ts={dialog.ts} cars={onTrack.filter((r: Run) => r.startedAt! <= dialog.ts)} onClose={closeDialog} send={send} />
       )}

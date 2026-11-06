@@ -7,12 +7,18 @@ import {
   type Flag,
   type RaceState,
   type Run,
+  type Tone,
 } from "./race.ts";
 
 export type Command =
   | { type: "flag"; flag: Flag }
   | { type: "add"; name: string; plate: string; team?: { id: string; name: string } }
-  | { type: "teamRadio"; team: string; teamName: string; text: string }
+  | { type: "teamRadio"; team: string; teamName: string; text: string; to?: "team" | "stewards" }
+  | { type: "radioTeams"; teams: { id: string; name: string }[]; text: string }
+  | { type: "note"; runId: string; text: string }
+  | { type: "noteDel"; id: string }
+  | { type: "pitAdd"; team: string; teamName: string; fromMs: number; toMs: number; lengthMs: number }
+  | { type: "pitDel"; team: string; id: string }
   | { type: "remove"; runId: string }
   | { type: "move"; runId: string; dir: -1 | 1 }
   | { type: "go" }
@@ -45,12 +51,14 @@ const validSeconds = (n: unknown) => Number.isInteger(n) && (n as number) >= 0 &
 /** Pure reducer: applies one steward command. Never mutates the input state. */
 export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
   const s: RaceState = structuredClone(prev);
-  const note = (text: string, tone?: "green" | "yellow" | "red" | "magenta") => {
+  const note = (text: string, tone?: Tone) => {
     s.log.push({ at: ctx.now, actor: ctx.actor, text, tone });
     if (s.log.length > MAX_LOG) s.log.splice(0, s.log.length - MAX_LOG);
   };
-  const auto = (to: "all" | string[], text: string, say?: string) => {
-    s.radio.push({ id: ctx.newId(), at: ctx.now, to, text, say, from: "Race control", auto: true });
+  s.notes ??= [];
+  s.pitWindows ??= [];
+  const auto = (to: "all" | string[], text: string, say?: string, tone?: Tone) => {
+    s.radio.push({ id: ctx.newId(), at: ctx.now, to, text, say, from: "Race control", auto: true, tone });
   };
   const run = (id: string): Run | undefined => s.runs.find((r) => r.id === id);
   const recompute = (r: Run) => (r.penaltyMs = r.penalties.reduce((a, p) => a + p.ms, 0));
@@ -59,7 +67,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
   switch (cmd.type) {
     case "flag": {
       if (!["green", "yellow", "red"].includes(cmd.flag)) return { error: "invalid" };
-      if (s.flag !== cmd.flag) auto("all", `${cmd.flag[0].toUpperCase()}${cmd.flag.slice(1)} flag.`);
+      if (s.flag !== cmd.flag) auto("all", `${cmd.flag[0].toUpperCase()}${cmd.flag.slice(1)} flag.`, undefined, cmd.flag);
       s.flag = cmd.flag;
       note(`Flag ${cmd.flag}`, "yellow");
       break;
@@ -158,14 +166,14 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
         if (!rule) return { error: "not_found" };
         r.penalties.push({ ruleId: rule.id, name: rule.name, ms: rule.seconds * 1000 });
         recompute(r);
-        auto([r.id], `Penalty ${fmtPenalty(rule.seconds * 1000)}: ${rule.name}. Total penalties ${fmtPenalty(r.penaltyMs)}.`, `Penalty, ${rule.seconds} seconds, ${rule.name}. Total penalties ${r.penaltyMs / 1000} seconds.`);
+        auto([r.id], `Penalty ${fmtPenalty(rule.seconds * 1000)}: ${rule.name}. Total penalties ${fmtPenalty(r.penaltyMs)}.`, `Penalty, ${rule.seconds} seconds, ${rule.name}. Total penalties ${r.penaltyMs / 1000} seconds.`, "red");
         note(`${fmtPenalty(rule.seconds * 1000)} ${rule.name} to ${r.name}`, "red");
       } else {
         const idx = r.penalties.map((p) => p.ruleId).lastIndexOf(cmd.ruleId);
         if (idx < 0) return { error: "not_found" };
         const [p] = r.penalties.splice(idx, 1);
         recompute(r);
-        auto([r.id], `Penalty removed: ${p.name}. Total penalties ${fmtPenalty(r.penaltyMs)}.`, `Penalty removed, ${p.name}. Total penalties ${r.penaltyMs / 1000} seconds.`);
+        auto([r.id], `Penalty removed: ${p.name}. Total penalties ${fmtPenalty(r.penaltyMs)}.`, `Penalty removed, ${p.name}. Total penalties ${r.penaltyMs / 1000} seconds.`, "green");
         note(`Removed ${p.name} from ${r.name}`, "green");
       }
       break;
@@ -198,7 +206,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       if (cmd.to !== "all" && (!Array.isArray(cmd.to) || cmd.to.length === 0 || !cmd.to.every((id) => !!run(id)))) {
         return { error: "invalid" };
       }
-      s.radio.push({ id: ctx.newId(), at: ctx.now, to: cmd.to, text, from: ctx.actor });
+      s.radio.push({ id: ctx.newId(), at: ctx.now, to: cmd.to, text, from: ctx.actor, tone: "magenta" });
       note(`Radio to ${cmd.to === "all" ? "all drivers" : cmd.to.map((i) => run(i)!.name).join(", ")}: ${text}`, "magenta");
       if (s.radio.length > MAX_RADIO) s.radio.splice(0, s.radio.length - MAX_RADIO);
       break;
@@ -207,8 +215,50 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const text = clean(cmd.text, 200);
       const team = clean(cmd.team, 60);
       if (!text || !team) return { error: "invalid" };
-      s.radio.push({ id: ctx.newId(), at: ctx.now, to: "team", team, teamName: clean(cmd.teamName, 40), text, from: ctx.actor });
-      note(`Team radio, ${clean(cmd.teamName, 40) || team}: ${text}`, "magenta");
+      const teamName = clean(cmd.teamName, 40);
+      const toStewards = cmd.to === "stewards";
+      s.radio.push({ id: ctx.newId(), at: ctx.now, to: toStewards ? "stewards" : "team", team, teamName, text, from: ctx.actor, tone: "teal" });
+      note(`${toStewards ? "Team to stewards" : "Team radio"}, ${teamName || team}: ${text}`, "teal");
+      break;
+    }
+    case "radioTeams": {
+      const text = clean(cmd.text, 200);
+      const teams = Array.isArray(cmd.teams) ? cmd.teams.filter((t) => clean(t?.id, 60) && clean(t?.name, 40)) : [];
+      if (!text || !teams.length) return { error: "invalid" };
+      for (const t of teams) {
+        s.radio.push({ id: ctx.newId(), at: ctx.now, to: "team", team: clean(t.id, 60), teamName: clean(t.name, 40), text, from: ctx.actor, tone: "teal" });
+      }
+      note(`Radio to teams ${teams.map((t) => clean(t.name, 40)).join(", ")}: ${text}`, "teal");
+      break;
+    }
+    case "note": {
+      const r = run(cmd.runId);
+      const text = clean(cmd.text, 500);
+      if (!r) return { error: "not_found" };
+      if (!text) return { error: "invalid" };
+      s.notes.push({ id: ctx.newId(), at: ctx.now, by: ctx.actor, driver: r.name, text });
+      break;
+    }
+    case "noteDel": {
+      if (!s.notes.some((n) => n.id === cmd.id)) return { error: "not_found" };
+      s.notes = s.notes.filter((n) => n.id !== cmd.id);
+      break;
+    }
+    case "pitAdd": {
+      const team = clean(cmd.team, 60);
+      const { fromMs, toMs, lengthMs } = cmd;
+      if (!team || ![fromMs, toMs, lengthMs].every(Number.isFinite) || fromMs < 0 || toMs <= fromMs || toMs > lengthMs) return { error: "invalid" };
+      if (s.pitWindows.filter((w) => w.team === team).length >= 20) return { error: "too_many" };
+      s.pitWindows.push({ id: ctx.newId(), team, teamName: clean(cmd.teamName, 40), fromMs, toMs });
+      s.pitWindows.sort((a, b) => a.fromMs - b.fromMs);
+      note(`Pit window, ${clean(cmd.teamName, 40) || team}: ${fmtClockMs(fromMs)} to ${fmtClockMs(toMs)}`, "teal");
+      break;
+    }
+    case "pitDel": {
+      const w = s.pitWindows.find((x) => x.id === cmd.id && x.team === cmd.team);
+      if (!w) return { error: "not_found" };
+      s.pitWindows = s.pitWindows.filter((x) => x !== w);
+      note(`Pit window removed, ${w.teamName || w.team}: ${fmtClockMs(w.fromMs)} to ${fmtClockMs(w.toMs)}`, "teal");
       break;
     }
     case "reset": {
@@ -229,7 +279,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
 }
 
 /** Tell drivers what changed for them: their finish, a new position, a DNF. */
-function announceResults(prev: RaceState, next: RaceState, auto: (to: string[], text: string, say?: string) => void) {
+function announceResults(prev: RaceState, next: RaceState, auto: (to: string[], text: string, say?: string, tone?: Tone) => void) {
   const before = new Map(classify(prev.runs).map((r) => [r.id, r]));
   for (const r of classify(next.runs)) {
     const p = before.get(r.id);
@@ -237,11 +287,20 @@ function announceResults(prev: RaceState, next: RaceState, auto: (to: string[], 
     if (r.status === "finished" && p.status !== "finished" && r.rawMs != null && r.finalMs != null) {
       const pen = r.penaltyMs ? ` Penalties ${fmtPenalty(r.penaltyMs)}, final ${fmtTime(r.finalMs)}.` : "";
       const spokenPen = r.penaltyMs ? ` Penalties ${r.penaltyMs / 1000} seconds, final ${spokenTime(r.finalMs)}.` : "";
-      auto([r.id], `Finished. Time ${fmtTime(r.rawMs)}.${pen} Position P${r.rank}.`, `Finished. Time ${spokenTime(r.rawMs)}.${spokenPen} Position ${r.rank}.`);
+      auto([r.id], `Finished. Time ${fmtTime(r.rawMs)}.${pen} Position P${r.rank}.`, `Finished. Time ${spokenTime(r.rawMs)}.${spokenPen} Position ${r.rank}.`, "green");
     } else if (r.status === "finished" && p.status === "finished" && p.rank !== r.rank) {
-      auto([r.id], `Position now P${r.rank}.`, `Position now ${r.rank}.`);
+      auto([r.id], `Position now P${r.rank}.`, `Position now ${r.rank}.`, (r.rank ?? 0) < (p.rank ?? 0) ? "green" : "yellow");
     } else if (r.status === "dnf" && p.status !== "dnf") {
-      auto([r.id], "Did not finish.");
+      auto([r.id], "Did not finish.", undefined, "red");
     }
   }
+}
+
+/** h:mm:ss or mm:ss, from milliseconds. */
+function fmtClockMs(ms: number) {
+  const t = Math.floor(ms / 1000);
+  const h = Math.floor(t / 3600);
+  const m = Math.floor((t % 3600) / 60);
+  const sec = t % 60;
+  return `${h ? `${h}:` : ""}${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
 }

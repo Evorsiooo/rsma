@@ -1,4 +1,4 @@
-import type { AdminRace, AdminTeam, AdminUser, Me, RaceSummary, Role, SystemInfo, Team } from "../shared/types";
+import type { AdminRace, AdminTeam, AdminUser, Me, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
 import type { Command } from "../shared/commands";
 
 async function get<T>(path: string): Promise<T> {
@@ -12,13 +12,14 @@ export const api = {
   logout: () => fetch("/api/auth/logout", { method: "POST" }),
   health: () => get<{ ok: boolean }>("/api/health"),
   race: (id: string) => get<RaceSummary>(`/api/races/${id}`),
+  session: (id: string) => get<SessionInfo>(`/api/sessions/${id}`),
   races: () => get<RaceSummary[]>("/api/races"),
   pastRaces: () => get<RaceSummary[]>("/api/races/past"),
   teams: () => get<Team[]>("/api/teams"),
 };
 
 export async function sendCommand(raceId: string, cmd: Command): Promise<string | null> {
-  const res = await fetch(`/api/races/${raceId}/cmd`, {
+  const res = await fetch(`/api/sessions/${raceId}/cmd`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(cmd),
@@ -28,17 +29,17 @@ export async function sendCommand(raceId: string, cmd: Command): Promise<string 
   return body.error ?? "failed";
 }
 
-export async function sendTeamRadio(raceId: string, teamId: string, text: string): Promise<string | null> {
-  const res = await fetch(`/api/races/${raceId}/team/${teamId}/radio`, {
+export async function sendTeamRadio(raceId: string, teamId: string, text: string, to: "team" | "stewards" = "team"): Promise<string | null> {
+  const res = await fetch(`/api/sessions/${raceId}/team/${teamId}/radio`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ text, to }),
   });
   if (res.ok) return null;
   return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? "failed";
 }
 
-export const raceAccess = (id: string) => get<{ steward: boolean }>(`/api/races/${id}/access`);
+export const raceAccess = (id: string) => get<{ steward: boolean }>(`/api/sessions/${id}/access`);
 
 async function send(method: string, path: string, body?: unknown): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
   const res = await fetch(path, {
@@ -60,6 +61,12 @@ export const admin = {
     send("PATCH", `/api/admin/races/${id}`, patch),
   addSteward: (raceId: string, username: string) => send("POST", `/api/admin/races/${raceId}/stewards`, { username }),
   removeSteward: (raceId: string, userId: string) => send("DELETE", `/api/admin/races/${raceId}/stewards/${userId}`),
+  createSession: (raceId: string, s: { name: string; type: SessionType; startsAt: number; endsAt: number }) =>
+    send("POST", `/api/admin/races/${raceId}/sessions`, s),
+  patchSession: (id: string, patch: { name?: string; type?: SessionType; startsAt?: number; endsAt?: number }) =>
+    send("PATCH", `/api/admin/sessions/${id}`, patch),
+  deleteSession: (id: string) => send("DELETE", `/api/admin/sessions/${id}`),
+  moveSession: (id: string, dir: -1 | 1) => send("POST", `/api/admin/sessions/${id}/move`, { dir }),
   teams: () => get<AdminTeam[]>("/api/admin/teams"),
   createTeam: (name: string) => send("POST", "/api/admin/teams", { name }),
   deleteTeam: (id: string) => send("DELETE", `/api/admin/teams/${id}`),
@@ -67,3 +74,18 @@ export const admin = {
   removeMember: (teamId: string, userId: string) => send("DELETE", `/api/admin/teams/${teamId}/members/${userId}`),
   system: () => get<SystemInfo>("/api/admin/system"),
 };
+
+async function teamCall(method: string, path: string, body?: unknown): Promise<string | null> {
+  const res = await fetch(path, {
+    method,
+    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  if (res.ok) return null;
+  return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? "failed";
+}
+
+export const addPitWindow = (sessionId: string, teamId: string, fromMs: number, toMs: number) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/pit`, { fromMs, toMs });
+export const removePitWindow = (sessionId: string, teamId: string, windowId: string) =>
+  teamCall("DELETE", `/api/sessions/${sessionId}/team/${teamId}/pit/${windowId}`);

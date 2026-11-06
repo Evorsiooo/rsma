@@ -1,10 +1,10 @@
-import { Hono } from "hono";
-import type { RaceSummary } from "../shared/types";
+import { Hono, type Context } from "hono";
 import type { Me } from "../shared/types";
 import { auth, getMe, hasRole, type AuthEnv } from "./auth";
 import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE } from "./auth/session";
 import { admin } from "./admin";
+import { loadRaces, loadSession } from "./sessions";
 
 export { RaceDO } from "./race-do";
 
@@ -24,52 +24,30 @@ app.get("/api/health", async (c) => {
   return c.json({ ok: true });
 });
 
-const RACE_COLS = "id, name, expires_at AS expiresAt, (status = 'archived' OR expires_at <= ?1) AS ended";
-const asRace = (r: Omit<RaceSummary, "ended"> & { ended: number }): RaceSummary => ({ ...r, ended: !!r.ended });
-
 // Public: races that are active and not expired.
-app.get("/api/races", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT ${RACE_COLS} FROM races WHERE status = 'active' AND expires_at > ?1 ORDER BY expires_at ASC`,
-  )
-    .bind(Date.now())
-    .all<Omit<RaceSummary, "ended"> & { ended: number }>();
-  return c.json(results.map(asRace));
-});
+app.get("/api/races", async (c) => c.json(await loadRaces(c.env.DB, "WHERE status = 'active' AND expires_at > ?1 ORDER BY expires_at ASC")));
 
 // Public: archived or expired races, newest first. Their results stay readable.
-app.get("/api/races/past", async (c) => {
-  const { results } = await c.env.DB.prepare(
-    `SELECT ${RACE_COLS} FROM races WHERE status = 'archived' OR expires_at <= ?1 ORDER BY expires_at DESC LIMIT 50`,
-  )
-    .bind(Date.now())
-    .all<Omit<RaceSummary, "ended"> & { ended: number }>();
-  return c.json(results.map(asRace));
-});
-
-async function raceExists(db: D1Database, id: string) {
-  return db.prepare("SELECT 1 FROM races WHERE id = ?").bind(id).first();
-}
-
-async function raceEnded(db: D1Database, id: string) {
-  const row = await db
-    .prepare("SELECT (status = 'archived' OR expires_at <= ?) AS ended FROM races WHERE id = ?")
-    .bind(Date.now(), id)
-    .first<{ ended: number }>();
-  return row ? !!row.ended : null;
-}
+app.get("/api/races/past", async (c) =>
+  c.json(await loadRaces(c.env.DB, "WHERE status = 'archived' OR expires_at <= ?1 ORDER BY expires_at DESC LIMIT 50")),
+);
 
 app.get("/api/races/:id", async (c) => {
-  const row = await c.env.DB.prepare(`SELECT ${RACE_COLS} FROM races WHERE id = ?2`)
-    .bind(Date.now(), c.req.param("id"))
-    .first<Omit<RaceSummary, "ended"> & { ended: number }>();
-  return row ? c.json(asRace(row)) : c.json({ error: "not_found" }, 404);
+  const [race] = await loadRaces(c.env.DB, "WHERE id = ?2", c.req.param("id"));
+  return race ? c.json(race) : c.json({ error: "not_found" }, 404);
 });
 
-app.get("/api/races/:id/state", async (c) => {
+app.get("/api/sessions/:id", async (c) => {
+  const info = await loadSession(c.env.DB, c.req.param("id"));
+  return info ? c.json(info) : c.json({ error: "not_found" }, 404);
+});
+
+const doOf = (env: Env, sessionId: string) => env.RACE.get(env.RACE.idFromName(sessionId));
+
+app.get("/api/sessions/:id/state", async (c) => {
   const id = c.req.param("id");
-  if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
-  return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/state");
+  if (!(await loadSession(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
+  return doOf(c.env, id).fetch("http://do/state");
 });
 
 async function isRaceSteward(env: Env, me: Me | null, raceId: string) {
@@ -79,16 +57,17 @@ async function isRaceSteward(env: Env, me: Me | null, raceId: string) {
 }
 
 // Public live feed, or the staff feed (full state with audit log) for stewards.
-app.get("/api/races/:id/ws", async (c) => {
+app.get("/api/sessions/:id/ws", async (c) => {
   const id = c.req.param("id");
-  if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
+  const info = await loadSession(c.env.DB, id);
+  if (!info) return c.json({ error: "not_found" }, 404);
   const headers = new Headers(c.req.raw.headers);
   for (const h of ["x-staff", "x-user", "x-teams"]) headers.delete(h);
   if (c.req.query("staff") === "1" || c.req.query("auth") === "1") {
     const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
     if (!me) return c.json({ error: "unauthorized" }, 401);
     if (c.req.query("staff") === "1") {
-      if (!(await isRaceSteward(c.env, me, id))) return c.json({ error: "forbidden" }, 403);
+      if (!(await isRaceSteward(c.env, me, info.race.id))) return c.json({ error: "forbidden" }, 403);
       headers.set("x-staff", "1");
     } else {
       // Signed-in feed: own radio, plus the channels of the teams this user may open.
@@ -96,17 +75,18 @@ app.get("/api/races/:id/ws", async (c) => {
       headers.set("x-teams", me.teams.map((t) => t.id).join(","));
     }
   }
-  return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/ws", new Request(c.req.raw, { headers }));
+  return doOf(c.env, id).fetch("http://do/ws", new Request(c.req.raw, { headers }));
 });
 
 // Steward commands. The role check happens here; the Durable Object validates and applies.
-app.post("/api/races/:id/cmd", async (c) => {
+app.post("/api/sessions/:id/cmd", async (c) => {
   const id = c.req.param("id");
   const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
   if (!me) return c.json({ error: "unauthorized" }, 401);
-  if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
-  if (!(await isRaceSteward(c.env, me, id))) return c.json({ error: "forbidden" }, 403);
-  if (await raceEnded(c.env.DB, id)) return c.json({ error: "race_ended" }, 409);
+  const info = await loadSession(c.env.DB, id);
+  if (!info) return c.json({ error: "not_found" }, 404);
+  if (!(await isRaceSteward(c.env, me, info.race.id))) return c.json({ error: "forbidden" }, 403);
+  if (info.race.ended) return c.json({ error: "race_ended" }, 409);
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
   if (cmd.type === "add" && cmd.team != null) {
@@ -115,7 +95,12 @@ app.post("/api/races/:id/cmd", async (c) => {
     if (!team) return c.json({ error: "invalid" }, 400);
     cmd.team = team;
   }
-  return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/cmd", {
+  if (cmd.type === "radioTeams") {
+    const ids: unknown[] = Array.isArray(cmd.teams) ? cmd.teams.map((t: { id?: unknown }) => t?.id) : [];
+    const known = (await c.env.DB.prepare("SELECT id, name FROM teams ORDER BY lower(name)").all<{ id: string; name: string }>()).results;
+    cmd.teams = known.filter((t) => ids.includes(t.id));
+  }
+  return doOf(c.env, id).fetch("http://do/cmd", {
     method: "POST",
     body: JSON.stringify({ cmd, actor: me.username }),
   });
@@ -130,27 +115,57 @@ app.get("/api/teams", async (c) => {
 });
 
 // Team radio: members of the team send to their own channel. Stewards see it in the staff feed.
-app.post("/api/races/:id/team/:teamId/radio", async (c) => {
+app.post("/api/sessions/:id/team/:teamId/radio", async (c) => {
   const id = c.req.param("id");
   const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
   if (!me) return c.json({ error: "unauthorized" }, 401);
   const team = me.teams.find((t) => t.id === c.req.param("teamId"));
   if (!team) return c.json({ error: "forbidden" }, 403);
-  if (!(await raceExists(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
-  if (await raceEnded(c.env.DB, id)) return c.json({ error: "race_ended" }, 409);
-  const body = (await c.req.json().catch(() => ({}))) as { text?: unknown };
+  const info = await loadSession(c.env.DB, id);
+  if (!info) return c.json({ error: "not_found" }, 404);
+  if (info.race.ended) return c.json({ error: "race_ended" }, 409);
+  const body = (await c.req.json().catch(() => ({}))) as { text?: unknown; to?: unknown };
   if (typeof body.text !== "string") return c.json({ error: "invalid" }, 400);
-  return c.env.RACE.get(c.env.RACE.idFromName(id)).fetch("http://do/cmd", {
+  const to = body.to === "stewards" ? "stewards" : "team";
+  return doOf(c.env, id).fetch("http://do/cmd", {
     method: "POST",
-    body: JSON.stringify({ cmd: { type: "teamRadio", team: team.id, teamName: team.name, text: body.text }, actor: me.username }),
+    body: JSON.stringify({ cmd: { type: "teamRadio", team: team.id, teamName: team.name, text: body.text, to }, actor: me.username }),
   });
 });
 
-// Whether the signed-in user may steward this race (drives the UI gate; the API checks again).
-app.get("/api/races/:id/access", async (c) => {
-  const id = c.req.param("id");
+// Pit windows: a team plans them for its own cars, in time from the session start.
+async function teamSession(c: Context<{ Bindings: Env }>) {
   const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
-  return c.json({ steward: await isRaceSteward(c.env, me, id) });
+  if (!me) return { error: c.json({ error: "unauthorized" }, 401) };
+  const team = me.teams.find((t) => t.id === c.req.param("teamId"));
+  if (!team) return { error: c.json({ error: "forbidden" }, 403) };
+  const id = c.req.param("id") ?? "";
+  const info = await loadSession(c.env.DB, id);
+  if (!info) return { error: c.json({ error: "not_found" }, 404) };
+  if (info.race.ended) return { error: c.json({ error: "race_ended" }, 409) };
+  return { me, team, id, info };
+}
+
+app.post("/api/sessions/:id/team/:teamId/pit", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  const body = (await c.req.json().catch(() => ({}))) as { fromMs?: unknown; toMs?: unknown };
+  const cmd = { type: "pitAdd", team: r.team.id, teamName: r.team.name, fromMs: Number(body.fromMs), toMs: Number(body.toMs), lengthMs: r.info.session.endsAt - r.info.session.startsAt };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+app.delete("/api/sessions/:id/team/:teamId/pit/:wid", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  const cmd = { type: "pitDel", team: r.team.id, id: c.req.param("wid") };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+// Whether the signed-in user may steward this race (drives the UI gate; the API checks again).
+app.get("/api/sessions/:id/access", async (c) => {
+  const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
+  const info = await loadSession(c.env.DB, c.req.param("id"));
+  return c.json({ steward: !!info && (await isRaceSteward(c.env, me, info.race.id)) });
 });
 
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));

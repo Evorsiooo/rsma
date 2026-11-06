@@ -11,6 +11,7 @@ import { StewardPage } from "./steward/StewardPage";
 import { AdminPage } from "./admin/AdminPage";
 import { TeamPage } from "./TeamPage";
 import { NotFound } from "./NotFound";
+import { RaceRedirect } from "./RaceRedirect";
 
 export function App() {
   const [data, setData] = useState<BootData | null>(null);
@@ -28,10 +29,11 @@ export function App() {
     <MeContext.Provider value={{ me, setMe }}>
       <Routes>
         <Route path="/" element={<Home races={data.races} />} />
-        <Route path="/race/:id" element={<RacePage />} />
-        <Route path="/race/:id/driver" element={<DriverPage />} />
-        <Route path="/race/:id/steward" element={<StewardPage />} />
-        <Route path="/race/:id/team/:teamId" element={<TeamPage />} />
+        <Route path="/race/:id" element={<RaceRedirect />} />
+        <Route path="/session/:id" element={<RacePage />} />
+        <Route path="/session/:id/driver" element={<DriverPage />} />
+        <Route path="/session/:id/steward" element={<StewardPage />} />
+        <Route path="/session/:id/team/:teamId" element={<TeamPage />} />
         <Route path="/admin" element={<AdminPage />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
