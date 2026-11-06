@@ -16,3 +16,10 @@ a { color: inherit; }
 .r-scale{position:relative;height:22px;border-top:1px solid var(--r-text-dim);margin-bottom:2px}
 .r-scale__tick{position:absolute;top:0;padding-top:4px;border-left:1px solid var(--r-text-dim);padding-left:2px;color:var(--r-text-dim);font:400 var(--r-size-pixel)/1 var(--r-font-pixel);white-space:nowrap}
 .r-scale__tick:last-child{transform:translateX(-100%);border-left:0;border-right:1px solid var(--r-text-dim);padding-left:0;padding-right:2px}
+
+/* Big answer buttons on the driver radio. */
+.r-btn--answer{height:64px;padding:0 8px;line-height:1.2;white-space:normal}
+.r-btn--answer.is-yes{background:var(--r-green);color:#000}
+.r-btn--answer.is-no{background:var(--r-red);color:#000}
+.r-select--bar>select{height:30px}
+.r-select--bar::after{top:12px}

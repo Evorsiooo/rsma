@@ -48,12 +48,12 @@ export function Topbar({ children }: { children?: ReactNode }) {
 }
 
 /** Page shell for public pages: top bar, scrolling body, footer status line. */
-export function Shell({ children }: { children: ReactNode }) {
+export function Shell({ children, wide }: { children: ReactNode; wide?: boolean }) {
   return (
     <div className="page">
       <Topbar />
       <div className="page__body">
-        <div className="page__col">{children}</div>
+        <div className={`page__col${wide ? " page__col--wide" : ""}`}>{children}</div>
       </div>
       <div className="r-statusbar">
         <a href="https://discord.gg/29TEDUnRR7" target="_blank" rel="noreferrer">

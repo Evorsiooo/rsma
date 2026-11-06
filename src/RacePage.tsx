@@ -33,7 +33,7 @@ export function RacePage() {
   const rows = state ? classify(state.runs) : [];
 
   return (
-    <Shell>
+    <Shell wide>
       <div className="r-row" style={{ alignItems: "center" }}>
         {race?.ended ? (
           <div className="r-banner r-fill">Race ended</div>
@@ -47,7 +47,7 @@ export function RacePage() {
             {cd.phase === "ended" ? "Session ended" : `${cd.label} ${cd.value}`}
           </div>
         )}
-        {info && <SessionSelect sessions={info.race.sessions} current={info.session.id} />}
+        {info && <SessionSelect sessions={info.race.sessions} current={info.session.id} bar />}
         {!race?.ended && <button
           className="r-btn"
           onClick={() => window.open(`/session/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}

@@ -37,7 +37,15 @@ export interface Me {
   teams: Team[];
 }
 
+export type TeamKind = "factory" | "customer";
+
 export interface AdminTeam extends Team {
+  kind: TeamKind;
+  /** Factory teams: their car. */
+  car: string | null;
+  /** Customer teams: the factory team whose car they run. */
+  factoryId: string | null;
+  factoryName: string | null;
   members: { id: string; username: string }[];
 }
 

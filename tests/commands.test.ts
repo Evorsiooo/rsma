@@ -202,3 +202,76 @@ test("self-timed: a team starts and stops only its own cars, and times can be de
   s = run(s, { type: "delRun", runId: s.runs[1].id }, 33000);
   assert.equal(s.runs.length, 1);
 });
+
+test("team asks a driver, the driver answers, and chat reaches the team", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Ann", plate: "a-1", team: { id: "t1", name: "Red" } }, 0);
+  s = run(s, { type: "add", name: "bob", plate: "b-1", team: { id: "t2", name: "Blue" } }, 0);
+  assert.equal(fails(s, { type: "ask", team: "t2", teamName: "Blue", driver: "ann", text: "Box?" }, 10), "invalid"); // not their driver
+  assert.equal(fails(s, { type: "ask", team: "t1", teamName: "Red", driver: "ann", text: "Box?", options: ["one"] }, 10), "invalid");
+  s = run(s, { type: "ask", team: "t1", teamName: "Red", driver: "ann", text: "Box?" }, 10);
+  const q = s.radio[0];
+  assert.deepEqual(q.ask?.options, ["Yes", "No"]);
+  assert.ok(viewFor(s, { staff: false, user: "ann", teams: [] }).radio.some((m) => m.id === q.id));
+  assert.ok(!viewFor(s, { staff: false, user: "bob", teams: [] }).radio.some((m) => m.id === q.id));
+  assert.equal(applyCommand(s, { type: "answer", msgId: q.id, index: 0 }, { ...ctx(20), actor: "bob" }).hasOwnProperty("error"), true);
+  const r = applyCommand(s, { type: "answer", msgId: q.id, index: 1 }, { ...ctx(20), actor: "Ann" });
+  assert.ok("state" in r);
+  s = r.state;
+  assert.equal(s.radio[0].ask?.answered?.index, 1);
+  assert.equal(s.radio[1].tone, "red");
+  assert.ok(viewFor(s, { staff: false, teams: ["t1"], user: "x" }).radio.some((m) => m.to === "team"));
+  const c = applyCommand(s, { type: "driverRadio", text: "Tyres gone" }, { ...ctx(30), actor: "ann" });
+  assert.ok("state" in c && c.state.radio.at(-1)?.team === "t1");
+  assert.ok("error" in applyCommand(s, { type: "driverRadio", text: "hi" }, { ...ctx(30), actor: "nobody" }));
+});
+
+test("a team reorders only its own queued cars; cars carry the team's car", () => {
+  let s = emptyState();
+  const red = { id: "t1", name: "Red", car: "GT3" };
+  s = run(s, { type: "add", name: "r1", plate: "r-1", team: red }, 0);
+  s = run(s, { type: "add", name: "b1", plate: "b-1", team: { id: "t2", name: "Blue" } }, 0);
+  s = run(s, { type: "add", name: "r2", plate: "r-2", team: red }, 0);
+  assert.equal(s.runs[0].car, "GT3");
+  assert.equal(s.runs[1].car, undefined);
+  s = run(s, { type: "teamMove", team: "t1", runId: s.runs[2].id, dir: -1 }, 1);
+  assert.deepEqual(s.runs.map((r) => r.name), ["r2", "b1", "r1"]);
+  assert.equal(fails(s, { type: "teamMove", team: "t1", runId: s.runs[1].id, dir: 1 }, 2), "not_found"); // Blue's car
+  assert.equal(fails(s, { type: "teamMove", team: "t1", runId: s.runs[0].id, dir: -1 }, 2), "invalid"); // already first
+});
+
+test("attribute, unattribute and set times, with the team limits", () => {
+  let s = emptyState();
+  const red = { id: "t1", name: "Red" };
+  s = run(s, { type: "add", name: "d1", plate: "a-1", team: red }, 0);
+  s = run(s, { type: "add", name: "d2", plate: "a-2", team: red }, 0);
+  s = run(s, { type: "add", name: "x", plate: "b-1", team: { id: "t2", name: "Blue" } }, 0);
+  s = run(s, { type: "teamGo", team: "t1" }, 1000); // d1 starts at 4000
+  s = run(s, { type: "teamGo", team: "t1" }, 2000); // d2 starts at 5000
+  s = run(s, { type: "teamFinish", team: "t1" }, 30000); // stops d1 (oldest) by mistake: 26 s
+  const d1 = s.runs[0];
+  const d2 = s.runs[1];
+  assert.equal(d1.rawMs, 26000);
+  // the stop was really d2 passing: move the time to d2
+  assert.equal(fails(s, { type: "reattribute", fromRunId: d1.id, runId: d2.id, team: "t2" }, 31000), "not_found");
+  s = run(s, { type: "reattribute", fromRunId: d1.id, runId: d2.id, team: "t1" }, 31000);
+  assert.equal(s.runs[0].status, "onstage");
+  assert.equal(s.runs[1].rawMs, 25000);
+  // or the stop was nobody's: remove it, then attribute it to d1 again
+  s = run(s, { type: "unattribute", runId: d2.id, team: "t1" }, 32000);
+  assert.deepEqual(s.pending, [30000]);
+  assert.equal(fails(s, { type: "assign", ts: 30000, runId: d1.id, team: "t2" }, 33000), "forbidden");
+  s = run(s, { type: "assign", ts: 30000, runId: d1.id, team: "t1" }, 33000);
+  assert.equal(s.runs[0].rawMs, 26000);
+  assert.deepEqual(s.pending, []);
+  // DNF and manual times, own cars only
+  assert.equal(fails(s, { type: "dnf", runId: s.runs[2].id, team: "t1" }, 34000), "not_found");
+  s = run(s, { type: "dnf", runId: d2.id, team: "t1" }, 34000);
+  assert.equal(s.runs[1].status, "dnf");
+  assert.equal(fails(s, { type: "setTime", runId: d2.id, ms: 5, team: "t1" }, 35000), "invalid");
+  s = run(s, { type: "setTime", runId: d2.id, ms: 83456, team: "t1" }, 35000);
+  assert.equal(s.runs[1].status, "finished");
+  assert.equal(s.runs[1].rawMs, 83456);
+  s = run(s, { type: "setTime", runId: s.runs[2].id, ms: 90000 }, 36000); // a steward, queued car
+  assert.equal(s.runs[2].status, "finished");
+});

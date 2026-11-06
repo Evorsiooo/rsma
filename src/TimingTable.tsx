@@ -29,6 +29,7 @@ export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine }: Pro
           <th className="is-left">Driver</th>
           <th className="is-left" style={{ width: 90 }}>Plate</th>
           <th className="is-left" style={{ width: 130 }}>Team</th>
+          <th className="is-left" style={{ width: 130 }}>Car</th>
           <th className="is-left" style={{ width: 90 }}>Status</th>
           <th style={{ width: 100 }}>Time</th>
           <th style={{ width: 90 }}>Pen</th>
@@ -50,6 +51,7 @@ export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine }: Pro
             <td className="is-left" style={mine?.(r) ? { color: "var(--r-teal)" } : undefined}>{r.name}</td>
             <td className="is-left" style={{ color: "var(--r-red)" }}>{r.plate}</td>
             <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.teamName ?? ""}</td>
+            <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.car ?? ""}</td>
             <td className="is-left" style={{ color: STATUS_COLOR[r.status] }}>{STATUS_TEXT[r.status]}</td>
             <td style={{ color: "var(--r-yellow)" }}>
               {r.status === "onstage" ? (r.startedAt! > now ? "" : fmtLive(now - r.startedAt!)) : r.rawMs != null ? fmtTime(r.rawMs) : ""}

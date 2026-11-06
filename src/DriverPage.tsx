@@ -2,11 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { classify, fmtPenalty, fmtTime, type Flag, type Run } from "../shared/race";
 import type { SessionInfo } from "../shared/types";
-import { api } from "./api";
+import { answerAsk, api, driverRadio } from "./api";
 import { enableAudio, setVolume, speak, startBeeps } from "./audio";
 import { NotFound } from "./NotFound";
 import { useMe } from "./me";
-import { sessionCountdown, useClock } from "./ui";
+import { Dialog, sessionCountdown, toast, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
 
 const FLAG: Record<Flag, { label: string; tone: string }> = {
@@ -53,6 +53,8 @@ export function DriverPage() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURI] = useState(() => store.get("voice") ?? "");
   const [rx, setRx] = useState(false);
+  const [settings, setSettings] = useState(false);
+  const [chat, setChat] = useState("");
 
   useEffect(() => {
     api.session(id).then(setInfo, () => setInfo(null));
@@ -123,6 +125,15 @@ export function DriverPage() {
         </div>
       </div>
     );
+  const hasTeam = !!state?.runs.some((r) => r.team && r.name.toLowerCase() === name.toLowerCase());
+  const questions = messages.filter((m) => m.ask && !m.ask.answered);
+  const sendChat = async () => {
+    const t = chat.trim();
+    if (!t) return;
+    const err = await driverRadio(id, t);
+    if (err) toast(err === "no_team" ? "Messages need a team." : "Message not sent.");
+    else setChat("");
+  };
   const queuePos = me?.status === "queued" ? state!.runs.filter((r) => r.status === "queued").indexOf(me) + 1 : 0;
   const myRank = me?.status === "finished" ? classify(state!.runs).find((r) => r.id === me.id)?.rank : undefined;
   const status = me ? { queued: `Queued, #${queuePos}`, onstage: "On stage", finished: `Finished, P${myRank}`, dnf: "DNF" }[me.status] : "";
@@ -135,6 +146,11 @@ export function DriverPage() {
         </div>
         {live ? <div className="r-lamp r-lamp--fixed">LIVE</div> : <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>}
         <div className={`r-lamp r-lamp--fixed${rx ? "" : " is-off"}`}>RX</div>
+        <button className="r-btn r-btn--icon" aria-label="Settings" title="Settings" style={{ width: 30, padding: 0 }} onClick={() => setSettings(true)}>
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor" style={{ display: "block", margin: "auto" }}>
+            <path d="M6 0h4v2h2v1h1v2h2v4h-2v1h-1v2h-2v1h-2v2H6v-2H4v-1H3v-2H1V5h2V4h1V2h2zM8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" fillRule="evenodd" />
+          </svg>
+        </button>
       </div>
 
       {info && !info.race.ended && (
@@ -182,6 +198,29 @@ export function DriverPage() {
         )}
       </div>
 
+      {questions.map((m) => (
+        <div className="r-panel" key={m.id}>
+          <div className="r-header">{m.teamName ? `Question, ${m.teamName}` : "Question"}</div>
+          <div className="r-stack" style={{ padding: 4, background: "var(--r-chrome)" }}>
+            <div className="r-text">{m.text}</div>
+            <div className="r-grid" style={{ ["--cols" as string]: m.ask!.yesNo ? 2 : 1 }}>
+              {m.ask!.options.map((o, i) => (
+                <button
+                  key={i}
+                  className={`r-btn r-btn--answer${m.ask!.yesNo ? (i === 0 ? " is-yes" : " is-no") : ""}`}
+                  onClick={async () => {
+                    const err = await answerAsk(id, m.id, i);
+                    if (err) toast(err === "answered" ? "Already answered." : "Answer not sent.");
+                  }}
+                >
+                  {o}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+
       <div className="r-panel r-fill" style={{ display: "flex", flexDirection: "column", minHeight: 120 }}>
         <div className="r-header">Radio</div>
         <div className="r-log r-log--wrap r-fill" ref={transcript}>
@@ -189,11 +228,17 @@ export function DriverPage() {
             <div className={`r-log__line${m.tone ? ` is-${m.tone}` : ""}`} key={m.id}>{hhmm(m.at)} {m.text}</div>
           ))}
         </div>
+        {hasTeam && (
+          <div className="r-row" style={{ padding: 4 }}>
+            <input className="r-field r-fill" aria-label="Message to team" maxLength={200} value={chat} onChange={(e) => setChat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendChat()} />
+            <button className="r-btn" style={{ width: 90 }} disabled={!chat.trim()} onClick={sendChat}>Send</button>
+          </div>
+        )}
       </div>
 
-      <div className="r-panel">
-        <div className="r-header">Audio</div>
-        <div className="r-stack" style={{ padding: 4, background: "var(--r-chrome)" }}>
+      {settings && (
+        <Dialog title="Audio" size="s" onClose={() => setSettings(false)} foot={<button className="r-btn" onClick={() => setSettings(false)}>Close</button>}>
+        <div className="r-stack">
           <div className="r-form-field">
             <span className="r-label">Volume {vol}%</span>
             <input
@@ -232,7 +277,8 @@ export function DriverPage() {
             <button className="r-btn" disabled={!audioOn} onClick={() => say("Radio check.")}>Test voice</button>
           </div>
         </div>
-      </div>
+        </Dialog>
+      )}
     </div>
   );
 }

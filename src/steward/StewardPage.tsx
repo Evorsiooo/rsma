@@ -12,7 +12,7 @@ import { Topbar } from "../Shell";
 import { SessionSelect } from "../SessionSelect";
 import { fmtLive, sessionCountdown, toast, useClock, useNow } from "../ui";
 import { useRaceLive } from "../useRaceLive";
-import { AssignDialog, ConfirmDelete, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, RulesDialog, TeamsDialog } from "./Dialogs";
+import { AssignDialog, AttributeDialog, ConfirmDelete, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, RulesDialog, SetTimeDialog, TeamsDialog } from "./Dialogs";
 
 const ERRORS: Record<string, string> = {
   not_queued: "Only queued drivers can be removed.",
@@ -37,6 +37,8 @@ type DialogState =
   | { kind: "penalty"; runId: string }
   | { kind: "dnf"; runId: string }
   | { kind: "delete"; runId: string }
+  | { kind: "attribute"; runId: string }
+  | { kind: "setTime"; runId: string }
   | { kind: "assign"; ts: number };
 
 const PRESETS = [15, 30, 45, 60];
@@ -309,7 +311,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
               <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} />
             </div>
 
-            <div className="r-row" style={{ height: 200, flex: "none" }}>
+            <div className="r-row" style={{ height: 270, flex: "none" }}>
               <div className="r-panel r-fill">
                 <div className="r-header">Race log</div>
                 <div className="r-log r-log--wrap" ref={logRef} style={{ flex: "1 1 0", minHeight: 0 }}>
@@ -333,7 +335,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                 </div>
               </div>
 
-              <div className="r-panel" style={{ width: 220 }}>
+              <div className="r-panel" style={{ width: 340 }}>
                 <div className="r-header">Selected car</div>
                 <div className="r-log r-log--title">{sel ? `${sel.name}  ${sel.plate}` : ""}</div>
                 <div className="r-log" style={{ flex: "1 1 0", minHeight: 0 }}>
@@ -344,31 +346,32 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                     <div className="r-log__line is-dim" key={n.id}>{n.text}</div>
                   ))}
                 </div>
-                <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
-                  {sel?.status === "queued" && (
-                    <>
-                      <button className="r-cell" disabled={selIndex === 0} onClick={() => send({ type: "move", runId: sel.id, dir: -1 })}>Up</button>
-                      <button className="r-cell" disabled={selIndex === queued.length - 1} onClick={() => send({ type: "move", runId: sel.id, dir: 1 })}>Down</button>
-                      <button className="r-cell r-cell--red" onClick={() => send({ type: "remove", runId: sel.id })}>Remove</button>
-                    </>
-                  )}
-                  {sel?.status === "onstage" && (
-                    <>
-                      <button className="r-cell" onClick={() => setDialog({ kind: "penalty", runId: sel.id })}>Penalty</button>
-                      <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "dnf", runId: sel.id })}>DNF</button>
-                      <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => send({ type: "finish", runId: sel.id })}>Finish</button>
-                    </>
-                  )}
-                  {sel?.status === "finished" && (
-                    <>
-                      <button className="r-cell" onClick={() => setDialog({ kind: "penalty", runId: sel.id })}>Penalty</button>
-                      <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "delete", runId: sel.id })}>Delete time</button>
-                    </>
-                  )}
-                  {sel?.status === "dnf" && <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "delete", runId: sel.id })}>Delete time</button>}
-                </div>
                 {sel && (
-                  <div className="r-grid" style={{ ["--cols" as string]: 1 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                    {sel.status === "queued" && (
+                      <>
+                        <button className="r-cell" disabled={selIndex === 0} onClick={() => send({ type: "move", runId: sel.id, dir: -1 })}>Up</button>
+                        <button className="r-cell" disabled={selIndex === queued.length - 1} onClick={() => send({ type: "move", runId: sel.id, dir: 1 })}>Down</button>
+                        <button className="r-cell r-cell--red" onClick={() => send({ type: "remove", runId: sel.id })}>Remove</button>
+                      </>
+                    )}
+                    {sel.status === "onstage" && (
+                      <>
+                        <button className="r-cell" onClick={() => setDialog({ kind: "penalty", runId: sel.id })}>Penalty</button>
+                        <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "dnf", runId: sel.id })}>DNF</button>
+                        <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => send({ type: "finish", runId: sel.id })}>Finish</button>
+                        <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => setDialog({ kind: "attribute", runId: sel.id })}>Attribute time</button>
+                      </>
+                    )}
+                    {sel.status === "finished" && (
+                      <>
+                        <button className="r-cell" onClick={() => setDialog({ kind: "penalty", runId: sel.id })}>Penalty</button>
+                        {sel.startedAt != null && <button className="r-cell" onClick={() => send({ type: "unattribute", runId: sel.id })}>Remove time</button>}
+                        <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "delete", runId: sel.id })}>Delete run</button>
+                      </>
+                    )}
+                    {sel.status === "dnf" && <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "delete", runId: sel.id })}>Delete run</button>}
+                    <button className="r-cell" onClick={() => setDialog({ kind: "setTime", runId: sel.id })}>Set time</button>
                     <button className="r-cell" onClick={() => setDialog({ kind: "notes", runId: sel.id })}>
                       {selNotes.length ? `Notes (${selNotes.length})` : "Notes"}
                     </button>
@@ -383,6 +386,8 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
       {dialog?.kind === "reset" && <ConfirmReset onClose={closeDialog} send={send} />}
       {dialog?.kind === "rules" && <RulesDialog state={state} onClose={closeDialog} send={send} />}
       {dialog?.kind === "penalty" && dialogRun && <PenaltyDialog run={dialogRun} state={state} onClose={closeDialog} send={send} />}
+      {dialog?.kind === "attribute" && dialogRun && <AttributeDialog run={dialogRun} state={state} onClose={closeDialog} send={send} />}
+      {dialog?.kind === "setTime" && dialogRun && <SetTimeDialog run={dialogRun} onClose={closeDialog} send={send} />}
       {dialog?.kind === "delete" && dialogRun && <ConfirmDelete run={dialogRun} onClose={closeDialog} send={send} />}
       {dialog?.kind === "dnf" && dialogRun && <ConfirmDnf run={dialogRun} onClose={closeDialog} send={send} />}
       {dialog?.kind === "recipients" && (

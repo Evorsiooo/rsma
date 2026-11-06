@@ -12,8 +12,12 @@ import {
 
 export type Command =
   | { type: "flag"; flag: Flag }
-  | { type: "add"; name: string; plate: string; team?: { id: string; name: string } }
+  | { type: "add"; name: string; plate: string; team?: { id: string; name: string; car?: string } }
+  | { type: "teamMove"; team: string; runId: string; dir: -1 | 1 }
   | { type: "teamRadio"; team: string; teamName: string; text: string; to?: "team" | "stewards" }
+  | { type: "ask"; team: string; teamName: string; driver: string; text: string; options?: string[] }
+  | { type: "answer"; msgId: string; index: number }
+  | { type: "driverRadio"; text: string }
   | { type: "radioTeams"; teams: { id: string; name: string }[]; text: string }
   | { type: "note"; runId: string; text: string }
   | { type: "noteDel"; id: string }
@@ -27,9 +31,12 @@ export type Command =
   | { type: "delRun"; runId: string }
   | { type: "cadence"; sec: number }
   | { type: "finish"; runId?: string }
-  | { type: "assign"; ts: number; runId: string }
+  | { type: "assign"; ts: number; runId: string; team?: string }
+  | { type: "unattribute"; runId: string; team?: string }
+  | { type: "reattribute"; fromRunId: string; runId: string; team?: string }
+  | { type: "setTime"; runId: string; ms: number; team?: string }
   | { type: "discard"; ts: number }
-  | { type: "dnf"; runId: string }
+  | { type: "dnf"; runId: string; team?: string }
   | { type: "penalty"; runId: string; ruleId: string; delta: 1 | -1 }
   | { type: "ruleAdd"; name: string; seconds: number }
   | { type: "ruleSet"; id: string; seconds: number }
@@ -80,7 +87,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const plate = clean(cmd.plate, 12).toUpperCase();
       if (!name || !plate) return { error: "invalid" };
       const team = cmd.team && clean(cmd.team.id, 60) && clean(cmd.team.name, 40) ? { id: clean(cmd.team.id, 60), name: clean(cmd.team.name, 40) } : undefined;
-      s.runs.push({ id: ctx.newId(), name, plate, status: "queued", penalties: [], penaltyMs: 0, team: team?.id, teamName: team?.name });
+      s.runs.push({ id: ctx.newId(), name, plate, status: "queued", penalties: [], penaltyMs: 0, team: team?.id, teamName: team?.name, car: team ? clean(cmd.team?.car, 40) || undefined : undefined });
       note(`Staged ${name} (${plate})${team ? `, ${team.name}` : ""}`);
       break;
     }
@@ -110,6 +117,70 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       next.startedAt = ctx.now + COUNTDOWN_MS;
       s.lastReleaseAt = ctx.now;
       note(`Released ${next.name}`);
+      break;
+    }
+    case "ask": {
+      const text = clean(cmd.text, 200);
+      const team = clean(cmd.team, 60);
+      const driver = clean(cmd.driver, 40).toLowerCase();
+      const mine = s.runs.filter((r) => r.team === team && r.name.toLowerCase() === driver);
+      const target = mine.find((r) => r.status === "onstage") ?? mine.find((r) => r.status === "queued") ?? mine[mine.length - 1];
+      if (!text || !target) return { error: "invalid" };
+      const options = Array.isArray(cmd.options) ? cmd.options.map((o) => clean(o, 40)).filter(Boolean).slice(0, 4) : [];
+      if (Array.isArray(cmd.options) && cmd.options.length > 0 && options.length < 2) return { error: "invalid" };
+      const yesNo = options.length === 0;
+      const opts = yesNo ? ["Yes", "No"] : options;
+      const say = yesNo ? text : `${text} ${opts.map((o, i) => `Option ${i + 1}: ${o}.`).join(" ")}`;
+      s.radio.push({ id: ctx.newId(), at: ctx.now, to: [target.id], team, teamName: clean(cmd.teamName, 40), text, say, from: ctx.actor, ask: { options: opts, yesNo } });
+      if (s.radio.length > MAX_RADIO) s.radio.splice(0, s.radio.length - MAX_RADIO);
+      note(`Question to ${target.name}, ${clean(cmd.teamName, 40) || team}: ${text}`, "teal");
+      break;
+    }
+    case "answer": {
+      const m = s.radio.find((x) => x.id === cmd.msgId && x.ask);
+      if (!m || !m.ask || !Array.isArray(m.to)) return { error: "not_found" };
+      if (!s.runs.some((r) => (m.to as string[]).includes(r.id) && r.name.toLowerCase() === ctx.actor.toLowerCase())) return { error: "forbidden" };
+      if (m.ask.answered) return { error: "answered" };
+      if (!Number.isInteger(cmd.index) || cmd.index < 0 || cmd.index >= m.ask.options.length) return { error: "invalid" };
+      m.ask.answered = { index: cmd.index, at: ctx.now };
+      const label = m.ask.options[cmd.index];
+      s.radio.push({
+        id: ctx.newId(),
+        at: ctx.now,
+        to: "team",
+        team: m.team,
+        teamName: m.teamName,
+        text: `${label}, to "${m.text}"`,
+        from: ctx.actor,
+        tone: m.ask.yesNo ? (cmd.index === 0 ? "green" : "red") : undefined,
+      });
+      note(`${ctx.actor} answered "${label}" to "${m.text}"`, "teal");
+      break;
+    }
+    case "driverRadio": {
+      const text = clean(cmd.text, 200);
+      const mine = s.runs.filter((r) => r.name.toLowerCase() === ctx.actor.toLowerCase() && r.team);
+      const r = mine.find((x) => x.status === "onstage") ?? mine.find((x) => x.status === "queued") ?? mine[mine.length - 1];
+      if (!text) return { error: "invalid" };
+      if (!r) return { error: "no_team" };
+      s.radio.push({ id: ctx.newId(), at: ctx.now, to: "team", team: r.team, teamName: r.teamName, text, from: ctx.actor });
+      if (s.radio.length > MAX_RADIO) s.radio.splice(0, s.radio.length - MAX_RADIO);
+      note(`${ctx.actor} to ${r.teamName ?? r.team}: ${text}`, "teal");
+      break;
+    }
+    case "teamMove": {
+      const r = run(cmd.runId);
+      if (!r || r.team !== cmd.team) return { error: "not_found" };
+      if (r.status !== "queued") return { error: "not_queued" };
+      const mine = s.runs.filter((x) => x.status === "queued" && x.team === cmd.team);
+      const i = mine.indexOf(r);
+      const j = i + cmd.dir;
+      if (cmd.dir !== -1 && cmd.dir !== 1) return { error: "invalid" };
+      if (j < 0 || j >= mine.length) return { error: "invalid" };
+      // Swap with the neighbouring car of the same team; other teams' places in the queue do not change.
+      const a = s.runs.indexOf(mine[i]);
+      const b = s.runs.indexOf(mine[j]);
+      [s.runs[a], s.runs[b]] = [s.runs[b], s.runs[a]];
       break;
     }
     case "teamGo": {
@@ -164,23 +235,65 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
     }
     case "assign": {
       if (!s.pending.includes(cmd.ts)) return { error: "not_found" };
-      const r = running().find((x) => x.id === cmd.runId && x.startedAt != null && x.startedAt <= cmd.ts);
+      if (cmd.team && s.pendingTeam?.[cmd.ts] !== cmd.team) return { error: "forbidden" };
+      const r = running().find((x) => x.id === cmd.runId && x.startedAt != null && x.startedAt <= cmd.ts && (!cmd.team || x.team === cmd.team));
       if (!r) return { error: "not_running" };
       r.status = "finished";
       r.rawMs = cmd.ts - r.startedAt!;
       s.pending = s.pending.filter((t) => t !== cmd.ts);
+      if (s.pendingTeam) delete s.pendingTeam[cmd.ts];
       note(`Finish attributed to ${r.name}`, "green");
+      break;
+    }
+    case "unattribute": {
+      // Take a time off a car (a wrong stop): it becomes a pending finish that can be attributed to the right car.
+      const r = run(cmd.runId);
+      if (!r || (cmd.team && r.team !== cmd.team)) return { error: "not_found" };
+      if (r.status !== "finished" || r.startedAt == null || r.rawMs == null) return { error: "invalid" };
+      const ts = r.startedAt + r.rawMs;
+      r.status = "onstage";
+      delete r.rawMs;
+      s.pending.push(ts);
+      if (r.team) (s.pendingTeam ??= {})[ts] = r.team;
+      note(`Time removed from ${r.name}`, "yellow");
+      break;
+    }
+    case "reattribute": {
+      // Move a finish from one car to another.
+      const from = run(cmd.fromRunId);
+      const to = run(cmd.runId);
+      if (!from || !to || from === to) return { error: "not_found" };
+      if (cmd.team && (from.team !== cmd.team || to.team !== cmd.team)) return { error: "not_found" };
+      if (from.status !== "finished" || from.startedAt == null || from.rawMs == null) return { error: "invalid" };
+      const ts = from.startedAt + from.rawMs;
+      if (to.status !== "onstage" || to.startedAt == null || to.startedAt > ts) return { error: "not_running" };
+      from.status = "onstage";
+      delete from.rawMs;
+      to.status = "finished";
+      to.rawMs = ts - to.startedAt;
+      note(`Time moved from ${from.name} to ${to.name}`, "yellow");
+      break;
+    }
+    case "setTime": {
+      const r = run(cmd.runId);
+      if (!r || (cmd.team && r.team !== cmd.team)) return { error: "not_found" };
+      if (!Number.isInteger(cmd.ms) || cmd.ms < 100 || cmd.ms > 86_400_000) return { error: "invalid" };
+      r.status = "finished";
+      r.rawMs = cmd.ms;
+      note(`Time set for ${r.name}: ${fmtTime(cmd.ms)}`, "green");
       break;
     }
     case "discard": {
       if (!s.pending.includes(cmd.ts)) return { error: "not_found" };
       s.pending = s.pending.filter((t) => t !== cmd.ts);
+      if (s.pendingTeam) delete s.pendingTeam[cmd.ts];
       note("Pending finish discarded");
       break;
     }
     case "dnf": {
       const r = run(cmd.runId);
       if (!r) return { error: "not_found" };
+      if (cmd.team && r.team !== cmd.team) return { error: "not_found" };
       if (r.status !== "onstage") return { error: "not_running" };
       r.status = "dnf";
       note(`DNF: ${r.name}`, "red");
@@ -294,6 +407,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       // Times, penalties, pending finishes and radio history are cleared; drivers still queued stay.
       s.runs = s.runs.filter((r) => r.status === "queued");
       s.pending = [];
+      s.pendingTeam = {};
       s.radio = [];
       s.lastReleaseAt = undefined;
       note("Stage reset");
