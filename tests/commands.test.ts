@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applyCommand, type Command } from "../shared/commands.ts";
-import { classify, emptyState, type RaceState } from "../shared/race.ts";
+import { classify, emptyState, viewFor, type RaceState } from "../shared/race.ts";
 
 let n = 0;
 const ctx = (now: number) => ({ now, actor: "tester", newId: () => `id${++n}` });
@@ -100,4 +100,90 @@ test("validation and immutability", () => {
   const before = JSON.stringify(s);
   run(s, { type: "flag", flag: "red" }, 0);
   assert.equal(JSON.stringify(s), before);
+});
+
+const msgs = (s: RaceState, runId: string) => s.radio.filter((m) => m.to !== "all" && m.to !== "team" && m.to.includes(runId)).map((m) => m.text);
+
+test("driver gets radio for penalty, finish position and position changes", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "alpha", plate: "a" }, 0);
+  s = run(s, { type: "add", name: "bravo", plate: "b" }, 0);
+  const [a, b] = s.runs.map((r) => r.id);
+  s = run(s, { type: "go" }, 1000); // alpha starts 4000
+  s = run(s, { type: "go" }, 2000); // bravo starts 5000
+  s = run(s, { type: "finish", runId: a }, 64000); // alpha 60.000
+  assert.match(msgs(s, a)[0], /Finished\. Time 01:00\.000\. Position P1\./);
+  s = run(s, { type: "finish", runId: b }, 62000); // bravo 57.000, ahead of alpha
+  assert.match(msgs(s, b)[0], /Position P1\./);
+  assert.deepEqual(msgs(s, a).slice(1), ["Position now P2."]);
+  s = run(s, { type: "penalty", runId: b, ruleId: "track-limit", delta: 1 }, 70000); // bravo 62.000, now behind alpha
+  assert.match(msgs(s, b).at(-2)!, /Penalty \+5\.000: Track limit/);
+  assert.equal(msgs(s, b).at(-1), "Position now P2.");
+  assert.equal(msgs(s, a).at(-1), "Position now P1.");
+  s = run(s, { type: "penalty", runId: b, ruleId: "jump-start", delta: 1 }, 71000); // still P2: penalty message only
+  assert.match(msgs(s, b).at(-1)!, /Penalty \+10\.000: Jump start/);
+});
+
+test("flag changes are announced to all, once", () => {
+  let s = emptyState();
+  s = run(s, { type: "flag", flag: "yellow" }, 1);
+  s = run(s, { type: "flag", flag: "yellow" }, 2);
+  assert.deepEqual(s.radio.map((m) => [m.to, m.text]), [["all", "Yellow flag."]]);
+});
+
+test("radio is only visible to signed-in viewers it is addressed to", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Alpha", plate: "a", team: { id: "t1", name: "Red" } }, 0);
+  s = run(s, { type: "add", name: "Bravo", plate: "b", team: { id: "t2", name: "Blue" } }, 0);
+  s = run(s, { type: "radio", to: [s.runs[0].id], text: "private" }, 1);
+  s = run(s, { type: "teamRadio", team: "t1", teamName: "Red", text: "red only" }, 2);
+  s = run(s, { type: "radio", to: "all", text: "everyone" }, 3);
+  const texts = (v: Parameters<typeof viewFor>[1]) => viewFor(s, v).radio.map((m) => m.text);
+  assert.deepEqual(texts({ staff: false, teams: [] }), []);
+  assert.deepEqual(texts({ staff: false, user: "alpha", teams: [] }), ["private", "red only", "everyone"]);
+  assert.deepEqual(texts({ staff: false, user: "bravo", teams: [] }), ["everyone"]);
+  assert.deepEqual(texts({ staff: false, user: "someone", teams: ["t1"] }), ["private", "red only", "everyone"]); // the team panel also sees messages to its drivers
+  assert.equal(texts({ staff: true, teams: [] }).length, 3);
+});
+
+test("team to stewards and steward to teams reach only the right viewers", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Alpha", plate: "a", team: { id: "t1", name: "Red" } }, 0);
+  s = run(s, { type: "teamRadio", team: "t1", teamName: "Red", text: "to stewards", to: "stewards" }, 1);
+  s = run(s, { type: "radioTeams", teams: [{ id: "t2", name: "Blue" }], text: "blue only" }, 2);
+  const texts = (v: Parameters<typeof viewFor>[1]) => viewFor(s, v).radio.map((m) => m.text);
+  assert.deepEqual(texts({ staff: false, user: "x", teams: ["t1"] }), ["to stewards"]);
+  assert.deepEqual(texts({ staff: false, user: "x", teams: ["t2"] }), ["blue only"]);
+  assert.deepEqual(texts({ staff: false, user: "alpha", teams: [] }), []); // a driver does not see their team's messages to stewards
+  assert.deepEqual(texts({ staff: true, teams: [] }), ["to stewards", "blue only"]);
+  // Messages to a driver are visible to that driver's team panel, not to other teams.
+  s = run(s, { type: "radio", to: [s.runs[0].id], text: "to alpha" }, 3);
+  assert.ok(texts({ staff: false, user: "x", teams: ["t1"] }).includes("to alpha"));
+  assert.ok(!texts({ staff: false, user: "x", teams: ["t2"] }).includes("to alpha"));
+});
+
+test("notes are staff only and follow the driver by name", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Alpha", plate: "a" }, 0);
+  s = run(s, { type: "note", runId: s.runs[0].id, text: "cut the chicane" }, 1);
+  assert.equal(s.notes[0].driver, "Alpha");
+  assert.equal(viewFor(s, { staff: false, user: "alpha", teams: [] }).notes.length, 0);
+  s = run(s, { type: "reset" }, 2);
+  assert.equal(s.notes.length, 1);
+  s = run(s, { type: "noteDel", id: s.notes[0].id }, 3);
+  assert.equal(s.notes.length, 0);
+});
+
+test("pit windows are validated, ordered and visible to their team", () => {
+  let s = emptyState();
+  const base = { type: "pitAdd", team: "t1", teamName: "Red", lengthMs: 3600_000 } as const;
+  assert.equal(fails(s, { ...base, fromMs: 600_000, toMs: 600_000 }, 1), "invalid");
+  assert.equal(fails(s, { ...base, fromMs: 0, toMs: 4000_000 }, 1), "invalid");
+  s = run(s, { ...base, fromMs: 1200_000, toMs: 1500_000 }, 1);
+  s = run(s, { ...base, fromMs: 300_000, toMs: 600_000 }, 2);
+  s = run(s, { type: "pitAdd", team: "t2", teamName: "Blue", fromMs: 0, toMs: 60_000, lengthMs: 3600_000 }, 3);
+  assert.deepEqual(s.pitWindows.filter((w) => w.team === "t1").map((w) => w.fromMs), [300_000, 1200_000]);
+  assert.equal(viewFor(s, { staff: false, user: "x", teams: ["t1"] }).pitWindows.length, 2);
+  assert.equal(viewFor(s, { staff: false, teams: [] }).pitWindows.length, 0);
+  assert.equal(fails(s, { type: "pitDel", team: "t1", id: s.pitWindows.find((w) => w.team === "t2")!.id }, 4), "not_found"); // another team's window
 });

@@ -49,9 +49,3 @@ export function speak(text: string, voiceURI: string, onEnd?: () => void) {
   u.onerror = () => onEnd?.();
   speechSynthesis.speak(u);
 }
-
-export function spokenTime(ms: number) {
-  const m = Math.floor(ms / 60000);
-  const s = ((ms % 60000) / 1000).toFixed(1);
-  return `${m ? `${m} minute${m > 1 ? "s" : ""} ` : ""}${s} seconds`;
-}

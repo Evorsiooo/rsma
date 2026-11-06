@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import type { AdminRace, AdminUser, Role, SystemInfo } from "../../shared/types";
+import { currentSession } from "../../shared/sessions";
+import type { AdminRace, AdminTeam, AdminUser, Role, SessionSummary, SessionType, SystemInfo } from "../../shared/types";
 import { admin } from "../api";
 import { useMe } from "../me";
 import { Topbar, VERSION } from "../Shell";
 import { Dialog, toast } from "../ui";
 import { NotFound } from "../NotFound";
 
-type Tab = "users" | "races" | "system";
+type Tab = "users" | "races" | "teams" | "system";
 
 const ERRORS: Record<string, string> = {
   invalid: "Invalid value.",
@@ -16,6 +17,9 @@ const ERRORS: Record<string, string> = {
   last_admin: "There must be at least one admin.",
   forbidden: "Not allowed.",
   not_found: "Not found.",
+  name_taken: "That name is already used.",
+  invalid_times: "The end must be after the start.",
+  race_disabled: "Race sessions are not available yet.",
 };
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
@@ -35,7 +39,7 @@ export function AdminPage() {
   const canUsers = !!me && (me.roles.includes("admin") || me.roles.includes("users"));
   const canRaces = !!me && (me.roles.includes("admin") || me.roles.includes("races"));
   const isAdmin = !!me?.roles.includes("admin");
-  const tabs = ([canUsers && "users", canRaces && "races", isAdmin && "system"].filter(Boolean) as Tab[]);
+  const tabs = ([canUsers && "users", canRaces && "races", canUsers && "teams", isAdmin && "system"].filter(Boolean) as Tab[]);
   const [tab, setTab] = useState<Tab | null>(null);
   const active = tab && tabs.includes(tab) ? tab : tabs[0];
 
@@ -55,6 +59,7 @@ export function AdminPage() {
         <div className="page__col page__col--wide">
           {active === "users" && <Users isAdmin={isAdmin} myId={me.id} />}
           {active === "races" && <Races />}
+          {active === "teams" && <Teams />}
           {active === "system" && <System />}
         </div>
       </div>
@@ -161,7 +166,7 @@ function Users({ isAdmin, myId }: { isAdmin: boolean; myId: string }) {
 
 // ---- Races ------------------------------------------------------------------
 
-type RaceDialog = { kind: "stewards" | "expiry"; raceId: string } | null;
+type RaceDialog = { kind: "stewards" | "expiry" | "sessions"; raceId: string } | null;
 
 function Races() {
   const nav = useNavigate();
@@ -211,7 +216,7 @@ function Races() {
                 <th className="is-left" style={{ width: 90 }}>Status</th>
                 <th className="is-left" style={{ width: 170 }}>Expires</th>
                 <th style={{ width: 70 }}>Stewards</th>
-                <th style={{ width: 360 }} />
+                <th style={{ width: 450 }} />
               </tr>
             </thead>
             <tbody>
@@ -226,8 +231,15 @@ function Races() {
                     <td className="is-left">{dateFmt.format(r.expiresAt)}</td>
                     <td>{r.stewards.length || ""}</td>
                     <td style={{ padding: 2 }}>
-                      <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
-                        <button className="r-cell" onClick={() => nav(`/race/${r.id}/steward`)}>Panel</button>
+                      <div className="r-grid" style={{ ["--cols" as string]: 5 }}>
+                        <button
+                          className="r-cell"
+                          disabled={!r.sessions.length}
+                          onClick={() => nav(`/session/${currentSession(r.sessions, Date.now())!.id}/steward`)}
+                        >
+                          Panel
+                        </button>
+                        <button className="r-cell" onClick={() => setDialog({ kind: "sessions", raceId: r.id })}>Sessions</button>
                         <button className="r-cell" onClick={() => setDialog({ kind: "stewards", raceId: r.id })}>Stewards</button>
                         <button className="r-cell" onClick={() => setDialog({ kind: "expiry", raceId: r.id })}>Expiry</button>
                         <button className="r-cell" onClick={() => setStatus(r, r.status === "archived" ? "active" : "archived")}>
@@ -242,9 +254,130 @@ function Races() {
           </table>
         )}
       </div>
+      {dialog?.kind === "sessions" && dialogRace && <SessionsDialog race={dialogRace} onChange={reload} onClose={() => setDialog(null)} />}
       {dialog?.kind === "stewards" && dialogRace && <StewardsDialog race={dialogRace} onChange={reload} onClose={() => setDialog(null)} />}
       {dialog?.kind === "expiry" && dialogRace && <ExpiryDialog race={dialogRace} onDone={() => { setDialog(null); reload(); }} onClose={() => setDialog(null)} />}
     </>
+  );
+}
+
+const TYPE_LABEL: Record<SessionType, string> = { practice: "Practice", timed: "Timed event", race: "Race" };
+
+function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange: () => void; onClose: () => void }) {
+  const [form, setForm] = useState<{ session?: SessionSummary } | null>(null);
+  const [del, setDel] = useState<SessionSummary | null>(null);
+  const move = async (s: SessionSummary, dir: -1 | 1) => {
+    await admin.moveSession(s.id, dir);
+    onChange();
+  };
+  return (
+    <>
+      {!form && !del && (
+      <Dialog title={`Sessions: ${race.name}`} size="l" onClose={onClose} foot={<><button className="r-btn" onClick={() => setForm({})}>Add session</button><button className="r-btn" onClick={onClose}>Close</button></>}>
+        {race.sessions.length === 0 ? (
+          <div className="r-empty">No sessions.</div>
+        ) : (
+          <table className="r-table">
+            <tbody>
+              {race.sessions.map((s, i) => (
+                <tr key={s.id}>
+                  <td className="is-left" style={{ width: 130 }}>
+                    <div>{s.name}</div>
+                    {s.name !== TYPE_LABEL[s.type] && <div style={{ color: "var(--r-text-dim)" }}>{TYPE_LABEL[s.type]}</div>}
+                  </td>
+                  <td className="is-left">
+                    <div>{dateFmt.format(s.startsAt)}</div>
+                    <div style={{ color: "var(--r-text-dim)" }}>{dateFmt.format(s.endsAt)}</div>
+                  </td>
+                  <td style={{ width: 250, padding: 2 }}>
+                    <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
+                      <button className="r-cell" disabled={i === 0} aria-label={`Move ${s.name} up`} onClick={() => move(s, -1)}>Up</button>
+                      <button className="r-cell" disabled={i === race.sessions.length - 1} aria-label={`Move ${s.name} down`} onClick={() => move(s, 1)}>Down</button>
+                      <button className="r-cell" onClick={() => setForm({ session: s })}>Edit</button>
+                      <button className="r-cell r-cell--red" onClick={() => setDel(s)}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </Dialog>
+      )}
+      {form && <SessionForm race={race} session={form.session} onDone={() => { setForm(null); onChange(); }} onClose={() => setForm(null)} />}
+      {del && (
+        <Dialog
+          title="Delete session"
+          size="s"
+          onClose={() => setDel(null)}
+          foot={
+            <>
+              <button className="r-btn" onClick={() => setDel(null)}>Cancel</button>
+              <button className="r-btn" onClick={async () => { await admin.deleteSession(del.id); setDel(null); onChange(); }}>Delete</button>
+            </>
+          }
+        >
+          <div>{del.name} is removed from the event.</div>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; session?: SessionSummary; onDone: () => void; onClose: () => void }) {
+  const last = race.sessions[race.sessions.length - 1];
+  const [type, setType] = useState<SessionType>(session?.type ?? "practice");
+  const [name, setName] = useState(session?.name ?? "");
+  const [start, setStart] = useState(() => toLocalInput(session?.startsAt ?? Math.max(Date.now(), last?.endsAt ?? 0)));
+  const [end, setEnd] = useState(() => toLocalInput(session?.endsAt ?? Math.max(Date.now(), last?.endsAt ?? 0) + 3600_000));
+  const startsAt = fromLocalInput(start);
+  const endsAt = fromLocalInput(end);
+  const ok = Number.isFinite(startsAt) && Number.isFinite(endsAt) && endsAt > startsAt;
+  const save = async () => {
+    if (!ok) return;
+    const r = session
+      ? await admin.patchSession(session.id, { name: name.trim() || session.name, type, startsAt, endsAt })
+      : await admin.createSession(race.id, { name: name.trim(), type, startsAt, endsAt });
+    if (!r.ok) return say(r.error);
+    onDone();
+  };
+  return (
+    <Dialog
+      title={session ? "Edit session" : "Add session"}
+      size="l"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn" disabled={!ok} onClick={save}>Save</button>
+        </>
+      }
+    >
+      <div className="r-form-field">
+        <span className="r-label">Type</span>
+        <div className="r-select">
+          <select aria-label="Type" value={type} onChange={(e) => setType(e.target.value as SessionType)}>
+            <option value="practice">Practice</option>
+            <option value="timed">Timed event</option>
+            <option value="race" disabled>Race (not available yet)</option>
+          </select>
+        </div>
+      </div>
+      <div className="r-form-field">
+        <span className="r-label">Name</span>
+        <input className="r-field" aria-label="Name" maxLength={60} placeholder={session ? session.name : "Automatic"} value={name} onChange={(e) => setName(e.target.value)} />
+      </div>
+      <div className="r-row">
+        <div className="r-form-field r-fill">
+          <span className="r-label">Start</span>
+          <input className="r-field" style={{ colorScheme: "dark" }} type="datetime-local" aria-label="Start" value={start} onChange={(e) => setStart(e.target.value)} />
+        </div>
+        <div className="r-form-field r-fill">
+          <span className="r-label">End</span>
+          <input className="r-field" style={{ colorScheme: "dark" }} type="datetime-local" aria-label="End" value={end} onChange={(e) => setEnd(e.target.value)} />
+        </div>
+      </div>
+    </Dialog>
   );
 }
 
@@ -310,6 +443,128 @@ function ExpiryDialog({ race, onDone, onClose }: { race: AdminRace; onDone: () =
       <div className="r-form-field">
         <span className="r-label">Expires</span>
         <input className="r-field" style={{ colorScheme: "dark" }} type="datetime-local" aria-label="Expires" value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+      </div>
+    </Dialog>
+  );
+}
+
+// ---- Teams (temporary) --------------------------------------------------------
+
+function Teams() {
+  const { data, failed, reload } = useLoad<AdminTeam[]>(admin.teams);
+  const [name, setName] = useState("");
+  const [open, setOpen] = useState<string | null>(null);
+  const [del, setDel] = useState<AdminTeam | null>(null);
+  const create = async () => {
+    if (!name.trim()) return;
+    const r = await admin.createTeam(name.trim());
+    if (!r.ok) return say(r.error);
+    setName("");
+    reload();
+  };
+  const team = data?.find((t) => t.id === open);
+  return (
+    <>
+      <div className="r-panel">
+        <div className="r-header">New team</div>
+        <div className="r-row" style={{ padding: 4 }}>
+          <input className="r-field r-fill" placeholder="Name" aria-label="Team name" maxLength={40} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
+          <button className="r-btn" style={{ width: 120 }} disabled={!name.trim()} onClick={create}>Create</button>
+        </div>
+      </div>
+      <div className="r-panel">
+        <div className="r-header">Teams</div>
+        {failed ? (
+          <div className="r-empty">Could not load teams.</div>
+        ) : !data ? null : data.length === 0 ? (
+          <div className="r-empty">No teams.</div>
+        ) : (
+          <table className="r-table">
+            <thead>
+              <tr>
+                <th className="is-left">Name</th>
+                <th style={{ width: 90 }}>Members</th>
+                <th style={{ width: 250 }} />
+              </tr>
+            </thead>
+            <tbody>
+              {data.map((t) => (
+                <tr key={t.id}>
+                  <td className="is-left">{t.name}</td>
+                  <td>{t.members.length || ""}</td>
+                  <td style={{ padding: 2 }}>
+                    <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                      <button className="r-cell" onClick={() => setOpen(t.id)}>Members</button>
+                      <button className="r-cell r-cell--red" onClick={() => setDel(t)}>Delete</button>
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+      {team && <MembersDialog team={team} onChange={reload} onClose={() => setOpen(null)} />}
+      {del && (
+        <Dialog
+          title="Delete team"
+          size="s"
+          onClose={() => setDel(null)}
+          foot={
+            <>
+              <button className="r-btn" onClick={() => setDel(null)}>Cancel</button>
+              <button
+                className="r-btn"
+                onClick={async () => {
+                  await admin.deleteTeam(del.id);
+                  setDel(null);
+                  reload();
+                }}
+              >
+                Delete
+              </button>
+            </>
+          }
+        >
+          <div>{del.name} and its panel access are removed. Drivers already staged keep the team name.</div>
+        </Dialog>
+      )}
+    </>
+  );
+}
+
+function MembersDialog({ team, onChange, onClose }: { team: AdminTeam; onChange: () => void; onClose: () => void }) {
+  const [name, setName] = useState("");
+  const add = async () => {
+    if (!name.trim()) return;
+    const r = await admin.addMember(team.id, name.trim());
+    if (!r.ok) return say(r.error);
+    setName("");
+    onChange();
+  };
+  return (
+    <Dialog title={`Team panel access: ${team.name}`} size="l" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
+      {team.members.length === 0 ? (
+        <div className="r-empty">No members.</div>
+      ) : (
+        <table className="r-table">
+          <tbody>
+            {team.members.map((m) => (
+              <tr key={m.id}>
+                <td className="is-left">{m.username}</td>
+                <td style={{ width: 120, padding: 2 }}>
+                  <button className="r-btn r-cell--red" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={async () => { await admin.removeMember(team.id, m.id); onChange(); }}>
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div className="r-row">
+        <input className="r-field r-fill" placeholder="Roblox username" aria-label="Member username" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+        <button className="r-btn" style={{ width: 100 }} disabled={!name.trim()} onClick={add}>Add</button>
       </div>
     </Dialog>
   );

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { fmtPenalty, type RaceState, type Run } from "../../shared/race";
+import { fmtPenalty, type DriverNote, type RaceState, type Run } from "../../shared/race";
+import type { Team } from "../../shared/types";
 import { Dialog } from "../ui";
 
 type Send = (cmd: import("../../shared/commands").Command) => Promise<boolean>;
@@ -227,6 +228,63 @@ export function AssignDialog({ ts, cars, onClose, send }: { ts: number; cars: Ru
           </div>
         </div>
       )}
+    </Dialog>
+  );
+}
+
+export function TeamsDialog({ teams, selected, onClose, onConfirm }: { teams: Team[]; selected: string[]; onClose: () => void; onConfirm: (ids: string[]) => void }) {
+  const [ids, setIds] = useState(selected);
+  const toggle = (id: string) => setIds((l) => (l.includes(id) ? l.filter((x) => x !== id) : [...l, id]));
+  return (
+    <Dialog
+      title="Teams"
+      size="s"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn" disabled={ids.length === 0} onClick={() => onConfirm(ids)}>Confirm</button>
+        </>
+      }
+    >
+      {teams.length === 0 && <div className="r-text--dim">No teams.</div>}
+      {teams.map((t) => (
+        <label className="r-check" key={t.id}>
+          <input type="checkbox" checked={ids.includes(t.id)} onChange={() => toggle(t.id)} />
+          {t.name}
+        </label>
+      ))}
+    </Dialog>
+  );
+}
+
+const noteTime = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+export function NotesDialog({ run, notes, onClose, send }: { run: Run; notes: DriverNote[]; onClose: () => void; send: Send }) {
+  const [text, setText] = useState("");
+  const mine = notes.filter((n) => n.driver.toLowerCase() === run.name.toLowerCase());
+  const add = async () => {
+    if (text.trim() && (await send({ type: "note", runId: run.id, text }))) setText("");
+  };
+  return (
+    <Dialog title={`Notes: ${run.name}`} size="l" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
+      {mine.length === 0 ? (
+        <div className="r-empty">No notes.</div>
+      ) : (
+        <div className="r-log r-log--wrap" style={{ maxHeight: 200 }}>
+          {mine.map((n) => (
+            <div className="r-row" key={n.id} style={{ alignItems: "flex-start", gap: 4 }}>
+              <div className="r-log__line r-fill">{noteTime.format(n.at)} {n.by}: {n.text}</div>
+              <button className="r-cell" style={{ height: 19 }} onClick={() => send({ type: "noteDel", id: n.id })}>Delete</button>
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="r-form-field">
+        <span className="r-label">New note</span>
+        <textarea className="r-field" style={{ height: 64, resize: "none" }} aria-label="New note" maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />
+      </div>
+      <button className="r-btn" disabled={!text.trim()} onClick={add}>Add note</button>
     </Dialog>
   );
 }

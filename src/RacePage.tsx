@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { classify, type Flag } from "../shared/race";
 import { ClassificationTable } from "./ClassificationTable";
-import type { RaceSummary } from "../shared/types";
+import type { SessionInfo } from "../shared/types";
 import { api } from "./api";
 import { NotFound } from "./NotFound";
 import { Shell } from "./Shell";
+import { SessionSelect } from "./SessionSelect";
+import { sessionCountdown, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
 
 const FLAG: Record<Flag, { label: string; tone: string }> = {
@@ -16,30 +18,43 @@ const FLAG: Record<Flag, { label: string; tone: string }> = {
 
 export function RacePage() {
   const { id = "" } = useParams();
-  const [race, setRace] = useState<RaceSummary | null | undefined>(undefined);
-  const { state, live } = useRaceLive(id);
+  const [info, setInfo] = useState<SessionInfo | null | undefined>(undefined);
+  const { state, live, offset } = useRaceLive(id);
+  const now = useClock(offset);
 
   useEffect(() => {
-    setRace(undefined);
-    api.race(id).then(setRace, () => setRace(null));
+    setInfo(undefined);
+    api.session(id).then(setInfo, () => setInfo(null));
   }, [id]);
 
-  if (race === null) return <NotFound />;
+  if (info === null) return <NotFound />;
+  const race = info?.race;
+  const cd = info ? sessionCountdown(info.session, now) : null;
   const rows = state ? classify(state.runs) : [];
 
   return (
     <Shell>
       <div className="r-row" style={{ alignItems: "center" }}>
-        <div className={`r-banner r-fill${state ? FLAG[state.flag].tone : ""}`} style={{ visibility: state ? "visible" : "hidden" }}>
-          {state ? FLAG[state.flag].label : " "}
-        </div>
-        <button
+        {race?.ended ? (
+          <div className="r-banner r-fill">Race ended</div>
+        ) : (
+          <div className={`r-banner r-fill${state ? FLAG[state.flag].tone : ""}`} style={{ visibility: state ? "visible" : "hidden" }}>
+            {state ? FLAG[state.flag].label : " "}
+          </div>
+        )}
+        {cd && !race?.ended && (
+          <div className="r-banner" style={{ width: 190, flex: "none" }}>
+            {cd.phase === "ended" ? "Session ended" : `${cd.label} ${cd.value}`}
+          </div>
+        )}
+        {info && <SessionSelect sessions={info.race.sessions} current={info.session.id} />}
+        {!race?.ended && <button
           className="r-btn"
-          onClick={() => window.open(`/race/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}
+          onClick={() => window.open(`/session/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}
         >
           Radio
-        </button>
-        {live ? (
+        </button>}
+        {race?.ended ? null : live ? (
           <div className="r-lamp r-lamp--fixed">LIVE</div>
         ) : (
           <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>

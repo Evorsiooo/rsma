@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { fmtClock, sessionPhase } from "../shared/sessions";
+import type { SessionSummary } from "../shared/types";
 
 /** Server-synchronised clock in ms, refreshed every 100 ms while `active`. */
 export function useNow(offset: number, active = true) {
@@ -10,6 +12,28 @@ export function useNow(offset: number, active = true) {
     return () => clearInterval(t);
   }, [offset, active]);
   return now;
+}
+
+/** Server-synchronised clock that ticks twice a second; enough for a countdown. */
+export function useClock(offset: number) {
+  const [now, setNow] = useState(() => Date.now() + offset);
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now() + offset), 500);
+    setNow(Date.now() + offset);
+    return () => clearInterval(t);
+  }, [offset]);
+  return now;
+}
+
+/** Countdown for a session: time to its end, to its start, or ended. Also the label for it. */
+export function sessionCountdown(s: Pick<SessionSummary, "startsAt" | "endsAt">, now: number) {
+  const p = sessionPhase(s, now);
+  return {
+    phase: p.phase,
+    label: p.phase === "upcoming" ? "Starts in" : p.phase === "running" ? "Ends in" : "Session",
+    value: p.phase === "ended" ? "Ended" : fmtClock(p.ms),
+    ms: p.ms,
+  };
 }
 
 /** mm:ss.t for running clocks. */

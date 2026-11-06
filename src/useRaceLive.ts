@@ -4,9 +4,11 @@ import type { RaceState } from "../shared/race";
 /**
  * Live race state over WebSocket; reconnects with a short backoff.
  * `offset` is server time minus local time, so timers can run on server time.
- * With `staff`, connects to the staff feed (full state incl. audit log).
+ * `staff` connects to the staff feed (full state incl. audit log), `auth` to the signed-in feed
+ * (the viewer's own radio and team channels); the default is the public feed.
  */
-export function useRaceLive(id: string, staff = false) {
+export function useRaceLive(id: string, mode: "public" | "staff" | "auth" | boolean = "public") {
+  const feed = mode === true ? "staff" : mode === false ? "public" : mode;
   const [state, setState] = useState<RaceState | null>(null);
   const [live, setLive] = useState(false);
   const [offset, setOffset] = useState(0);
@@ -19,7 +21,7 @@ export function useRaceLive(id: string, staff = false) {
 
     const connect = () => {
       const proto = location.protocol === "https:" ? "wss" : "ws";
-      ws = new WebSocket(`${proto}://${location.host}/api/races/${id}/ws${staff ? "?staff=1" : ""}`);
+      ws = new WebSocket(`${proto}://${location.host}/api/sessions/${id}/ws${feed === "staff" ? "?staff=1" : feed === "auth" ? "?auth=1" : ""}`);
       ws.onopen = () => {
         delay = 1000;
         setLive(true);
@@ -42,7 +44,7 @@ export function useRaceLive(id: string, staff = false) {
       clearTimeout(timer);
       ws?.close();
     };
-  }, [id, staff]);
+  }, [id, feed]);
 
   return { state, live, offset };
 }

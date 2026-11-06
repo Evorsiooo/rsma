@@ -1,16 +1,42 @@
+export type SessionType = "practice" | "timed" | "race";
+
+export interface SessionSummary {
+  id: string;
+  raceId: string;
+  name: string;
+  type: SessionType;
+  startsAt: number;
+  endsAt: number;
+}
+
 export interface RaceSummary {
   id: string;
   name: string;
   expiresAt: number;
+  /** In running order. */
+  sessions: SessionSummary[];
+  /** Archived or past its expiry: results stay visible, nothing can be changed. */
+  ended: boolean;
 }
 
 export type Role = "admin" | "users" | "races" | "steward";
+
+export interface Team {
+  id: string;
+  name: string;
+}
 
 export interface Me {
   id: string;
   username: string;
   displayName: string;
   roles: Role[];
+  /** Teams whose panel this user may open. */
+  teams: Team[];
+}
+
+export interface AdminTeam extends Team {
+  members: { id: string; username: string }[];
 }
 
 export interface AdminUser {
@@ -21,11 +47,18 @@ export interface AdminUser {
   roles: Role[];
 }
 
+/** One session with the event it belongs to. */
+export interface SessionInfo {
+  session: SessionSummary;
+  race: RaceSummary;
+}
+
 export interface AdminRace {
   id: string;
   name: string;
   status: "active" | "archived";
   expiresAt: number;
+  sessions: SessionSummary[];
   stewards: { id: string; username: string }[];
 }
 
