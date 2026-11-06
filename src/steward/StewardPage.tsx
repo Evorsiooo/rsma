@@ -25,6 +25,7 @@ const ERRORS: Record<string, string> = {
   forbidden: "You are not a steward of this race.",
   unauthorized: "Sign in again.",
   race_ended: "This race has ended.",
+  race_timing_off: "Timing is off for races.",
   self_timed: "The teams time this session.",
   not_finished: "Only finished or DNF runs can be deleted.",
 };
@@ -203,6 +204,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
       </Topbar>
       <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
         {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended. Commands are disabled.</div>}
+        {session.type === "race" && !race.ended && <div className="r-banner is-teal" style={{ flex: "none" }}>Race timing is not available. Races are run separately.</div>}
         <div className="r-row" style={{ height: 90, flex: "none" }}>
           <div className="r-module" style={{ width: 84 }}>
             <div className="r-header">Link</div>
@@ -244,7 +246,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
         </div>
 
         <div className="r-row" style={{ height: 42, flex: "none" }}>
-          {!session.selfTimed && (
+          {!session.selfTimed && session.type !== "race" && (
             <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!next} onClick={() => send({ type: "go" })}>
               <span>Go</span>
             </button>
@@ -253,7 +255,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
           <div className="r-plate r-fill">
             {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : next ? `${next.name}  ${next.plate}` : ""}
           </div>
-          {!session.selfTimed && (
+          {!session.selfTimed && session.type !== "race" && (
             <button className="r-btn r-btn--advance" style={{ width: 150 }} onClick={() => send({ type: "finish" })}>
               <span>Stop timer</span>
             </button>

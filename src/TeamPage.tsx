@@ -25,6 +25,9 @@ const ERRORS: Record<string, string> = {
   not_running: "No car of your team is running.",
   not_self_timed: "This session is timed by the stewards.",
   forbidden: "You are not in this team.",
+  not_started: "The session has not started.",
+  session_ended: "The session has ended.",
+  race_timing_off: "Timing is off for races.",
   too_soon: "Lap just recorded.",
   has_laps: "Laps are recorded, so this car stays on long run.",
   unauthorized: "Sign in again.",
@@ -183,6 +186,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
       </Topbar>
       <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
         {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended.</div>}
+        {session.type === "race" && !race.ended && <div className="r-banner is-teal" style={{ flex: "none" }}>Race timing is not available. Races are run separately.</div>}
         <div className="r-row" style={{ height: 90, flex: "none" }}>
           <div className="r-module" style={{ width: 84 }}>
             <div className="r-header">Link</div>
@@ -211,7 +215,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
 
         <div className="r-row" style={{ height: 42, flex: "none" }}>
           {session.selfTimed && (
-            <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!nextCar || race.ended} onClick={() => timing("go")}>
+            <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!nextCar || race.ended || now < session.startsAt || now >= session.endsAt} onClick={() => timing("go")}>
               <span>Go</span>
             </button>
           )}
@@ -220,7 +224,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
             {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : session.selfTimed && nextCar ? `${nextCar.name}  ${nextCar.plate}` : ""}
           </div>
           {session.selfTimed && (
-            <button className="r-btn r-btn--advance" style={{ width: 150 }} disabled={race.ended} onClick={() => timing("finish")}>
+            <button className="r-btn r-btn--advance" style={{ width: 150 }} disabled={race.ended || now < session.startsAt} onClick={() => timing("finish")}>
               <span>Stop timer</span>
             </button>
           )}

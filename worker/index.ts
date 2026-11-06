@@ -92,6 +92,8 @@ app.get("/api/sessions/:id/ws", async (c) => {
 });
 
 // Steward commands. The role check happens here; the Durable Object validates and applies.
+const RACE_TIMING_CMDS = ["go", "finish", "assign", "discard", "lap", "setTime", "unattribute", "reattribute", "dnf", "setMode", "penalty", "teamGo", "teamFinish", "teamMove"];
+
 app.post("/api/sessions/:id/cmd", async (c) => {
   const id = c.req.param("id");
   const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
@@ -105,6 +107,8 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   // Team commands only come through the team routes; self-timed sessions have no steward Go or Stop.
   if (["teamGo", "teamFinish", "teamMove", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
   if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish")) return c.json({ error: "self_timed" }, 409);
+  // Races are run differently for now: no live timing.
+  if (info.session.type === "race" && RACE_TIMING_CMDS.includes(cmd.type)) return c.json({ error: "race_timing_off" }, 409);
   if (cmd.type === "add" && cmd.team != null) {
     // Take the team name from the database, never from the client.
     const team = typeof cmd.team.id === "string" ? await teamWithCar(c.env.DB, cmd.team.id) : null;
@@ -218,6 +222,7 @@ const TEAM_RUN_CMDS = ["dnf", "assign", "unattribute", "reattribute", "setTime",
 app.post("/api/sessions/:id/team/:teamId/run", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;
+  if (r.info.session.type === "race") return c.json({ error: "race_timing_off" }, 409);
   if (!r.info.session.selfTimed) return c.json({ error: "not_self_timed" }, 409);
   const body = (await c.req.json().catch(() => null)) as { type?: unknown } | null;
   if (!body || typeof body.type !== "string" || !TEAM_RUN_CMDS.includes(body.type)) return c.json({ error: "invalid" }, 400);
@@ -229,6 +234,7 @@ app.post("/api/sessions/:id/team/:teamId/run", async (c) => {
 app.post("/api/sessions/:id/team/:teamId/move", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;
+  if (r.info.session.type === "race") return c.json({ error: "race_timing_off" }, 409);
   if (!r.info.session.selfTimed) return c.json({ error: "not_self_timed" }, 409);
   const body = (await c.req.json().catch(() => ({}))) as { runId?: unknown; dir?: unknown };
   const cmd = { type: "teamMove", team: r.team.id, runId: typeof body.runId === "string" ? body.runId : "", dir: body.dir === -1 ? -1 : body.dir === 1 ? 1 : 0 };
@@ -239,8 +245,13 @@ app.post("/api/sessions/:id/team/:teamId/move", async (c) => {
 app.post("/api/sessions/:id/team/:teamId/timing", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;
+  if (r.info.session.type === "race") return c.json({ error: "race_timing_off" }, 409);
   if (!r.info.session.selfTimed) return c.json({ error: "not_self_timed" }, 409);
   const body = (await c.req.json().catch(() => ({}))) as { action?: unknown; runId?: unknown };
+  // Server time decides: Go only while the session runs, Stop only once it has started.
+  const now = Date.now();
+  if (now < r.info.session.startsAt) return c.json({ error: "not_started" }, 409);
+  if (body.action === "go" && now >= r.info.session.endsAt) return c.json({ error: "session_ended" }, 409);
   const cmd =
     body.action === "go"
       ? { type: "teamGo", team: r.team.id }

@@ -2,8 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { RaceSummary } from "../shared/types";
 import { useMe } from "./me";
-import { api, registrationApi } from "./api";
-import { regStatus, upcomingSessions } from "./regUi";
+import { api } from "./api";
 import { Shell } from "./Shell";
 
 const AUTH_ERRORS: Record<string, string> = {
@@ -28,16 +27,6 @@ export function Home({ races }: { races: RaceSummary[] }) {
   useEffect(() => {
     api.pastRaces().then(setPast, () => {});
   }, []);
-  const [regs, setRegs] = useState<Awaited<ReturnType<typeof registrationApi.list>>>([]);
-  const [pick, setPick] = useState("");
-  useEffect(() => {
-    registrationApi.list().then(setRegs, () => {});
-  }, []);
-  const now = Date.now();
-  const regSessions = upcomingSessions(races, regs, now).filter((u) => u.reg && regStatus(u.reg, now).phase !== "closed");
-  const multiRace = new Set(regSessions.map((u) => u.race.id)).size > 1;
-  const chosen = regSessions.find((u) => u.session.id === pick) ?? regSessions[0];
-  const chosenStatus = chosen?.reg ? regStatus(chosen.reg, now) : null;
   const [authError] = useState(() => {
     const code = new URLSearchParams(location.search).get("auth_error");
     if (code) history.replaceState(null, "", "/");
@@ -74,22 +63,9 @@ export function Home({ races }: { races: RaceSummary[] }) {
         <button className="r-btn" style={{ width: 200 }} onClick={() => nav("/team-registration")}>
           Team registration
         </button>
-        {chosen && chosenStatus && (
-          <>
-            <div className="r-select r-fill">
-              <select aria-label="Session to register for" value={chosen.session.id} onChange={(e) => setPick(e.target.value)}>
-                {regSessions.map((u) => (
-                  <option key={u.session.id} value={u.session.id}>
-                    {multiRace ? `${u.race.name} · ` : ""}{u.session.name} · {regStatus(u.reg!, now).text}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <button className="r-btn" style={{ width: 120 }} disabled={chosenStatus.phase !== "open"} onClick={() => nav(`/session/${chosen.session.id}/register`)}>
-              Register
-            </button>
-          </>
-        )}
+        <button className="r-btn" style={{ width: 240 }} onClick={() => nav("/driver-registration")}>
+          Driver registration
+        </button>
       </div>
       {past.length > 0 && (
         <div className="r-panel">

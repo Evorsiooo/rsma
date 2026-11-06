@@ -29,10 +29,10 @@ export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeL
         <tr>
           <th className="is-left" style={{ width: 28 }}>P</th>
           <th className="is-left" style={{ width: 36 }}>No</th>
-          <th className="is-left">Driver</th>
-          <th className="is-left" style={{ width: 70 }}>Plate</th>
-          <th className="is-left" style={{ width: 120 }}>Team</th>
-          <th className="is-left" style={{ width: 120 }}>Car</th>
+          <th className="is-left" style={{ width: 170 }}>Driver</th>
+          <th className="is-left" style={{ width: 100 }}>Plate</th>
+          <th className="is-left">Team</th>
+          <th className="is-left">Car</th>
           <th className="is-left" style={{ width: 80 }}>Status</th>
           {modeLabel && <th className="is-left" style={{ width: 120 }}>Mode</th>}
           <th style={{ width: 90 }}>Time</th>
