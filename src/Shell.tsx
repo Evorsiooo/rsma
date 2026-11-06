@@ -45,6 +45,8 @@ export function Shell({ children }: { children: ReactNode }) {
         <a href="https://discord.gg/29TEDUnRR7" target="_blank" rel="noreferrer">
           Discord
         </a>
+        <Link to="/terms">Terms</Link>
+        <Link to="/privacy">Privacy</Link>
         <span className="r-statusbar__end">{VERSION}</span>
       </div>
     </div>
