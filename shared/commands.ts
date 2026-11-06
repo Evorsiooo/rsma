@@ -12,7 +12,7 @@ import {
 
 export type Command =
   | { type: "flag"; flag: Flag }
-  | { type: "add"; name: string; plate: string; team?: { id: string; name: string; car?: string } }
+  | { type: "add"; name: string; plate: string; number?: string; team?: { id: string; name: string; car?: string } }
   | { type: "teamMove"; team: string; runId: string; dir: -1 | 1 }
   | { type: "teamRadio"; team: string; teamName: string; text: string; to?: "team" | "stewards" }
   | { type: "ask"; team: string; teamName: string; driver: string; text: string; options?: string[] }
@@ -31,6 +31,8 @@ export type Command =
   | { type: "delRun"; runId: string }
   | { type: "cadence"; sec: number }
   | { type: "finish"; runId?: string }
+  | { type: "setMode"; runId: string; mode: "quali" | "long"; team?: string }
+  | { type: "lap"; runId: string; team?: string }
   | { type: "assign"; ts: number; runId: string; team?: string }
   | { type: "unattribute"; runId: string; team?: string }
   | { type: "reattribute"; fromRunId: string; runId: string; team?: string }
@@ -72,6 +74,17 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
   };
   const run = (id: string): Run | undefined => s.runs.find((r) => r.id === id);
   const recompute = (r: Run) => (r.penaltyMs = r.penalties.reduce((a, p) => a + p.ms, 0));
+  /** Finish a car: its elapsed time, or for a long run its best lap (the final lap counts). */
+  const complete = (r: Run) => {
+    if (r.mode === "long") {
+      const last = ctx.now - (r.lapAt ?? r.startedAt!);
+      if (last >= 1000 || !r.laps?.length) (r.laps ??= []).push(last);
+      r.rawMs = Math.min(...r.laps!);
+    } else {
+      r.rawMs = ctx.now - r.startedAt!;
+    }
+    r.status = "finished";
+  };
   const running = () => s.runs.filter((r) => r.status === "onstage");
 
   switch (cmd.type) {
@@ -87,7 +100,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const plate = clean(cmd.plate, 12).toUpperCase();
       if (!name || !plate) return { error: "invalid" };
       const team = cmd.team && clean(cmd.team.id, 60) && clean(cmd.team.name, 40) ? { id: clean(cmd.team.id, 60), name: clean(cmd.team.name, 40) } : undefined;
-      s.runs.push({ id: ctx.newId(), name, plate, status: "queued", penalties: [], penaltyMs: 0, team: team?.id, teamName: team?.name, car: team ? clean(cmd.team?.car, 40) || undefined : undefined });
+      s.runs.push({ id: ctx.newId(), name, plate, status: "queued", penalties: [], penaltyMs: 0, number: clean(cmd.number, 4) || undefined, team: team?.id, teamName: team?.name, car: team ? clean(cmd.team?.car, 40) || undefined : undefined });
       note(`Staged ${name} (${plate})${team ? `, ${team.name}` : ""}`);
       break;
     }
@@ -194,10 +207,10 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
     }
     case "teamFinish": {
       const started = running().filter((r) => r.team === cmd.team && r.startedAt != null && r.startedAt <= ctx.now);
-      const target = cmd.runId ? started.find((r) => r.id === cmd.runId) : started.sort((a, b) => a.startedAt! - b.startedAt!)[0];
+      // The generic stop is for Quali cars; a long run car is stopped by name.
+      const target = cmd.runId ? started.find((r) => r.id === cmd.runId) : started.filter((r) => r.mode !== "long").sort((a, b) => a.startedAt! - b.startedAt!)[0];
       if (!target) return { error: "not_running" };
-      target.status = "finished";
-      target.rawMs = ctx.now - target.startedAt!;
+      complete(target);
       note(`Finish: ${target.name} (self-timed)`, "green");
       break;
     }
@@ -221,16 +234,36 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
         target = started.find((r) => r.id === cmd.runId);
         if (!target) return { error: "not_running" };
       } else {
-        target = started.sort((a, b) => a.startedAt! - b.startedAt!)[0];
+        target = started.filter((r) => r.mode !== "long").sort((a, b) => a.startedAt! - b.startedAt!)[0];
       }
       if (!target) {
         s.pending.push(ctx.now);
         note("Finish line crossed, no car to attribute", "yellow");
         break;
       }
-      target.status = "finished";
-      target.rawMs = ctx.now - target.startedAt!;
+      complete(target);
       note(`Finish: ${target.name}`, "green");
+      break;
+    }
+    case "setMode": {
+      const r = run(cmd.runId);
+      if (!r || (cmd.team && r.team !== cmd.team)) return { error: "not_found" };
+      if (cmd.mode !== "quali" && cmd.mode !== "long") return { error: "invalid" };
+      if (r.status !== "queued" && r.status !== "onstage") return { error: "invalid" };
+      if (cmd.mode === "quali" && r.laps?.length) return { error: "has_laps" };
+      r.mode = cmd.mode;
+      note(`${r.name}: ${cmd.mode === "long" ? "long run" : "quali"} mode`);
+      break;
+    }
+    case "lap": {
+      const r = run(cmd.runId);
+      if (!r || (cmd.team && r.team !== cmd.team)) return { error: "not_found" };
+      if (r.mode !== "long" || r.status !== "onstage" || r.startedAt == null || r.startedAt > ctx.now) return { error: "not_running" };
+      const last = ctx.now - (r.lapAt ?? r.startedAt);
+      if (last < 1000) return { error: "too_soon" }; // a double press
+      (r.laps ??= []).push(last);
+      r.lapAt = ctx.now;
+      note(`Lap ${r.laps.length}: ${r.name} ${fmtTime(last)}`, "green");
       break;
     }
     case "assign": {
@@ -249,7 +282,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       // Take a time off a car (a wrong stop): it becomes a pending finish that can be attributed to the right car.
       const r = run(cmd.runId);
       if (!r || (cmd.team && r.team !== cmd.team)) return { error: "not_found" };
-      if (r.status !== "finished" || r.startedAt == null || r.rawMs == null) return { error: "invalid" };
+      if (r.status !== "finished" || r.startedAt == null || r.rawMs == null || r.mode === "long") return { error: "invalid" };
       const ts = r.startedAt + r.rawMs;
       r.status = "onstage";
       delete r.rawMs;
@@ -264,7 +297,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const to = run(cmd.runId);
       if (!from || !to || from === to) return { error: "not_found" };
       if (cmd.team && (from.team !== cmd.team || to.team !== cmd.team)) return { error: "not_found" };
-      if (from.status !== "finished" || from.startedAt == null || from.rawMs == null) return { error: "invalid" };
+      if (from.status !== "finished" || from.startedAt == null || from.rawMs == null || from.mode === "long") return { error: "invalid" };
       const ts = from.startedAt + from.rawMs;
       if (to.status !== "onstage" || to.startedAt == null || to.startedAt > ts) return { error: "not_running" };
       from.status = "onstage";

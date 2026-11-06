@@ -210,7 +210,7 @@ app.post("/api/sessions/:id/driver/radio", async (c) => {
 });
 
 // Self-timed practice: a team fixes the times of its own cars (DNF, attribute or remove a time, enter a time).
-const TEAM_RUN_CMDS = ["dnf", "assign", "unattribute", "reattribute", "setTime"];
+const TEAM_RUN_CMDS = ["dnf", "assign", "unattribute", "reattribute", "setTime", "setMode", "lap"];
 app.post("/api/sessions/:id/team/:teamId/run", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;

@@ -20,6 +20,8 @@ const ERRORS: Record<string, string> = {
   not_found: "Not found. The state may have changed.",
   no_queue: "The queue is empty.",
   invalid: "Invalid value.",
+  too_soon: "Lap just recorded.",
+  has_laps: "Laps are recorded, so this car stays on long run.",
   forbidden: "You are not a steward of this race.",
   unauthorized: "Sign in again.",
   race_ended: "This race has ended.",
@@ -129,6 +131,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   const [plate, setPlate] = useState("");
+  const [number, setNumber] = useState("");
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamId, setTeamId] = useState("");
   const [sort, setSort] = useState<"fastest" | "last">("fastest");
@@ -173,6 +176,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
   const teamTarget = teamTo ? teams.filter((t) => teamTo.includes(t.id)) : null;
   const canTransmit = text.trim() !== "" && (teamTarget ? teamTarget.length > 0 : radioTarget === "all" || radioTarget.length > 0);
   const dialogRun = dialog && "runId" in dialog ? byId(dialog.runId) : undefined;
+  const modeText = (r: Run) => (r.mode === "long" ? `Long run${r.laps?.length ? ` (${r.laps.length})` : ""}` : "Quali");
   const fmtMMSS = (ms: number) => `${String(Math.floor(ms / 60000)).padStart(2, "0")}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, "0")}`;
 
   const transmit = async () => {
@@ -183,9 +187,10 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
   const stage = async () => {
     if (!name.trim() || !plate.trim()) return;
     const team = teams.find((t) => t.id === teamId);
-    if (await send({ type: "add", name, plate, team })) {
+    if (await send({ type: "add", name, plate, number, team })) {
       setName("");
       setPlate("");
+      setNumber("");
     }
   };
 
@@ -292,7 +297,8 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
             </div>
             <div className="r-row">
               <input className="r-field r-fill" placeholder="Plate" aria-label="Plate" value={plate} onChange={(e) => setPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
-              <button className="r-btn" style={{ width: 100 }} disabled={!name.trim() || !plate.trim()} onClick={stage}>Stage</button>
+              <input className="r-field" style={{ width: 64 }} placeholder="No" aria-label="Driver number" maxLength={4} value={number} onChange={(e) => setNumber(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
+              <button className="r-btn" style={{ width: 90 }} disabled={!name.trim() || !plate.trim()} onClick={stage}>Stage</button>
             </div>
             <div className="r-section"><span>Sort</span></div>
             <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
@@ -308,7 +314,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
 
           <div className="r-stack r-fill">
             <div className="r-panel r-fill" style={{ overflow: "auto" }}>
-              <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} />
+              <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} modeLabel={rows.some((r) => r.mode === "long") ? modeText : undefined} />
             </div>
 
             <div className="r-row" style={{ height: 270, flex: "none" }}>
@@ -342,6 +348,9 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                   {sel?.penalties.map((p, i) => (
                     <div className="r-log__line is-red" key={i}>{fmtPenalty(p.ms)} {p.name}</div>
                   ))}
+                  {sel?.laps?.map((l, i) => (
+                    <div className={`r-log__line${l === Math.min(...sel.laps!) ? " is-magenta" : ""}`} key={`l${i}`}>Lap {i + 1} {fmtTime(l)}</div>
+                  ))}
                   {selNotes.map((n) => (
                     <div className="r-log__line is-dim" key={n.id}>{n.text}</div>
                   ))}
@@ -361,6 +370,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                         <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "dnf", runId: sel.id })}>DNF</button>
                         <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => send({ type: "finish", runId: sel.id })}>Finish</button>
                         <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => setDialog({ kind: "attribute", runId: sel.id })}>Attribute time</button>
+                        {sel.mode === "long" && <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => send({ type: "lap", runId: sel.id })}>Lap</button>}
                       </>
                     )}
                     {sel.status === "finished" && (
@@ -371,6 +381,11 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                       </>
                     )}
                     {sel.status === "dnf" && <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "delete", runId: sel.id })}>Delete run</button>}
+                    {(sel.status === "queued" || sel.status === "onstage") && (
+                      <button className="r-cell" aria-pressed={sel.mode === "long"} disabled={!!sel.laps?.length && sel.mode === "long"} onClick={() => send({ type: "setMode", runId: sel.id, mode: sel.mode === "long" ? "quali" : "long" })}>
+                        {sel.mode === "long" ? "Long run" : "Quali"}
+                      </button>
+                    )}
                     <button className="r-cell" onClick={() => setDialog({ kind: "setTime", runId: sel.id })}>Set time</button>
                     <button className="r-cell" onClick={() => setDialog({ kind: "notes", runId: sel.id })}>
                       {selNotes.length ? `Notes (${selNotes.length})` : "Notes"}

@@ -275,3 +275,26 @@ test("attribute, unattribute and set times, with the team limits", () => {
   s = run(s, { type: "setTime", runId: s.runs[2].id, ms: 90000 }, 36000); // a steward, queued car
   assert.equal(s.runs[2].status, "finished");
 });
+
+test("long run: laps are counted per car, the best lap is the time, the generic stop skips it", () => {
+  let s = emptyState();
+  const red = { id: "t1", name: "Red" };
+  s = run(s, { type: "add", name: "lr", plate: "a-1", number: "7", team: red }, 0);
+  s = run(s, { type: "add", name: "q", plate: "a-2", team: red }, 0);
+  assert.equal(s.runs[0].number, "7");
+  s = run(s, { type: "setMode", runId: s.runs[0].id, mode: "long", team: "t1" }, 10);
+  s = run(s, { type: "teamGo", team: "t1" }, 1000); // lr starts at 4000
+  s = run(s, { type: "teamGo", team: "t1" }, 2000); // q starts at 5000
+  const lr = s.runs[0].id;
+  s = run(s, { type: "lap", runId: lr, team: "t1" }, 64000); // 60 s
+  assert.equal(fails(s, { type: "lap", runId: lr, team: "t1" }, 64300), "too_soon");
+  s = run(s, { type: "lap", runId: lr, team: "t1" }, 120000); // 56 s
+  s = run(s, { type: "teamFinish", team: "t1" }, 130000); // generic stop takes the quali car
+  assert.equal(s.runs[1].status, "finished");
+  assert.equal(s.runs[0].status, "onstage");
+  assert.equal(fails(s, { type: "setMode", runId: lr, mode: "quali", team: "t1" }, 131000), "has_laps");
+  s = run(s, { type: "teamFinish", team: "t1", runId: lr }, 170000); // last lap 50 s
+  assert.deepEqual(s.runs[0].laps, [60000, 56000, 50000]);
+  assert.equal(s.runs[0].rawMs, 50000);
+  assert.equal(fails(s, { type: "unattribute", runId: lr }, 171000), "invalid");
+});

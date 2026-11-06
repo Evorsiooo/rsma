@@ -24,6 +24,14 @@ export interface Run {
   teamName?: string;
   /** Car the driver runs, taken from the team when staged. */
   car?: string;
+  /** Driver number. */
+  number?: string;
+  /** Quali: one lap, then stop. Long run: several laps counted with Lap, the best lap is the time. */
+  mode?: "quali" | "long";
+  /** Long run: lap durations in ms, in order. */
+  laps?: number[];
+  /** Long run: server time of the last lap mark. */
+  lapAt?: number;
 }
 
 export interface Rule {
