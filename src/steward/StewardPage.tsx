@@ -123,6 +123,7 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
   const [text, setText] = useState("");
   const [name, setName] = useState("");
   const [plate, setPlate] = useState("");
+  const [sort, setSort] = useState<"fastest" | "last">("fastest");
   const closeDialog = () => setDialog(null);
   const now = useNow(offset, !!state && (state.runs.some((r) => r.status === "onstage") || !!state.lastReleaseAt));
 
@@ -137,7 +138,14 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [state?.log.length]);
 
-  const rows = useMemo(() => (state ? classify(state.runs) : []), [state]);
+  const rows = useMemo(() => {
+    if (!state) return [];
+    const ranked = classify(state.runs);
+    if (sort === "fastest") return ranked;
+    // Last run: most recently started first, queued drivers after in entry order.
+    const started = ranked.filter((r) => r.startedAt != null).sort((a, b) => b.startedAt! - a.startedAt!);
+    return [...started, ...ranked.filter((r) => r.startedAt == null)];
+  }, [state, sort]);
   if (!state) return <div className="r-screen" />;
 
   const queued = state.runs.filter((r) => r.status === "queued");
@@ -252,6 +260,11 @@ function Panel({ raceId, race }: { raceId: string; race: RaceSummary }) {
             <div className="r-row">
               <input className="r-field r-fill" placeholder="Plate" aria-label="Plate" value={plate} onChange={(e) => setPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
               <button className="r-btn" style={{ width: 100 }} disabled={!name.trim() || !plate.trim()} onClick={stage}>Stage</button>
+            </div>
+            <div className="r-section"><span>Sort</span></div>
+            <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+              <button className="r-btn" aria-pressed={sort === "fastest"} onClick={() => setSort("fastest")}>Fastest</button>
+              <button className="r-btn" aria-pressed={sort === "last"} onClick={() => setSort("last")}>Last run</button>
             </div>
             <div className="r-section"><span>Stage</span></div>
             <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
