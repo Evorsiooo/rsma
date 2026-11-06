@@ -12,6 +12,7 @@ import { AdminPage } from "./admin/AdminPage";
 import { TeamPage } from "./TeamPage";
 import { MyTeamPage, MyTeamPicker } from "./MyTeam";
 import { TeamRegistration } from "./TeamRegistration";
+import { RegistrationPage } from "./RegistrationPage";
 import { NotFound } from "./NotFound";
 import { RaceRedirect } from "./RaceRedirect";
 
@@ -33,6 +34,7 @@ export function App() {
         <Route path="/" element={<Home races={data.races} />} />
         <Route path="/race/:id" element={<RaceRedirect />} />
         <Route path="/session/:id" element={<RacePage />} />
+        <Route path="/session/:id/register" element={<RegistrationPage />} />
         <Route path="/session/:id/driver" element={<DriverPage />} />
         <Route path="/session/:id/steward" element={<StewardPage />} />
         <Route path="/session/:id/team/:teamId" element={<TeamPage />} />

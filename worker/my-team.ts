@@ -86,7 +86,10 @@ myTeams.delete("/:teamId/members/:uid", async (c) => {
   const target = team.members.find((m) => m.id === c.req.param("uid"));
   if (!target) return c.json({ error: "not_found" }, 404);
   if (target.roles.includes("principal")) return c.json({ error: "principal_fixed" }, 403);
-  await c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(team.id, target.id).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(team.id, target.id),
+    c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ? AND roblox_id = ? AND kind != 'spectator'").bind(team.id, target.id),
+  ]);
   return c.json({ ok: true });
 });
 
@@ -94,6 +97,9 @@ myTeams.post("/:teamId/leave", async (c) => {
   const team = await load(c, c.req.param("teamId"));
   if (!team) return c.json({ error: "not_found" }, 404);
   if (team.roles.includes("principal")) return c.json({ error: "principal_fixed" }, 403);
-  await c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(team.id, c.get("me").id).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(team.id, c.get("me").id),
+    c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ? AND roblox_id = ? AND kind != 'spectator'").bind(team.id, c.get("me").id),
+  ]);
   return c.json({ ok: true });
 });

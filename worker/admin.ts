@@ -220,7 +220,43 @@ admin.patch("/sessions/:id", guard("races"), async (c) => {
 });
 
 admin.delete("/sessions/:id", guard("races"), async (c) => {
-  await c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(c.req.param("id")).run();
+  const sid = c.req.param("id");
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(sid),
+    c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(sid),
+    c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sid),
+  ]);
+  return c.json({ ok: true });
+});
+
+/** Registration settings for a session: window, spots per kind, factory reserve, independents. */
+admin.put("/sessions/:id/registration", guard("races"), async (c) => {
+  const id = c.req.param("id") ?? "";
+  if (!(await c.env.DB.prepare("SELECT 1 FROM sessions WHERE id = ?").bind(id).first())) return c.json({ error: "not_found" }, 404);
+  const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+  const num = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 999 ? (v as number) : null);
+  const opensAt = Number(b.opensAt);
+  const deadline = Number(b.deadline);
+  const [drivers, employees, spectators, reserved] = [num(b.drivers), num(b.employees), num(b.spectators), num(b.factoryReserved)];
+  if (!Number.isFinite(opensAt) || !Number.isFinite(deadline) || deadline <= opensAt) return c.json({ error: "invalid_times" }, 400);
+  if (drivers === null || employees === null || spectators === null || reserved === null) return c.json({ error: "invalid" }, 400);
+  await c.env.DB.prepare(
+    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8`,
+  )
+    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0)
+    .run();
+  return c.json({ ok: true });
+});
+
+/** Turn registration off for a session and clear what was entered. */
+admin.delete("/sessions/:id/registration", guard("races"), async (c) => {
+  const id = c.req.param("id") ?? "";
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(id),
+  ]);
   return c.json({ ok: true });
 });
 
@@ -281,7 +317,10 @@ admin.patch("/teams/:id", guard("users"), async (c) => {
 
 admin.delete("/teams/:id", guard("users"), async (c) => {
   if (await c.env.DB.prepare("SELECT 1 FROM teams WHERE factory_id = ?").bind(c.req.param("id")).first()) return c.json({ error: "has_customers" }, 409);
-  await c.env.DB.prepare("DELETE FROM teams WHERE id = ?").bind(c.req.param("id")).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ?").bind(c.req.param("id")),
+    c.env.DB.prepare("DELETE FROM teams WHERE id = ?").bind(c.req.param("id")),
+  ]);
   return c.json({ ok: true });
 });
 
@@ -319,7 +358,10 @@ admin.put("/teams/:id/members/:uid/roles", guard("users"), async (c) => {
 });
 
 admin.delete("/teams/:id/members/:uid", guard("users"), async (c) => {
-  await c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(c.req.param("id"), c.req.param("uid")).run();
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(c.req.param("id"), c.req.param("uid")),
+    c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ? AND roblox_id = ? AND kind != 'spectator'").bind(c.req.param("id"), c.req.param("uid")),
+  ]);
   return c.json({ ok: true });
 });
 

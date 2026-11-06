@@ -5,6 +5,7 @@ import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE } from "./auth/session";
 import { admin } from "./admin";
 import { myTeams } from "./my-team";
+import { registration } from "./registration";
 import { loadRaces, loadSession } from "./sessions";
 
 export { RaceDO } from "./race-do";
@@ -18,6 +19,7 @@ const app = new Hono<{ Bindings: Env }>();
 app.route("/api/auth", auth);
 app.route("/api/admin", admin);
 app.route("/api/my-teams", myTeams);
+app.route("/api/registration", registration);
 
 app.get("/api/me", async (c) => c.json(await getMe(c.env, getCookie(c, SESSION_COOKIE))));
 

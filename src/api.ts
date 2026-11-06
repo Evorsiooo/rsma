@@ -1,3 +1,4 @@
+import type { GroupStatus, RegKind, RegSettings, RegistrationView } from "../shared/registration";
 import type { TeamRole } from "../shared/teams";
 import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
 import type { Command } from "../shared/commands";
@@ -74,6 +75,8 @@ export const admin = {
   addMember: (teamId: string, username: string, roles: TeamRole[]) => send("POST", `/api/admin/teams/${teamId}/members`, { username, roles }),
   setMemberRoles: (teamId: string, userId: string, roles: TeamRole[]) => send("PUT", `/api/admin/teams/${teamId}/members/${userId}/roles`, { roles }),
   removeMember: (teamId: string, userId: string) => send("DELETE", `/api/admin/teams/${teamId}/members/${userId}`),
+  setRegistration: (sessionId: string, s: RegSettings) => send("PUT", `/api/admin/sessions/${sessionId}/registration`, s),
+  clearRegistration: (sessionId: string) => send("DELETE", `/api/admin/sessions/${sessionId}/registration`),
   system: () => get<SystemInfo>("/api/admin/system"),
 };
 
@@ -114,4 +117,17 @@ export const myTeam = {
   setRoles: (teamId: string, userId: string, roles: TeamRole[]) => send("PUT", `/api/my-teams/${teamId}/members/${userId}/roles`, { roles }),
   remove: (teamId: string, userId: string) => send("DELETE", `/api/my-teams/${teamId}/members/${userId}`),
   leave: (teamId: string) => send("POST", `/api/my-teams/${teamId}/leave`),
+};
+
+const reg = (sid: string, path = "") => `/api/registration/${sid}${path}`;
+export const registrationApi = {
+  get: (sid: string) => get<RegistrationView>(reg(sid)),
+  teamAdd: (sid: string, teamId: string, username: string, kind: RegKind) => send("POST", reg(sid, `/team/${teamId}`), { username, kind }),
+  teamRemove: (sid: string, teamId: string, userId: string) => send("DELETE", reg(sid, `/team/${teamId}/${userId}`)),
+  independent: (sid: string, discord: string, group: "joined" | "pending") => send("POST", reg(sid, "/independent"), { discord, group }),
+  withdraw: (sid: string) => send("DELETE", reg(sid, "/independent")),
+  selfGroup: (sid: string, group: GroupStatus) => send("PUT", reg(sid, "/self/group"), { group }),
+  staffAdd: (sid: string, b: { username: string; kind: RegKind; teamId: string | null; discord?: string; group?: GroupStatus }) => send("POST", reg(sid, "/staff"), b),
+  staffEdit: (sid: string, userId: string, b: { denied?: boolean; teamId?: string | null; group?: GroupStatus; kind?: RegKind; discord?: string }) => send("PUT", reg(sid, `/staff/${userId}`), b),
+  staffRemove: (sid: string, userId: string) => send("DELETE", reg(sid, `/staff/${userId}`)),
 };
