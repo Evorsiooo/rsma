@@ -1,6 +1,14 @@
+import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import type { RaceSummary } from "../shared/types";
 import { Shell } from "./Shell";
+
+const AUTH_ERRORS: Record<string, string> = {
+  denied: "Sign-in was cancelled.",
+  state: "Sign-in expired. Try again.",
+  token: "Roblox rejected the sign-in.",
+  profile: "Could not read your Roblox profile.",
+};
 
 const fmt = new Intl.DateTimeFormat("en-GB", {
   day: "numeric",
@@ -11,8 +19,14 @@ const fmt = new Intl.DateTimeFormat("en-GB", {
 
 export function Home({ races }: { races: RaceSummary[] }) {
   const nav = useNavigate();
+  const [authError] = useState(() => {
+    const code = new URLSearchParams(location.search).get("auth_error");
+    if (code) history.replaceState(null, "", "/");
+    return code ? (AUTH_ERRORS[code] ?? "Sign-in failed.") : null;
+  });
   return (
     <Shell>
+      {authError && <div className="r-banner is-red">{authError}</div>}
       <div className="r-panel">
         <div className="r-header">Events</div>
         {races.length === 0 ? (

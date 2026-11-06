@@ -1,16 +1,22 @@
 import { Hono } from "hono";
 import type { RaceSummary } from "../shared/types";
+import { auth, getMe, type AuthEnv } from "./auth";
+import { getCookie } from "hono/cookie";
+import { SESSION_COOKIE } from "./auth/session";
 
 export { RaceDO } from "./race-do";
 
-interface Env {
-  DB: D1Database;
+interface Env extends AuthEnv {
   RACE: DurableObjectNamespace;
   /** "1" only in local development (.dev.vars). Enables /api/dev routes. */
   DEV?: string;
 }
 
 const app = new Hono<{ Bindings: Env }>();
+
+app.route("/api/auth", auth);
+
+app.get("/api/me", async (c) => c.json(await getMe(c.env, getCookie(c, SESSION_COOKIE))));
 
 app.get("/api/health", async (c) => {
   await c.env.DB.prepare("SELECT 1").first();

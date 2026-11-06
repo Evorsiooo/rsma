@@ -1,10 +1,13 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
+import { api } from "./api";
+import { useMe } from "./me";
 
 export const VERSION = "v0.1.0";
 
 /** Page shell for public pages: top bar, scrolling body, footer status line. */
 export function Shell({ children }: { children: ReactNode }) {
+  const { me, setMe } = useMe();
   return (
     <div className="page">
       <div className="r-topbar">
@@ -12,10 +15,27 @@ export function Shell({ children }: { children: ReactNode }) {
           FLAGMAN
         </Link>
         <div className="r-topbar__end">
-          {/* Enabled in the sign-in step. */}
-          <button className="r-btn" disabled>
-            Sign in with Roblox
-          </button>
+          {me ? (
+            <>
+              <span className="r-user">
+                <span className="r-avatar">{me.username[0].toUpperCase()}</span>
+                {me.username}
+              </span>
+              <button
+                className="r-btn"
+                onClick={async () => {
+                  await api.logout();
+                  setMe(null);
+                }}
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <button className="r-btn" onClick={() => location.assign("/api/auth/roblox/login")}>
+              Sign in with Roblox
+            </button>
+          )}
         </div>
       </div>
       <div className="page__body">
