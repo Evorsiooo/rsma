@@ -281,7 +281,7 @@ function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
   const [regFor, setRegFor] = useState<SessionSummary | null>(null);
   return (
     <>
-      {regFor && <RegistrationDialog session={regFor} onClose={() => setRegFor(null)} />}
+      {regFor && <RegistrationDialog session={regFor} onClose={() => { setRegFor(null); onChange(); }} />}
       {!form && !del && !regFor && (
       <Dialog title={`Sessions: ${race.name}`} size="l" onClose={onClose} foot={<><button className="r-btn" onClick={() => setForm({})}>Add session</button><button className="r-btn" onClick={onClose}>Close</button></>}>
         {race.sessions.length === 0 ? (
@@ -708,6 +708,7 @@ function RegistrationDialog({ session, onClose }: { session: SessionSummary; onC
   const [deadline, setDeadline] = useState(toLocalInput(session.startsAt));
   const [n, setN] = useState({ drivers: "20", employees: "10", spectators: "10", factoryReserved: "1" });
   const [independents, setIndependents] = useState(false);
+  const [staging, setStaging] = useState(session.staging);
   useEffect(() => {
     registrationApi.get(session.id).then(({ settings: s }) => {
       if (s) {
@@ -734,6 +735,10 @@ function RegistrationDialog({ session, onClose }: { session: SessionSummary; onC
   const save = async () => {
     const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
     if (!r.ok) return say(r.error);
+    if (staging !== session.staging) {
+      const p = await admin.patchSession(session.id, { staging });
+      if (!p.ok) return say(p.error);
+    }
     onClose();
   };
   const field = (label: string, key: keyof typeof n) => (
@@ -778,6 +783,10 @@ function RegistrationDialog({ session, onClose }: { session: SessionSummary; onC
           </label>
         </>
       )}
+      <label className="r-check">
+        <input type="checkbox" checked={staging} onChange={(e) => setStaging(e.target.checked)} />
+        <span>Allow staging without registration (stewards stage drivers by hand)</span>
+      </label>
       {!on && <div style={{ color: "var(--r-text-dim)" }}>Saving with this off removes registration and every entry for this session.</div>}
     </Dialog>
   );

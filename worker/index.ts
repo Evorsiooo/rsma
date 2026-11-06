@@ -109,6 +109,7 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish")) return c.json({ error: "self_timed" }, 409);
   // Races are run differently for now: no live timing.
   if (info.session.type === "race" && RACE_TIMING_CMDS.includes(cmd.type)) return c.json({ error: "race_timing_off" }, 409);
+  if (cmd.type === "add" && !info.session.staging) return c.json({ error: "staging_off" }, 409);
   if (cmd.type === "add" && cmd.team != null) {
     // Take the team name from the database, never from the client.
     const team = typeof cmd.team.id === "string" ? await teamWithCar(c.env.DB, cmd.team.id) : null;
