@@ -7,6 +7,8 @@ export interface SessionSummary {
   type: SessionType;
   startsAt: number;
   endsAt: number;
+  /** Teams start and stop their own cars; stewards have no Go or Stop. */
+  selfTimed: boolean;
 }
 
 export interface RaceSummary {

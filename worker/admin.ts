@@ -184,7 +184,7 @@ async function defaultName(env: AdminEnv, raceId: string, type: SessionType) {
 
 admin.post("/races/:id/sessions", guard("races"), async (c) => {
   const raceId = c.req.param("id") ?? "";
-  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown };
   if (!SESSION_TYPES.includes(body.type as SessionType)) return c.json({ error: "invalid" }, 400);
   const type = body.type as SessionType;
   if (type === "race") return c.json({ error: "race_disabled" }, 400);
@@ -195,17 +195,17 @@ admin.post("/races/:id/sessions", guard("races"), async (c) => {
   const name = cleanName(body.name) || (await defaultName(c.env, raceId, type));
   const pos = ((await c.env.DB.prepare("SELECT MAX(position) AS m FROM sessions WHERE race_id = ?").bind(raceId).first<{ m: number | null }>())?.m ?? -1) + 1;
   const id = newSessionId();
-  await c.env.DB.prepare("INSERT INTO sessions (id, race_id, name, type, position, starts_at, ends_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, raceId, name, type, pos, startsAt, endsAt, Date.now())
+  await c.env.DB.prepare("INSERT INTO sessions (id, race_id, name, type, position, starts_at, ends_at, created_at, self_timed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, raceId, name, type, pos, startsAt, endsAt, Date.now(), type === "practice" && body.selfTimed === true ? 1 : 0)
     .run();
   return c.json({ id });
 });
 
 admin.patch("/sessions/:id", guard("races"), async (c) => {
   const id = c.req.param("id");
-  const cur = await c.env.DB.prepare("SELECT name, type, starts_at AS startsAt, ends_at AS endsAt FROM sessions WHERE id = ?").bind(id).first<Pick<SessionSummary, "name" | "type" | "startsAt" | "endsAt">>();
+  const cur = await c.env.DB.prepare("SELECT name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed FROM sessions WHERE id = ?").bind(id).first<Pick<SessionSummary, "name" | "type" | "startsAt" | "endsAt"> & { selfTimed: number }>();
   if (!cur) return c.json({ error: "not_found" }, 404);
-  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown };
   const name = body.name !== undefined ? cleanName(body.name) : cur.name;
   const type = body.type !== undefined ? (body.type as SessionType) : cur.type;
   const startsAt = body.startsAt !== undefined ? Number(body.startsAt) : cur.startsAt;
@@ -213,27 +213,13 @@ admin.patch("/sessions/:id", guard("races"), async (c) => {
   if (!name || !SESSION_TYPES.includes(type)) return c.json({ error: "invalid" }, 400);
   if (type === "race" && cur.type !== "race") return c.json({ error: "race_disabled" }, 400);
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) return c.json({ error: "invalid_times" }, 400);
-  await c.env.DB.prepare("UPDATE sessions SET name = ?, type = ?, starts_at = ?, ends_at = ? WHERE id = ?").bind(name, type, startsAt, endsAt, id).run();
+  const selfTimed = type === "practice" && (body.selfTimed !== undefined ? body.selfTimed === true : !!cur.selfTimed);
+  await c.env.DB.prepare("UPDATE sessions SET name = ?, type = ?, starts_at = ?, ends_at = ?, self_timed = ? WHERE id = ?").bind(name, type, startsAt, endsAt, selfTimed ? 1 : 0, id).run();
   return c.json({ ok: true });
 });
 
 admin.delete("/sessions/:id", guard("races"), async (c) => {
   await c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(c.req.param("id")).run();
-  return c.json({ ok: true });
-});
-
-admin.post("/sessions/:id/move", guard("races"), async (c) => {
-  const id = c.req.param("id") ?? "";
-  const body = (await c.req.json().catch(() => ({}))) as { dir?: unknown };
-  const dir = body.dir === -1 ? -1 : body.dir === 1 ? 1 : 0;
-  const row = await c.env.DB.prepare("SELECT race_id AS raceId FROM sessions WHERE id = ?").bind(id).first<{ raceId: string }>();
-  if (!row || !dir) return c.json({ error: "invalid" }, 400);
-  const ids = (await c.env.DB.prepare("SELECT id FROM sessions WHERE race_id = ? ORDER BY position, starts_at").bind(row.raceId).all<{ id: string }>()).results.map((r) => r.id);
-  const i = ids.indexOf(id);
-  const j = i + dir;
-  if (j < 0 || j >= ids.length) return c.json({ ok: true });
-  [ids[i], ids[j]] = [ids[j], ids[i]];
-  await c.env.DB.batch(ids.map((sid, k) => c.env.DB.prepare("UPDATE sessions SET position = ? WHERE id = ?").bind(k, sid)));
   return c.json({ ok: true });
 });
 

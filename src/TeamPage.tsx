@@ -3,7 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { classify, fmtPenalty, type Flag, type RadioMsg } from "../shared/race";
 import { fmtClock } from "../shared/sessions";
 import type { SessionInfo } from "../shared/types";
-import { addPitWindow, api, removePitWindow, sendTeamRadio } from "./api";
+import { addPitWindow, api, removePitWindow, sendTeamRadio, teamTiming } from "./api";
 import { Lcd } from "./Lcd";
 import { useMe } from "./me";
 import { NotFound } from "./NotFound";
@@ -19,6 +19,9 @@ const ERRORS: Record<string, string> = {
   invalid: "Invalid window.",
   too_many: "Too many windows.",
   not_found: "Not found.",
+  no_queue: "No queued car in your team.",
+  not_running: "No car of your team is running.",
+  not_self_timed: "This session is timed by the stewards.",
   forbidden: "You are not in this team.",
   unauthorized: "Sign in again.",
 };
@@ -110,11 +113,15 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const bestFinal = rows.reduce<number | undefined>((m, r) => (r.finalMs != null && (m == null || r.finalMs < m) ? r.finalMs : m), undefined);
   const counting = onTrack.filter((r) => r.startedAt! > now);
   const nextMine = queued.findIndex((r) => r.team === team.id);
+  const nextCar = nextMine < 0 ? undefined : queued[nextMine];
   const releaseAt = nextMine < 0 || !state.lastReleaseAt ? null : state.lastReleaseAt + (nextMine + 1) * state.cadenceSec * 1000;
   const mineOnTrack = onTrack.filter((r) => r.team === team.id).length;
   const mineQueued = queued.filter((r) => r.team === team.id).length;
   const windows = state.pitWindows.filter((w) => w.team === team.id);
   const elapsed = now - session.startsAt;
+  // Graduation under the timeline: about five labelled marks, on round minutes.
+  const tickStep = [5, 10, 15, 30, 60, 120, 180, 360].find((m) => lengthMs / (m * 60_000) <= 5) ?? 720;
+  const ticks = Array.from({ length: Math.floor(lengthMs / (tickStep * 60_000)) + 1 }, (_, k) => k * tickStep * 60_000);
   const pct = (ms: number) => `${(Math.min(Math.max(ms, 0), lengthMs) / lengthMs) * 100}%`;
 
   const line = (m: RadioMsg) => {
@@ -136,6 +143,10 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const addWindow = async () => {
     const err = await addPitWindow(sessionId, team.id, fromMs, toMs);
     if (err) toast(ERRORS[err] ?? "Window not added.");
+  };
+  const timing = async (action: "go" | "finish") => {
+    const err = await teamTiming(sessionId, team.id, action);
+    if (err) toast(ERRORS[err] ?? "Command failed.");
   };
   const delWindow = async (wid: string) => {
     const err = await removePitWindow(sessionId, team.id, wid);
@@ -179,22 +190,37 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
         </div>
 
         <div className="r-row" style={{ height: 42, flex: "none" }}>
+          {session.selfTimed && (
+            <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!nextCar || race.ended} onClick={() => timing("go")}>
+              <span>Go</span>
+            </button>
+          )}
           <div className={`r-plate is-${state.flag}`} style={{ width: 120 }}>{FLAG_WORD[state.flag]}</div>
-          <div className="r-plate r-fill">{counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : ""}</div>
+          <div className="r-plate r-fill">
+            {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : session.selfTimed && nextCar ? `${nextCar.name}  ${nextCar.plate}` : ""}
+          </div>
+          {session.selfTimed && (
+            <button className="r-btn r-btn--advance" style={{ width: 150 }} disabled={race.ended} onClick={() => timing("finish")}>
+              <span>Stop timer</span>
+            </button>
+          )}
         </div>
 
         <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
           <div className="r-stack" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
-            <div className="r-section"><span>Pit window</span></div>
+            <div className="r-section"><span>Pit window, min</span></div>
             <div className="r-timeline" aria-label="Pit windows">
               {windows.map((w) => (
                 <div className="r-timeline__window" key={w.id} style={{ ["--from" as string]: pct(w.fromMs), ["--len" as string]: pct(w.toMs - w.fromMs) }} />
               ))}
               {elapsed >= 0 && elapsed <= lengthMs && <div className="r-timeline__now" style={{ ["--at" as string]: pct(elapsed) }} />}
             </div>
-            <div className="r-row r-text r-text--dim" style={{ justifyContent: "space-between" }}>
-              <span>00:00</span>
-              <span>{fmtClock(lengthMs)}</span>
+            <div className="r-scale" aria-hidden="true">
+              {ticks.map((t) => (
+                <span key={t} className="r-scale__tick" style={{ left: pct(t) }}>
+                  {t / 60_000}
+                </span>
+              ))}
             </div>
             <div className="r-row" style={{ alignItems: "center" }}>
               <span className="r-text" style={{ width: 90 }}>Opens at</span>

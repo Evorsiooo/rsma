@@ -22,6 +22,9 @@ export type Command =
   | { type: "remove"; runId: string }
   | { type: "move"; runId: string; dir: -1 | 1 }
   | { type: "go" }
+  | { type: "teamGo"; team: string }
+  | { type: "teamFinish"; team: string; runId?: string }
+  | { type: "delRun"; runId: string }
   | { type: "cadence"; sec: number }
   | { type: "finish"; runId?: string }
   | { type: "assign"; ts: number; runId: string }
@@ -107,6 +110,32 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       next.startedAt = ctx.now + COUNTDOWN_MS;
       s.lastReleaseAt = ctx.now;
       note(`Released ${next.name}`);
+      break;
+    }
+    case "teamGo": {
+      const next = s.runs.find((r) => r.status === "queued" && r.team === cmd.team);
+      if (!next) return { error: "no_queue" };
+      next.status = "onstage";
+      next.startedAt = ctx.now + COUNTDOWN_MS;
+      s.lastReleaseAt = ctx.now;
+      note(`Released ${next.name} (self-timed)`);
+      break;
+    }
+    case "teamFinish": {
+      const started = running().filter((r) => r.team === cmd.team && r.startedAt != null && r.startedAt <= ctx.now);
+      const target = cmd.runId ? started.find((r) => r.id === cmd.runId) : started.sort((a, b) => a.startedAt! - b.startedAt!)[0];
+      if (!target) return { error: "not_running" };
+      target.status = "finished";
+      target.rawMs = ctx.now - target.startedAt!;
+      note(`Finish: ${target.name} (self-timed)`, "green");
+      break;
+    }
+    case "delRun": {
+      const r = run(cmd.runId);
+      if (!r) return { error: "not_found" };
+      if (r.status !== "finished" && r.status !== "dnf") return { error: "not_finished" };
+      s.runs = s.runs.filter((x) => x !== r);
+      note(`Deleted the time of ${r.name}`, "red");
       break;
     }
     case "cadence": {

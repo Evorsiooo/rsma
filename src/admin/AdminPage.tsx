@@ -266,10 +266,6 @@ const TYPE_LABEL: Record<SessionType, string> = { practice: "Practice", timed: "
 function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange: () => void; onClose: () => void }) {
   const [form, setForm] = useState<{ session?: SessionSummary } | null>(null);
   const [del, setDel] = useState<SessionSummary | null>(null);
-  const move = async (s: SessionSummary, dir: -1 | 1) => {
-    await admin.moveSession(s.id, dir);
-    onChange();
-  };
   return (
     <>
       {!form && !del && (
@@ -279,20 +275,22 @@ function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
         ) : (
           <table className="r-table">
             <tbody>
-              {race.sessions.map((s, i) => (
+              {race.sessions.map((s) => (
                 <tr key={s.id}>
                   <td className="is-left" style={{ width: 130 }}>
                     <div>{s.name}</div>
-                    {s.name !== TYPE_LABEL[s.type] && <div style={{ color: "var(--r-text-dim)" }}>{TYPE_LABEL[s.type]}</div>}
+                    {s.selfTimed ? (
+                      <div style={{ color: "var(--r-text-dim)" }}>Self-timed</div>
+                    ) : (
+                      s.name !== TYPE_LABEL[s.type] && <div style={{ color: "var(--r-text-dim)" }}>{TYPE_LABEL[s.type]}</div>
+                    )}
                   </td>
                   <td className="is-left">
                     <div>{dateFmt.format(s.startsAt)}</div>
                     <div style={{ color: "var(--r-text-dim)" }}>{dateFmt.format(s.endsAt)}</div>
                   </td>
-                  <td style={{ width: 250, padding: 2 }}>
-                    <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
-                      <button className="r-cell" disabled={i === 0} aria-label={`Move ${s.name} up`} onClick={() => move(s, -1)}>Up</button>
-                      <button className="r-cell" disabled={i === race.sessions.length - 1} aria-label={`Move ${s.name} down`} onClick={() => move(s, 1)}>Down</button>
+                  <td style={{ width: 130, padding: 2 }}>
+                    <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
                       <button className="r-cell" onClick={() => setForm({ session: s })}>Edit</button>
                       <button className="r-cell r-cell--red" onClick={() => setDel(s)}>Delete</button>
                     </div>
@@ -329,6 +327,7 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
   const [type, setType] = useState<SessionType>(session?.type ?? "practice");
   const [name, setName] = useState(session?.name ?? "");
   const [start, setStart] = useState(() => toLocalInput(session?.startsAt ?? Math.max(Date.now(), last?.endsAt ?? 0)));
+  const [selfTimed, setSelfTimed] = useState(session?.selfTimed ?? false);
   const [end, setEnd] = useState(() => toLocalInput(session?.endsAt ?? Math.max(Date.now(), last?.endsAt ?? 0) + 3600_000));
   const startsAt = fromLocalInput(start);
   const endsAt = fromLocalInput(end);
@@ -336,8 +335,8 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
   const save = async () => {
     if (!ok) return;
     const r = session
-      ? await admin.patchSession(session.id, { name: name.trim() || session.name, type, startsAt, endsAt })
-      : await admin.createSession(race.id, { name: name.trim(), type, startsAt, endsAt });
+      ? await admin.patchSession(session.id, { name: name.trim() || session.name, type, startsAt, endsAt, selfTimed: type === "practice" && selfTimed })
+      : await admin.createSession(race.id, { name: name.trim(), type, startsAt, endsAt, selfTimed: type === "practice" && selfTimed });
     if (!r.ok) return say(r.error);
     onDone();
   };
@@ -363,6 +362,12 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
           </select>
         </div>
       </div>
+      {type === "practice" && (
+        <label className="r-check">
+          <input type="checkbox" checked={selfTimed} onChange={(e) => setSelfTimed(e.target.checked)} />
+          <span>Self-timed by teams</span>
+        </label>
+      )}
       <div className="r-form-field">
         <span className="r-label">Name</span>
         <input className="r-field" aria-label="Name" maxLength={60} placeholder={session ? session.name : "Automatic"} value={name} onChange={(e) => setName(e.target.value)} />

@@ -89,6 +89,9 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   if (info.race.ended) return c.json({ error: "race_ended" }, 409);
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
+  // Team commands only come through the team routes; self-timed sessions have no steward Go or Stop.
+  if (cmd.type === "teamGo" || cmd.type === "teamFinish") return c.json({ error: "invalid" }, 400);
+  if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish")) return c.json({ error: "self_timed" }, 409);
   if (cmd.type === "add" && cmd.team != null) {
     // Take the team name from the database, never from the client.
     const team = typeof cmd.team.id === "string" ? await c.env.DB.prepare("SELECT id, name FROM teams WHERE id = ?").bind(cmd.team.id).first<{ id: string; name: string }>() : null;
@@ -151,6 +154,22 @@ app.post("/api/sessions/:id/team/:teamId/pit", async (c) => {
   if ("error" in r) return r.error;
   const body = (await c.req.json().catch(() => ({}))) as { fromMs?: unknown; toMs?: unknown };
   const cmd = { type: "pitAdd", team: r.team.id, teamName: r.team.name, fromMs: Number(body.fromMs), toMs: Number(body.toMs), lengthMs: r.info.session.endsAt - r.info.session.startsAt };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+// Self-timed practice: the team starts and stops its own cars.
+app.post("/api/sessions/:id/team/:teamId/timing", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  if (!r.info.session.selfTimed) return c.json({ error: "not_self_timed" }, 409);
+  const body = (await c.req.json().catch(() => ({}))) as { action?: unknown; runId?: unknown };
+  const cmd =
+    body.action === "go"
+      ? { type: "teamGo", team: r.team.id }
+      : body.action === "finish"
+        ? { type: "teamFinish", team: r.team.id, runId: typeof body.runId === "string" ? body.runId : undefined }
+        : null;
+  if (!cmd) return c.json({ error: "invalid" }, 400);
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 
