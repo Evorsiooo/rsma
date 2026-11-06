@@ -19,6 +19,14 @@ const ERRORS: Record<string, string> = {
 };
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
+/** Value for <input type="datetime-local"> in the browser's time zone. */
+const toLocalInput = (ms: number) => {
+  const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60000);
+  return d.toISOString().slice(0, 16);
+};
+const fromLocalInput = (v: string) => (v ? new Date(v).getTime() : NaN);
+const inDays = (n: number) => toLocalInput(Date.now() + n * 86400_000);
+
 const dateFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" });
 const ROLE_LABEL: Record<Role, string> = { admin: "Admin", users: "Users", races: "Races", steward: "Steward" };
 
@@ -159,14 +167,14 @@ function Races() {
   const nav = useNavigate();
   const { data, failed, reload } = useLoad<AdminRace[]>(admin.races);
   const [name, setName] = useState("");
-  const [hours, setHours] = useState("24");
+  const [expires, setExpires] = useState(() => inDays(1));
   const [dialog, setDialog] = useState<RaceDialog>(null);
-  const h = Number(hours);
-  const valid = !!name.trim() && Number.isFinite(h) && h > 0;
+  const at = fromLocalInput(expires);
+  const valid = !!name.trim() && at > Date.now();
 
   const create = async () => {
     if (!valid) return;
-    const r = await admin.createRace(name.trim(), h);
+    const r = await admin.createRace(name.trim(), at);
     if (!r.ok) return say(r.error);
     setName("");
     toast("Race created.", "green");
@@ -185,8 +193,7 @@ function Races() {
         <div className="r-header">New race</div>
         <div className="r-row" style={{ padding: 4 }}>
           <input className="r-field r-fill" placeholder="Name" aria-label="Race name" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
-          <input className="r-field" style={{ width: 120 }} inputMode="decimal" aria-label="Hours until it expires" value={hours} onChange={(e) => setHours(e.target.value)} />
-          <span style={{ alignSelf: "center" }}>hours</span>
+          <input className="r-field" style={{ width: 230, colorScheme: "dark" }} type="datetime-local" aria-label="Expires" value={expires} onChange={(e) => setExpires(e.target.value)} />
           <button className="r-btn" style={{ width: 120 }} disabled={!valid} onClick={create}>Create</button>
         </div>
       </div>
@@ -279,12 +286,12 @@ function StewardsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
 }
 
 function ExpiryDialog({ race, onDone, onClose }: { race: AdminRace; onDone: () => void; onClose: () => void }) {
-  const [hours, setHours] = useState("24");
-  const h = Number(hours);
-  const ok = Number.isFinite(h) && h > 0;
+  const [value, setValue] = useState(() => toLocalInput(race.expiresAt));
+  const at = fromLocalInput(value);
+  const ok = Number.isFinite(at);
   const save = async () => {
     if (!ok) return;
-    const r = await admin.patchRace(race.id, { expiresAt: Date.now() + h * 3600_000 });
+    const r = await admin.patchRace(race.id, { expiresAt: at });
     if (!r.ok) return say(r.error);
     onDone();
   };
@@ -301,8 +308,8 @@ function ExpiryDialog({ race, onDone, onClose }: { race: AdminRace; onDone: () =
       }
     >
       <div className="r-form-field">
-        <span className="r-label">Expires in (hours from now)</span>
-        <input className="r-field" inputMode="decimal" aria-label="Hours from now" value={hours} onChange={(e) => setHours(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
+        <span className="r-label">Expires</span>
+        <input className="r-field" style={{ colorScheme: "dark" }} type="datetime-local" aria-label="Expires" value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && save()} />
       </div>
     </Dialog>
   );

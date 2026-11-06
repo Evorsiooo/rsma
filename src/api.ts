@@ -43,7 +43,7 @@ export const admin = {
   addUser: (username: string) => send("POST", "/api/admin/users", { username }),
   setRoles: (id: string, roles: Role[]) => send("PUT", `/api/admin/users/${id}/roles`, { roles }),
   races: () => get<AdminRace[]>("/api/admin/races"),
-  createRace: (name: string, hours: number) => send("POST", "/api/admin/races", { name, hours }),
+  createRace: (name: string, expiresAt: number) => send("POST", "/api/admin/races", { name, expiresAt }),
   patchRace: (id: string, patch: { name?: string; expiresAt?: number; status?: "active" | "archived" }) =>
     send("PATCH", `/api/admin/races/${id}`, patch),
   addSteward: (raceId: string, username: string) => send("POST", `/api/admin/races/${raceId}/stewards`, { username }),

@@ -11,7 +11,6 @@ interface AdminEnv extends AuthEnv {
 type C = Context<{ Bindings: AdminEnv; Variables: { me: Me } }>;
 
 const ROLES: Role[] = ["admin", "users", "races", "steward"];
-const MAX_HOURS = 24 * 365;
 
 export const admin = new Hono<{ Bindings: AdminEnv; Variables: { me: Me } }>();
 
@@ -107,14 +106,14 @@ async function loadRaces(env: AdminEnv): Promise<AdminRace[]> {
 admin.get("/races", guard("races"), async (c) => c.json(await loadRaces(c.env)));
 
 admin.post("/races", guard("races"), async (c) => {
-  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; hours?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; expiresAt?: unknown };
   const name = cleanName(body.name);
-  const hours = Number(body.hours);
-  if (!name || !Number.isFinite(hours) || hours <= 0 || hours > MAX_HOURS) return c.json({ error: "invalid" }, 400);
+  const expiresAt = Number(body.expiresAt);
   const now = Date.now();
+  if (!name || !Number.isFinite(expiresAt) || expiresAt <= now) return c.json({ error: "invalid" }, 400);
   const id = `race_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
   await c.env.DB.prepare("INSERT INTO races (id, name, status, expires_at, created_at) VALUES (?, ?, 'active', ?, ?)")
-    .bind(id, name, now + hours * 3600_000, now)
+    .bind(id, name, expiresAt, now)
     .run();
   return c.json({ id });
 });
