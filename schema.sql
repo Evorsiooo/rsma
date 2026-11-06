@@ -1,6 +1,0 @@
-CREATE TABLE IF NOT EXISTS tokens (
-  id TEXT PRIMARY KEY,
-  token TEXT UNIQUE NOT NULL,
-  role TEXT NOT NULL,
-  created_at INTEGER NOT NULL
-);
