@@ -33,6 +33,12 @@ export function RacePage() {
         <div className={`r-banner r-fill${state ? FLAG[state.flag].tone : ""}`} style={{ visibility: state ? "visible" : "hidden" }}>
           {state ? FLAG[state.flag].label : " "}
         </div>
+        <button
+          className="r-btn"
+          onClick={() => window.open(`/race/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}
+        >
+          Radio
+        </button>
         {live ? (
           <div className="r-lamp r-lamp--fixed">LIVE</div>
         ) : (

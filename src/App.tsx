@@ -6,6 +6,7 @@ import { Boot, type BootData } from "./Boot";
 import { Home } from "./Home";
 import { RacePage } from "./RacePage";
 import { Privacy, Terms } from "./Legal";
+import { DriverPage } from "./DriverPage";
 import { StewardPage } from "./steward/StewardPage";
 import { NotFound } from "./NotFound";
 
@@ -26,6 +27,7 @@ export function App() {
       <Routes>
         <Route path="/" element={<Home races={data.races} />} />
         <Route path="/race/:id" element={<RacePage />} />
+        <Route path="/race/:id/driver" element={<DriverPage />} />
         <Route path="/race/:id/steward" element={<StewardPage />} />
         <Route path="/terms" element={<Terms />} />
         <Route path="/privacy" element={<Privacy />} />
