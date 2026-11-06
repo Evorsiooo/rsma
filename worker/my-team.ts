@@ -59,8 +59,8 @@ myTeams.post("/:teamId/members", async (c) => {
   if (!username) return c.json({ error: "invalid_username" }, 400);
   const roles = body.roles === undefined ? (["driver"] as TeamRole[]) : cleanRoles(body.roles);
   if (!roles || roles.includes("principal")) return c.json({ error: "invalid_roles" }, 400);
-  const user = await resolveUser(c.env, username);
-  if (!user) return c.json({ error: "no_such_roblox_user" }, 404);
+  const user = await resolveUser(c, username);
+  if (user instanceof Response) return user;
   if (team.members.some((m) => m.id === user.id)) return c.json({ error: "already_member" }, 409);
   await c.env.DB.prepare("INSERT INTO team_members (team_id, roblox_id, roles) VALUES (?, ?, ?)").bind(team.id, user.id, roles.join(",")).run();
   return c.json(user);

@@ -173,8 +173,9 @@ registration.post("/:sid/team/:teamId", async (c) => {
   if (!kind || !username) return c.json({ error: "invalid" }, 400);
   let user: { id: string; username: string } | null;
   if (kind === "spectator") {
-    user = await resolveUser(c.env, username);
-    if (!user) return c.json({ error: "no_such_roblox_user" }, 404);
+    const found = await resolveUser(c, username);
+    if (found instanceof Response) return found;
+    user = found;
   } else {
     const m = await c.env.DB.prepare(
       "SELECT u.roblox_id AS id, u.username, m.roles FROM team_members m JOIN users u ON u.roblox_id = m.roblox_id WHERE m.team_id = ? AND lower(u.username) = lower(?)",
@@ -265,8 +266,8 @@ registration.post("/:sid/staff", async (c) => {
   const username = cleanUsername(body.username);
   const teamId = body.teamId ?? null;
   if (!kind || !username || !(await teamOk(c, teamId))) return c.json({ error: "invalid" }, 400);
-  const user = await resolveUser(c.env, username);
-  if (!user) return c.json({ error: "no_such_roblox_user" }, 404);
+  const user = await resolveUser(c, username);
+  if (user instanceof Response) return user;
   const err = await insertReg(c, sid, user.id, kind, teamId as string | null, cleanDiscord(body.discord), cleanGroup(body.group) ?? "unverified");
   return err ?? c.json({ ok: true });
 });

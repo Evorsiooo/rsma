@@ -14,6 +14,7 @@ import { NotFound } from "./NotFound";
 const ERRORS: Record<string, string> = {
   invalid_username: "Enter a Roblox username (3-20 letters, numbers or underscores).",
   no_such_roblox_user: "No Roblox user with that name.",
+  lookup_failed: "Could not reach Roblox. Try again in a moment.",
   already_member: "Already in this team.",
   principal_fixed: "The Team Principal cannot be changed or removed.",
   invalid_roles: "Pick at least one role.",
