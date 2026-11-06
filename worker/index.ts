@@ -4,6 +4,7 @@ import type { Me } from "../shared/types";
 import { auth, getMe, hasRole, type AuthEnv } from "./auth";
 import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE } from "./auth/session";
+import { admin } from "./admin";
 
 export { RaceDO } from "./race-do";
 
@@ -14,6 +15,7 @@ interface Env extends AuthEnv {
 const app = new Hono<{ Bindings: Env }>();
 
 app.route("/api/auth", auth);
+app.route("/api/admin", admin);
 
 app.get("/api/me", async (c) => c.json(await getMe(c.env, getCookie(c, SESSION_COOKIE))));
 
