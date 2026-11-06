@@ -7,6 +7,7 @@ import { useMe } from "../me";
 import { Topbar, VERSION } from "../Shell";
 import { Dialog, toast } from "../ui";
 import { NotFound } from "../NotFound";
+import { AddMember, MemberTable } from "../TeamMembers";
 
 type Tab = "users" | "races" | "teams" | "system";
 
@@ -20,6 +21,8 @@ const ERRORS: Record<string, string> = {
   name_taken: "That name is already used.",
   invalid_times: "The end must be after the start.",
   race_disabled: "Race sessions are not available yet.",
+  has_principal: "This team already has a Team Principal.",
+  invalid_roles: "Pick at least one role.",
   has_customers: "Customer teams still run this factory team's car.",
 };
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
@@ -618,38 +621,34 @@ function EditTeamDialog({ team, factories, onDone, onClose }: { team: AdminTeam;
 }
 
 function MembersDialog({ team, onChange, onClose }: { team: AdminTeam; onChange: () => void; onClose: () => void }) {
-  const [name, setName] = useState("");
-  const add = async () => {
-    if (!name.trim()) return;
-    const r = await admin.addMember(team.id, name.trim());
-    if (!r.ok) return say(r.error);
-    setName("");
-    onChange();
-  };
   return (
-    <Dialog title={`Team panel access: ${team.name}`} size="l" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
-      {team.members.length === 0 ? (
-        <div className="r-empty">No members.</div>
-      ) : (
-        <table className="r-table">
-          <tbody>
-            {team.members.map((m) => (
-              <tr key={m.id}>
-                <td className="is-left">{m.username}</td>
-                <td style={{ width: 120, padding: 2 }}>
-                  <button className="r-btn r-cell--red" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={async () => { await admin.removeMember(team.id, m.id); onChange(); }}>
-                    Remove
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
-      <div className="r-row">
-        <input className="r-field r-fill" placeholder="Roblox username" aria-label="Member username" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-        <button className="r-btn" style={{ width: 100 }} disabled={!name.trim()} onClick={add}>Add</button>
-      </div>
+    <Dialog title={`Team members: ${team.name}`} size="l" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
+      <MemberTable
+        members={team.members}
+        canEdit
+        canSetPrincipal
+        onRoles={async (m, roles) => {
+          const r = await admin.setMemberRoles(team.id, m.id, roles);
+          if (!r.ok) say(r.error);
+          onChange();
+        }}
+        onRemove={async (m) => {
+          await admin.removeMember(team.id, m.id);
+          onChange();
+        }}
+      />
+      <AddMember
+        canSetPrincipal
+        onAdd={async (username, roles) => {
+          const r = await admin.addMember(team.id, username, roles);
+          if (!r.ok) {
+            say(r.error);
+            return false;
+          }
+          onChange();
+          return true;
+        }}
+      />
     </Dialog>
   );
 }

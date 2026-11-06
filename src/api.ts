@@ -1,4 +1,5 @@
-import type { AdminRace, AdminTeam, AdminUser, Me, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
+import type { TeamRole } from "../shared/teams";
+import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
 import type { Command } from "../shared/commands";
 
 async function get<T>(path: string): Promise<T> {
@@ -70,7 +71,8 @@ export const admin = {
   createTeam: (t: TeamFields & { name: string }) => send("POST", "/api/admin/teams", t),
   patchTeam: (id: string, t: TeamFields & { name: string }) => send("PATCH", `/api/admin/teams/${id}`, t),
   deleteTeam: (id: string) => send("DELETE", `/api/admin/teams/${id}`),
-  addMember: (teamId: string, username: string) => send("POST", `/api/admin/teams/${teamId}/members`, { username }),
+  addMember: (teamId: string, username: string, roles: TeamRole[]) => send("POST", `/api/admin/teams/${teamId}/members`, { username, roles }),
+  setMemberRoles: (teamId: string, userId: string, roles: TeamRole[]) => send("PUT", `/api/admin/teams/${teamId}/members/${userId}/roles`, { roles }),
   removeMember: (teamId: string, userId: string) => send("DELETE", `/api/admin/teams/${teamId}/members/${userId}`),
   system: () => get<SystemInfo>("/api/admin/system"),
 };
@@ -105,3 +107,11 @@ export interface TeamFields {
   factoryId?: string;
 }
 export const teamRunCmd = (sessionId: string, teamId: string, cmd: object) => teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/run`, cmd);
+
+export const myTeam = {
+  get: (teamId: string) => get<MyTeam>(`/api/my-teams/${teamId}`),
+  add: (teamId: string, username: string, roles: TeamRole[]) => send("POST", `/api/my-teams/${teamId}/members`, { username, roles }),
+  setRoles: (teamId: string, userId: string, roles: TeamRole[]) => send("PUT", `/api/my-teams/${teamId}/members/${userId}/roles`, { roles }),
+  remove: (teamId: string, userId: string) => send("DELETE", `/api/my-teams/${teamId}/members/${userId}`),
+  leave: (teamId: string) => send("POST", `/api/my-teams/${teamId}/leave`),
+};

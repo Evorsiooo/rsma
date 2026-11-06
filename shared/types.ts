@@ -1,3 +1,5 @@
+import type { TeamRole } from "./teams";
+
 export type SessionType = "practice" | "timed" | "race";
 
 export interface SessionSummary {
@@ -35,6 +37,8 @@ export interface Me {
   roles: Role[];
   /** Teams whose panel this user may open. */
   teams: Team[];
+  /** Every team this user belongs to, with their roles. */
+  memberships: (Team & { roles: TeamRole[] })[];
 }
 
 export type TeamKind = "factory" | "customer";
@@ -46,7 +50,7 @@ export interface AdminTeam extends Team {
   /** Customer teams: the factory team whose car they run. */
   factoryId: string | null;
   factoryName: string | null;
-  members: { id: string; username: string }[];
+  members: { id: string; username: string; roles: TeamRole[] }[];
 }
 
 export interface AdminUser {
@@ -79,4 +83,13 @@ export interface SystemInfo {
   expiredRaces: number;
   archivedRaces: number;
   robloxConfigured: boolean;
+}
+
+export interface MyTeam extends Team {
+  kind: TeamKind;
+  car: string | null;
+  factoryName: string | null;
+  /** The signed-in user's roles in this team. */
+  roles: TeamRole[];
+  members: { id: string; username: string; roles: TeamRole[] }[];
 }
