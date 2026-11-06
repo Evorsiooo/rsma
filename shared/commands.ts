@@ -31,9 +31,12 @@ export type Command =
   | { type: "delRun"; runId: string }
   | { type: "cadence"; sec: number }
   | { type: "finish"; runId?: string }
-  | { type: "assign"; ts: number; runId: string }
+  | { type: "assign"; ts: number; runId: string; team?: string }
+  | { type: "unattribute"; runId: string; team?: string }
+  | { type: "reattribute"; fromRunId: string; runId: string; team?: string }
+  | { type: "setTime"; runId: string; ms: number; team?: string }
   | { type: "discard"; ts: number }
-  | { type: "dnf"; runId: string }
+  | { type: "dnf"; runId: string; team?: string }
   | { type: "penalty"; runId: string; ruleId: string; delta: 1 | -1 }
   | { type: "ruleAdd"; name: string; seconds: number }
   | { type: "ruleSet"; id: string; seconds: number }
@@ -232,23 +235,65 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
     }
     case "assign": {
       if (!s.pending.includes(cmd.ts)) return { error: "not_found" };
-      const r = running().find((x) => x.id === cmd.runId && x.startedAt != null && x.startedAt <= cmd.ts);
+      if (cmd.team && s.pendingTeam?.[cmd.ts] !== cmd.team) return { error: "forbidden" };
+      const r = running().find((x) => x.id === cmd.runId && x.startedAt != null && x.startedAt <= cmd.ts && (!cmd.team || x.team === cmd.team));
       if (!r) return { error: "not_running" };
       r.status = "finished";
       r.rawMs = cmd.ts - r.startedAt!;
       s.pending = s.pending.filter((t) => t !== cmd.ts);
+      if (s.pendingTeam) delete s.pendingTeam[cmd.ts];
       note(`Finish attributed to ${r.name}`, "green");
+      break;
+    }
+    case "unattribute": {
+      // Take a time off a car (a wrong stop): it becomes a pending finish that can be attributed to the right car.
+      const r = run(cmd.runId);
+      if (!r || (cmd.team && r.team !== cmd.team)) return { error: "not_found" };
+      if (r.status !== "finished" || r.startedAt == null || r.rawMs == null) return { error: "invalid" };
+      const ts = r.startedAt + r.rawMs;
+      r.status = "onstage";
+      delete r.rawMs;
+      s.pending.push(ts);
+      if (r.team) (s.pendingTeam ??= {})[ts] = r.team;
+      note(`Time removed from ${r.name}`, "yellow");
+      break;
+    }
+    case "reattribute": {
+      // Move a finish from one car to another.
+      const from = run(cmd.fromRunId);
+      const to = run(cmd.runId);
+      if (!from || !to || from === to) return { error: "not_found" };
+      if (cmd.team && (from.team !== cmd.team || to.team !== cmd.team)) return { error: "not_found" };
+      if (from.status !== "finished" || from.startedAt == null || from.rawMs == null) return { error: "invalid" };
+      const ts = from.startedAt + from.rawMs;
+      if (to.status !== "onstage" || to.startedAt == null || to.startedAt > ts) return { error: "not_running" };
+      from.status = "onstage";
+      delete from.rawMs;
+      to.status = "finished";
+      to.rawMs = ts - to.startedAt;
+      note(`Time moved from ${from.name} to ${to.name}`, "yellow");
+      break;
+    }
+    case "setTime": {
+      const r = run(cmd.runId);
+      if (!r || (cmd.team && r.team !== cmd.team)) return { error: "not_found" };
+      if (!Number.isInteger(cmd.ms) || cmd.ms < 100 || cmd.ms > 86_400_000) return { error: "invalid" };
+      r.status = "finished";
+      r.rawMs = cmd.ms;
+      note(`Time set for ${r.name}: ${fmtTime(cmd.ms)}`, "green");
       break;
     }
     case "discard": {
       if (!s.pending.includes(cmd.ts)) return { error: "not_found" };
       s.pending = s.pending.filter((t) => t !== cmd.ts);
+      if (s.pendingTeam) delete s.pendingTeam[cmd.ts];
       note("Pending finish discarded");
       break;
     }
     case "dnf": {
       const r = run(cmd.runId);
       if (!r) return { error: "not_found" };
+      if (cmd.team && r.team !== cmd.team) return { error: "not_found" };
       if (r.status !== "onstage") return { error: "not_running" };
       r.status = "dnf";
       note(`DNF: ${r.name}`, "red");
@@ -362,6 +407,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       // Times, penalties, pending finishes and radio history are cleared; drivers still queued stay.
       s.runs = s.runs.filter((r) => r.status === "queued");
       s.pending = [];
+      s.pendingTeam = {};
       s.radio = [];
       s.lastReleaseAt = undefined;
       note("Stage reset");

@@ -209,6 +209,18 @@ app.post("/api/sessions/:id/driver/radio", async (c) => {
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 
+// Self-timed practice: a team fixes the times of its own cars (DNF, attribute or remove a time, enter a time).
+const TEAM_RUN_CMDS = ["dnf", "assign", "unattribute", "reattribute", "setTime"];
+app.post("/api/sessions/:id/team/:teamId/run", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  if (!r.info.session.selfTimed) return c.json({ error: "not_self_timed" }, 409);
+  const body = (await c.req.json().catch(() => null)) as { type?: unknown } | null;
+  if (!body || typeof body.type !== "string" || !TEAM_RUN_CMDS.includes(body.type)) return c.json({ error: "invalid" }, 400);
+  const cmd = { ...body, team: r.team.id };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
 // Self-timed practice: a team puts its own queued cars in the order it wants.
 app.post("/api/sessions/:id/team/:teamId/move", async (c) => {
   const r = await teamSession(c);

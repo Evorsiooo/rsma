@@ -104,3 +104,4 @@ export interface TeamFields {
   car?: string;
   factoryId?: string;
 }
+export const teamRunCmd = (sessionId: string, teamId: string, cmd: object) => teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/run`, cmd);

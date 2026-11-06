@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fmtPenalty, type DriverNote, type RaceState, type Run } from "../../shared/race";
+import { fmtPenalty, fmtTime, type DriverNote, type RaceState, type Run } from "../../shared/race";
 import type { Team } from "../../shared/types";
 import { Dialog } from "../ui";
 
@@ -41,7 +41,7 @@ export function ConfirmReset({ onClose, send }: { onClose: () => void; send: Sen
 export function ConfirmDelete({ run, onClose, send }: { run: Run; onClose: () => void; send: Send }) {
   return (
     <Dialog
-      title={`Delete time: ${run.name}`}
+      title={`Delete run: ${run.name}`}
       size="s"
       onClose={onClose}
       foot={
@@ -58,7 +58,7 @@ export function ConfirmDelete({ run, onClose, send }: { run: Run; onClose: () =>
         </>
       }
     >
-      <div>Delete the time of {run.name} ({run.plate})? The run is removed from the results.</div>
+      <div>Delete the run of {run.name} ({run.plate})? It is removed from the results.</div>
     </Dialog>
   );
 }
@@ -310,6 +310,95 @@ export function NotesDialog({ run, notes, onClose, send }: { run: Run; notes: Dr
         <textarea className="r-field" style={{ height: 64, resize: "none" }} aria-label="New note" maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />
       </div>
       <button className="r-btn" disabled={!text.trim()} onClick={add}>Add note</button>
+    </Dialog>
+  );
+}
+
+/** Give a running car a finish time: a pending finish, or the time another car was given by mistake. */
+export function AttributeDialog({ run, state, team, onClose, send }: { run: Run; state: RaceState; team?: string; onClose: () => void; send: Send }) {
+  const start = run.startedAt ?? Infinity;
+  const options: { key: string; label: string; cmd: import("../../shared/commands").Command }[] = [];
+  for (const ts of state.pending) {
+    if (ts < start || (team && state.pendingTeam?.[ts] !== team)) continue;
+    options.push({
+      key: `p${ts}`,
+      label: `Unattributed finish at ${new Date(ts).toLocaleTimeString("en-GB")}: ${fmtTime(ts - start)}`,
+      cmd: { type: "assign", ts, runId: run.id, team },
+    });
+  }
+  for (const r of state.runs) {
+    if (r.id === run.id || r.status !== "finished" || r.startedAt == null || r.rawMs == null) continue;
+    if (team && r.team !== team) continue;
+    const ts = r.startedAt + r.rawMs;
+    if (ts < start) continue;
+    options.push({
+      key: `r${r.id}`,
+      label: `Time of ${r.name} (${r.plate}): ${fmtTime(ts - start)}`,
+      cmd: { type: "reattribute", fromRunId: r.id, runId: run.id, team },
+    });
+  }
+  const [pick, setPick] = useState(options[0]?.key ?? "");
+  const chosen = options.find((o) => o.key === pick);
+  return (
+    <Dialog
+      title={`Attribute time: ${run.name}`}
+      size="l"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button
+            className="r-btn"
+            disabled={!chosen}
+            onClick={async () => {
+              if (chosen && (await send(chosen.cmd))) onClose();
+            }}
+          >
+            Attribute
+          </button>
+        </>
+      }
+    >
+      {options.length === 0 ? (
+        <div className="r-text--dim">No time to attribute. Remove a time from another car first, or set one by hand.</div>
+      ) : (
+        <div className="r-grid" style={{ ["--cols" as string]: 1 }}>
+          {options.map((o) => (
+            <button key={o.key} className="r-btn" aria-pressed={pick === o.key} onClick={() => setPick(o.key)}>
+              {o.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+/** Enter a stage time by hand, as mm:ss.mmm. */
+export function SetTimeDialog({ run, team, onClose, send }: { run: Run; team?: string; onClose: () => void; send: Send }) {
+  const [text, setText] = useState(run.rawMs != null ? fmtTime(run.rawMs) : "");
+  const m = /^(\d{1,3}):([0-5]?\d)(?:\.(\d{1,3}))?$/.exec(text.trim());
+  const ms = m ? Number(m[1]) * 60000 + Number(m[2]) * 1000 + Number((m[3] ?? "").padEnd(3, "0")) : null;
+  const ok = ms != null && ms >= 100;
+  const submit = async () => {
+    if (ok && (await send({ type: "setTime", runId: run.id, ms, team }))) onClose();
+  };
+  return (
+    <Dialog
+      title={`Set time: ${run.name}`}
+      size="s"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn" disabled={!ok} onClick={submit}>Set</button>
+        </>
+      }
+    >
+      <div className="r-form-field">
+        <span className="r-label">Time, mm:ss.mmm</span>
+        <input className="r-field" aria-label="Time" placeholder="01:23.456" maxLength={10} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+      </div>
     </Dialog>
   );
 }

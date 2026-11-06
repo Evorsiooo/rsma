@@ -91,6 +91,8 @@ export interface RaceState {
   lastReleaseAt?: number;
   /** Finish-line timestamps not yet attributed to a car. */
   pending: number[];
+  /** Team that gave up a pending finish (by timestamp), so only it can attribute that time. */
+  pendingTeam?: Record<string, string>;
   radio: RadioMsg[];
   /** Staff only: stripped from every other view. */
   log: LogEntry[];
