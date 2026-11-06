@@ -4,10 +4,8 @@ import { GROUP_URL, inGroup, REG_KIND_LABEL, REG_KINDS, type RegKind, type Regis
 import { PANEL_ROLES, hasAny } from "../shared/teams";
 import type { SessionInfo } from "../shared/types";
 import { api, registrationApi } from "./api";
-import { useMe } from "./me";
 import { NotFound } from "./NotFound";
 import { Shell } from "./Shell";
-import { DISCORD_URL } from "./Shell";
 import { toast } from "./ui";
 
 const ERRORS: Record<string, string> = {
@@ -27,6 +25,11 @@ const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
 const fmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 const dim = { color: "var(--r-text-dim)" } as const;
+const link = (href: string, text: string) => (
+  <a href={href} target="_blank" rel="noreferrer">
+    {text}
+  </a>
+);
 const small = { width: "100%", height: 24, paddingTop: 2 } as const;
 const CUT_LABEL = { in: "In", waitlist: "Waiting", denied: "Denied" } as const;
 
@@ -34,7 +37,6 @@ type Res = { ok: true } | { ok: false; error: string };
 
 export function RegistrationPage() {
   const { id = "" } = useParams();
-  const { me } = useMe();
   const [info, setInfo] = useState<SessionInfo | null | undefined>(undefined);
   const [view, setView] = useState<RegistrationView | null>(null);
   const load = useCallback(() => registrationApi.get(id).then(setView, () => {}), [id]);
@@ -59,26 +61,14 @@ export function RegistrationPage() {
     <Shell wide>
       <div className="r-row">
         <div className={`r-banner r-fill${open ? " is-green" : ""}`}>
-          {info.session.name} registration · {label}
+          {info.race.name} · {info.session.name} · team registration · {label}
         </div>
       </div>
-      <div className="r-panel">
-        <div className="r-header">Spots</div>
-        <table className="r-table">
-          <tbody>
-            {REG_KINDS.map((k) => (
-              <tr key={k}>
-                <td className="is-left">{REG_KIND_LABEL[k]}s</td>
-                <td style={{ width: 160 }}>{view.counts[k].taken} / {view.counts[k].spots}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {view.teams.map((t) => (
-        <TeamSection key={t.id} team={t} view={view} open={open} sid={id} act={act} />
-      ))}
-      <Own view={view} open={open} sid={id} signedIn={!!me} act={act} />
+      {view.teams.length === 0 ? (
+        <div className="r-panel"><div className="r-empty">Only a Team Principal or Sporting Director can register a team.</div></div>
+      ) : (
+        view.teams.map((t) => <TeamSection key={t.id} team={t} view={view} open={open} sid={id} act={act} />)
+      )}
     </Shell>
   );
 }
@@ -149,79 +139,6 @@ function TeamSection({ team, view, open, sid, act }: { team: RegTeam; view: Regi
           </button>
         </div>
       )}
-    </div>
-  );
-}
-
-const link = (href: string, text: string) => (
-  <a href={href} target="_blank" rel="noreferrer">
-    {text}
-  </a>
-);
-
-function Own({ view, open, sid, signedIn, act }: { view: RegistrationView; open: boolean; sid: string; signedIn: boolean; act: (p: Promise<Res>) => Promise<boolean> }) {
-  const [discord, setDiscord] = useState("");
-  const [joined, setJoined] = useState(false);
-  const self = view.self;
-  const s = view.settings!;
-  if (self) {
-    return (
-      <div className="r-panel">
-        <div className="r-header">Your registration</div>
-        <table className="r-table">
-          <tbody>
-            <tr>
-              <td className="is-left">{REG_KIND_LABEL[self.kind]}{self.teamName ? ` · ${self.teamName}` : " · Independent"}</td>
-              <td style={{ width: 90 }}>{CUT_LABEL[self.cut]}</td>
-            </tr>
-          </tbody>
-        </table>
-        {self.kind === "driver" && (
-          <div className="r-row" style={{ padding: 4, alignItems: "center" }}>
-            <label className="r-check r-fill">
-              <input
-                type="checkbox"
-                checked={inGroup(self.group)}
-                disabled={!open}
-                onChange={(e) => act(registrationApi.selfGroup(sid, e.target.checked ? "pending" : "unverified"))}
-              />
-              <span>I have joined the {link(GROUP_URL, "RSMA Roblox group")} or my request is pending</span>
-            </label>
-            {open && !self.teamId && (
-              <button className="r-btn r-cell--red" style={{ width: 120 }} onClick={() => act(registrationApi.withdraw(sid))}>Withdraw</button>
-            )}
-          </div>
-        )}
-      </div>
-    );
-  }
-  if (!s.independents || !open) return null;
-  if (!signedIn) {
-    return (
-      <div className="r-row">
-        <button className="r-btn" style={{ width: 260 }} onClick={() => location.assign(`/api/auth/roblox/login?next=/session/${sid}/register`)}>
-          Sign in to register as independent
-        </button>
-      </div>
-    );
-  }
-  return (
-    <div className="r-panel">
-      <div className="r-header">Register as an independent driver</div>
-      <div style={{ padding: 4, display: "grid", gap: 8 }}>
-        <div>
-          Independent drivers race without a team. To race you must be in the {link(GROUP_URL, "RSMA Roblox group")}: join it, or at least send a join request, before the deadline. Staff use your Discord username to contact you.
-        </div>
-        <div>Looking for a team? Teams that are hiring post in #team-updates on the {link(DISCORD_URL, "RSMA Discord")}.</div>
-        <input className="r-field" placeholder="Discord username" aria-label="Discord username" maxLength={32} value={discord} onChange={(e) => setDiscord(e.target.value)} />
-        <label className="r-check">
-          <input type="checkbox" checked={joined} onChange={(e) => setJoined(e.target.checked)} />
-          <span>I have joined the RSMA Roblox group or my request is pending</span>
-        </label>
-        <button className="r-btn" disabled={!discord.trim() || !joined} onClick={() => act(registrationApi.independent(sid, discord.trim()))}>
-          Register
-        </button>
-      </div>
     </div>
   );
 }

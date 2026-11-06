@@ -99,7 +99,7 @@ registration.get("/:sid", async (c) => {
   if (!settings) return c.json(view);
   const all = await loadRegs(c.env, sid, settings);
   const spots = { driver: settings.drivers, employee: settings.employees, spectator: settings.spectators };
-  for (const k of REG_KINDS) view.counts[k] = { taken: all.filter((r) => r.kind === k && !r.denied).length, spots: spots[k] };
+  if (view.staff) for (const k of REG_KINDS) view.counts[k] = { taken: all.filter((r) => r.kind === k && !r.denied).length, spots: spots[k] };
   view.self = all.find((r) => r.userId === me?.id) ?? null;
   const managed = managedTeams(me);
   if (managed.length) {

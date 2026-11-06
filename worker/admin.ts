@@ -177,7 +177,6 @@ admin.post("/races/:id/sessions", guard("races"), async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown };
   if (!SESSION_TYPES.includes(body.type as SessionType)) return c.json({ error: "invalid" }, 400);
   const type = body.type as SessionType;
-  if (type === "race") return c.json({ error: "race_disabled" }, 400);
   const startsAt = Number(body.startsAt);
   const endsAt = Number(body.endsAt);
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) return c.json({ error: "invalid_times" }, 400);
@@ -201,7 +200,6 @@ admin.patch("/sessions/:id", guard("races"), async (c) => {
   const startsAt = body.startsAt !== undefined ? Number(body.startsAt) : cur.startsAt;
   const endsAt = body.endsAt !== undefined ? Number(body.endsAt) : cur.endsAt;
   if (!name || !SESSION_TYPES.includes(type)) return c.json({ error: "invalid" }, 400);
-  if (type === "race" && cur.type !== "race") return c.json({ error: "race_disabled" }, 400);
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) return c.json({ error: "invalid_times" }, 400);
   const selfTimed = type === "practice" && (body.selfTimed !== undefined ? body.selfTimed === true : !!cur.selfTimed);
   await c.env.DB.prepare("UPDATE sessions SET name = ?, type = ?, starts_at = ?, ends_at = ?, self_timed = ? WHERE id = ?").bind(name, type, startsAt, endsAt, selfTimed ? 1 : 0, id).run();
