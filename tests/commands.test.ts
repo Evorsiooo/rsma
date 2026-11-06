@@ -298,3 +298,13 @@ test("long run: laps are counted per car, the best lap is the time, the generic 
   assert.equal(s.runs[0].rawMs, 50000);
   assert.equal(fails(s, { type: "unattribute", runId: lr }, 171000), "invalid");
 });
+
+test("editInfo sets plate and number, and rejects an empty plate", () => {
+  let s = run(emptyState(), { type: "add", name: "alpha", plate: "P1" }, 0);
+  const id = s.runs[0].id;
+  s = run(s, { type: "editInfo", runId: id, plate: " ab-12 ", number: "7" }, 0);
+  assert.equal(s.runs[0].plate, "AB-12");
+  assert.equal(s.runs[0].number, "7");
+  assert.equal(fails(s, { type: "editInfo", runId: id, plate: "  " }, 0), "invalid");
+  assert.equal(fails(s, { type: "editInfo", runId: "nope", plate: "X" }, 0), "not_found");
+});

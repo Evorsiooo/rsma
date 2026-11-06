@@ -12,7 +12,7 @@ import { Topbar } from "../Shell";
 import { SessionSelect } from "../SessionSelect";
 import { fmtLive, sessionCountdown, toast, useClock, useNow } from "../ui";
 import { useRaceLive } from "../useRaceLive";
-import { AssignDialog, AttributeDialog, ConfirmDelete, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, RulesDialog, SetTimeDialog, TeamsDialog } from "./Dialogs";
+import { AssignDialog, AttributeDialog, ConfirmDelete, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, EditInfoDialog, RulesDialog, SetTimeDialog, TeamsDialog } from "./Dialogs";
 
 const ERRORS: Record<string, string> = {
   not_queued: "Only queued drivers can be removed.",
@@ -42,6 +42,7 @@ type DialogState =
   | { kind: "delete"; runId: string }
   | { kind: "attribute"; runId: string }
   | { kind: "setTime"; runId: string }
+  | { kind: "editInfo"; runId: string }
   | { kind: "assign"; ts: number };
 
 const PRESETS = [15, 30, 45, 60];
@@ -388,6 +389,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                         {sel.mode === "long" ? "Long run" : "Quali"}
                       </button>
                     )}
+                    <button className="r-cell" onClick={() => setDialog({ kind: "editInfo", runId: sel.id })}>Edit info</button>
                     <button className="r-cell" onClick={() => setDialog({ kind: "setTime", runId: sel.id })}>Set time</button>
                     <button className="r-cell" onClick={() => setDialog({ kind: "notes", runId: sel.id })}>
                       {selNotes.length ? `Notes (${selNotes.length})` : "Notes"}
@@ -404,6 +406,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
       {dialog?.kind === "rules" && <RulesDialog state={state} onClose={closeDialog} send={send} />}
       {dialog?.kind === "penalty" && dialogRun && <PenaltyDialog run={dialogRun} state={state} onClose={closeDialog} send={send} />}
       {dialog?.kind === "attribute" && dialogRun && <AttributeDialog run={dialogRun} state={state} onClose={closeDialog} send={send} />}
+      {dialog?.kind === "editInfo" && dialogRun && <EditInfoDialog run={dialogRun} onClose={closeDialog} send={send} />}
       {dialog?.kind === "setTime" && dialogRun && <SetTimeDialog run={dialogRun} onClose={closeDialog} send={send} />}
       {dialog?.kind === "delete" && dialogRun && <ConfirmDelete run={dialogRun} onClose={closeDialog} send={send} />}
       {dialog?.kind === "dnf" && dialogRun && <ConfirmDnf run={dialogRun} onClose={closeDialog} send={send} />}

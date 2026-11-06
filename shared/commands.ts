@@ -37,6 +37,7 @@ export type Command =
   | { type: "unattribute"; runId: string; team?: string }
   | { type: "reattribute"; fromRunId: string; runId: string; team?: string }
   | { type: "setTime"; runId: string; ms: number; team?: string }
+  | { type: "editInfo"; runId: string; plate: string; number?: string }
   | { type: "discard"; ts: number }
   | { type: "dnf"; runId: string; team?: string }
   | { type: "penalty"; runId: string; ruleId: string; delta: 1 | -1 }
@@ -305,6 +306,16 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       to.status = "finished";
       to.rawMs = ts - to.startedAt;
       note(`Time moved from ${from.name} to ${to.name}`, "yellow");
+      break;
+    }
+    case "editInfo": {
+      const r = run(cmd.runId);
+      if (!r) return { error: "not_found" };
+      const plate = clean(cmd.plate, 12).toUpperCase();
+      if (!plate) return { error: "invalid" };
+      r.plate = plate;
+      r.number = clean(cmd.number, 4) || undefined;
+      note(`Info updated for ${r.name}: ${plate}${r.number ? `, #${r.number}` : ""}`);
       break;
     }
     case "setTime": {
