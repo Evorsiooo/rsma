@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { classify, type Flag } from "../shared/race";
 import { ClassificationTable } from "./ClassificationTable";
 import type { SessionInfo } from "../shared/types";
-import { api, registrationApi } from "./api";
+import { api } from "./api";
 import { NotFound } from "./NotFound";
 import { Shell } from "./Shell";
 import { SessionSelect } from "./SessionSelect";
@@ -20,11 +20,6 @@ export function RacePage() {
   const { id = "" } = useParams();
   const [info, setInfo] = useState<SessionInfo | null | undefined>(undefined);
   const { state, live, offset } = useRaceLive(id);
-  const nav = useNavigate();
-  const [hasReg, setHasReg] = useState(false);
-  useEffect(() => {
-    registrationApi.get(id).then((v) => setHasReg(!!v.settings), () => setHasReg(false));
-  }, [id]);
   const now = useClock(offset);
 
   useEffect(() => {
@@ -53,7 +48,6 @@ export function RacePage() {
           </div>
         )}
         {info && <SessionSelect sessions={info.race.sessions} current={info.session.id} bar />}
-        {hasReg && !race?.ended && <button className="r-btn" onClick={() => nav(`/session/${id}/register`)}>Register</button>}
         {!race?.ended && <button
           className="r-btn"
           onClick={() => window.open(`/session/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}
@@ -66,6 +60,7 @@ export function RacePage() {
           <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>
         )}
       </div>
+      {info?.session.type === "race" && !race?.ended && <div className="r-banner is-teal">Live timing is not available for races.</div>}
       {info?.session.selfTimed && !race?.ended && <div className="r-banner is-teal">Self-timed session. Times are recorded by the teams.</div>}
       <div className="r-panel">
         <div className="r-header">{race?.name ?? " "}</div>

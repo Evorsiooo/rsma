@@ -47,6 +47,21 @@ export function RegistrationsTab({ races }: { races: AdminRace[] }) {
           {options.map((o) => <option key={o.id} value={o.id}>{o.label}</option>)}
         </select>
       </div>
+      {view && (
+        <div className="r-panel">
+          <div className="r-header">Spots</div>
+          <table className="r-table">
+            <tbody>
+              {REG_KINDS.map((k) => (
+                <tr key={k}>
+                  <td className="is-left">{REG_KIND_LABEL[k]}s</td>
+                  <td style={{ width: 160 }}>{view.counts[k].taken} / {view.counts[k].spots}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
       {view && <StaffSection view={view} sid={current} act={act} />}
     </>
   );

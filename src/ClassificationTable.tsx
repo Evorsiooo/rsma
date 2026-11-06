@@ -20,10 +20,10 @@ export function ClassificationTable({ rows, action, mine }: { rows: Row[]; actio
         <tr>
           <th style={{ width: 40 }}>Pos</th>
           {numbers && <th className="is-left" style={{ width: 50 }}>No</th>}
-          <th className="is-left">Driver</th>
-          <th className="is-left" style={{ width: 80 }}>Plate</th>
-          {teams && <th className="is-left" style={{ width: 120 }}>Team</th>}
-          {cars && <th className="is-left" style={{ width: 120 }}>Car</th>}
+          <th className="is-left" style={teams || cars ? { width: 190 } : undefined}>Driver</th>
+          <th className="is-left" style={{ width: 100 }}>Plate</th>
+          {teams && <th className="is-left">Team</th>}
+          {cars && <th className="is-left">Car</th>}
           <th className="is-left" style={{ width: 90 }}>Status</th>
           <th style={{ width: 90 }}>Raw</th>
           <th style={{ width: 70 }}>Pen</th>

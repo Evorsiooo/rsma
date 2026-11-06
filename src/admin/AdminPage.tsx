@@ -22,7 +22,6 @@ const ERRORS: Record<string, string> = {
   not_found: "Not found.",
   name_taken: "That name is already used.",
   invalid_times: "The end must be after the start.",
-  race_disabled: "Race sessions are not available yet.",
   has_principal: "This team already has a Team Principal.",
   invalid_roles: "Pick at least one role.",
   has_customers: "Customer teams still run this factory team's car.",
@@ -373,7 +372,7 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
           <select aria-label="Type" value={type} onChange={(e) => setType(e.target.value as SessionType)}>
             <option value="practice">Practice</option>
             <option value="timed">Timed event</option>
-            <option value="race" disabled>Race (not available yet)</option>
+            <option value="race">Race</option>
           </select>
         </div>
       </div>
