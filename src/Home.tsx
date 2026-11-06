@@ -1,3 +1,4 @@
+import { useNavigate } from "react-router-dom";
 import type { RaceSummary } from "../shared/types";
 import { Shell } from "./Shell";
 
@@ -9,6 +10,7 @@ const fmt = new Intl.DateTimeFormat("en-GB", {
 });
 
 export function Home({ races }: { races: RaceSummary[] }) {
+  const nav = useNavigate();
   return (
     <Shell>
       <div className="r-panel">
@@ -25,8 +27,7 @@ export function Home({ races }: { races: RaceSummary[] }) {
                     Until {fmt.format(r.expiresAt)}
                   </td>
                   <td style={{ width: 130, padding: 2 }}>
-                    {/* Enabled with the public stage view. */}
-                    <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} disabled>
+                    <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/race/${r.id}`)}>
                       Timing
                     </button>
                   </td>

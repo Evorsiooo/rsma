@@ -8,5 +8,6 @@ async function get<T>(path: string): Promise<T> {
 
 export const api = {
   health: () => get<{ ok: boolean }>("/api/health"),
+  race: (id: string) => get<RaceSummary>(`/api/races/${id}`),
   races: () => get<RaceSummary[]>("/api/races"),
 };

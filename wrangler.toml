@@ -11,3 +11,11 @@ database_name = "flagman"
 # Replace with the id from `wrangler d1 create flagman` before deploying.
 database_id = "00000000-0000-0000-0000-000000000000"
 migrations_dir = "migrations"
+
+[[durable_objects.bindings]]
+name = "RACE"
+class_name = "RaceDO"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["RaceDO"]

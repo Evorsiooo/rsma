@@ -18,3 +18,9 @@ npm run typecheck
 - `src/` client, `src/kit/` the UI kit (do not restyle; add parts there only when the kit lacks one)
 - `worker/` API and Durable Objects, `shared/` types used by both, `migrations/` D1 schema
 - `docs/` architecture notes and `FUTURE.md` (features deliberately not built yet)
+
+## Local live state
+Until the steward panel exists, set a race's live state in development (needs `DEV=1` in `.dev.vars`, which is git-ignored):
+```
+curl -X PUT localhost:5173/api/dev/races/race_dev_1/state -d '{"flag":"green","runs":[]}'
+```
