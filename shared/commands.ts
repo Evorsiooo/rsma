@@ -21,6 +21,8 @@ export type Command =
   | { type: "radioTeams"; teams: { id: string; name: string }[]; text: string }
   | { type: "note"; runId: string; text: string }
   | { type: "noteDel"; id: string }
+  | { type: "teamNote"; team: string; runId: string; text: string }
+  | { type: "teamNoteDel"; team: string; id: string }
   | { type: "pitAdd"; team: string; teamName: string; fromMs: number; toMs: number; lengthMs: number }
   | { type: "pitDel"; team: string; id: string }
   | { type: "syncReg"; drivers: { name: string; team?: { id: string; name: string; car?: string } }[] }
@@ -453,6 +455,20 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       if (!r) return { error: "not_found" };
       if (!text) return { error: "invalid" };
       s.notes.push({ id: ctx.newId(), at: ctx.now, by: ctx.actor, driver: r.name, text });
+      break;
+    }
+    case "teamNote": {
+      // A team writes about one of its own drivers.
+      const r = run(cmd.runId);
+      const text = clean(cmd.text, 500);
+      if (!r || !r.team || r.team !== cmd.team) return { error: "not_found" };
+      if (!text) return { error: "invalid" };
+      s.notes.push({ id: ctx.newId(), at: ctx.now, by: ctx.actor, driver: r.name, text, team: r.team, teamName: r.teamName });
+      break;
+    }
+    case "teamNoteDel": {
+      if (!s.notes.some((n) => n.id === cmd.id && n.team === cmd.team)) return { error: "not_found" };
+      s.notes = s.notes.filter((n) => n.id !== cmd.id);
       break;
     }
     case "noteDel": {

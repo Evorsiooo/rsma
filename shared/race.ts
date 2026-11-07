@@ -73,6 +73,9 @@ export interface DriverNote {
   by: string;
   driver: string;
   text: string;
+  /** Written by a team about its own driver. Only that team and the stewards see it. */
+  team?: string;
+  teamName?: string;
 }
 
 export interface LogEntry {
@@ -147,7 +150,7 @@ export interface Viewer {
  */
 export function viewFor(s: RaceState, v: Viewer): RaceState {
   if (v.staff) return s;
-  const base: RaceState = { ...s, log: [], notes: [], radio: [], pitWindows: s.pitWindows.filter((w) => v.teams.includes(w.team)) };
+  const base: RaceState = { ...s, log: [], notes: s.notes.filter((n) => !!n.team && v.teams.includes(n.team)), radio: [], pitWindows: s.pitWindows.filter((w) => v.teams.includes(w.team)) };
   // Not signed in: the Public radio, which only carries Global messages.
   if (!v.user) return { ...base, radio: s.radio.filter((m) => m.to === "all") };
   const mine = s.runs.filter((r) => r.name.toLowerCase() === v.user);

@@ -329,3 +329,21 @@ test("syncReg stages the registered drivers and follows the cut", () => {
   s = run(s, { type: "syncReg", drivers: [{ name: "Cy" }] }, 3000);
   assert.deepEqual(s.runs.map((r) => r.name), ["Steward Added", "Cy"]);
 });
+
+test("team notes: own drivers only, kept apart from steward notes and private to that team", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Ann", plate: "A1", team: { id: "t1", name: "Red" } }, 100);
+  s = run(s, { type: "add", name: "Bob", plate: "B1", team: { id: "t2", name: "Blue" } }, 100);
+  const [ann, bob] = s.runs;
+  assert.equal(fails(s, { type: "teamNote", team: "t1", runId: bob.id, text: "not mine" }, 200), "not_found");
+  assert.equal(fails(s, { type: "teamNote", team: "t1", runId: ann.id, text: "  " }, 200), "invalid");
+  s = run(s, { type: "teamNote", team: "t1", runId: ann.id, text: "tyres worn" }, 300);
+  s = run(s, { type: "note", runId: ann.id, text: "steward only" }, 400);
+  s = run(s, { type: "teamNote", team: "t2", runId: bob.id, text: "blue note" }, 500);
+  assert.deepEqual(viewFor(s, { staff: true, teams: [] }).notes.map((n) => n.text), ["tyres worn", "steward only", "blue note"]);
+  assert.deepEqual(viewFor(s, { staff: false, teams: ["t1"], user: "x" }).notes.map((n) => n.text), ["tyres worn"]);
+  assert.deepEqual(viewFor(s, { staff: false, teams: [] }).notes, []);
+  assert.equal(fails(s, { type: "teamNoteDel", team: "t2", id: s.notes[0].id }, 600), "not_found");
+  s = run(s, { type: "teamNoteDel", team: "t1", id: s.notes[0].id }, 700);
+  assert.equal(s.notes.length, 2);
+});
