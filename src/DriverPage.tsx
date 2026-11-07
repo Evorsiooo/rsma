@@ -6,6 +6,7 @@ import type { SessionInfo } from "../shared/types";
 import { answerAsk, api, driverRadio } from "./api";
 import { enableAudio, setVolume, speak, startBeeps } from "./audio";
 import { NotFound } from "./NotFound";
+import { AI_VOICES, aiStatus, DEFAULT_AI_VOICE, loadAi, onAiStatus, speakAi, type AiStatus } from "./tts";
 import { useMe } from "./me";
 import { Dialog, sessionCountdown, toast, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
@@ -53,6 +54,9 @@ export function DriverPage() {
   const [vol, setVol] = useState(() => Number(store.get("vol") ?? 100));
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURI] = useState(() => store.get("voice") ?? "");
+  const [engine, setEngine] = useState<"standard" | "ai">(() => (store.get("engine") === "ai" ? "ai" : "standard"));
+  const [aiVoice, setAiVoice] = useState(() => store.get("aivoice") ?? DEFAULT_AI_VOICE);
+  const [ai, setAi] = useState<AiStatus>(aiStatus());
   const [rx, setRx] = useState(false);
   const [settings, setSettings] = useState(false);
   const [chat, setChat] = useState("");
@@ -67,14 +71,20 @@ export function DriverPage() {
     return () => speechSynthesis.removeEventListener("voiceschanged", load);
   }, []);
   useEffect(() => setVolume(vol / 100), [vol]);
+  useEffect(() => onAiStatus(setAi), []);
+  useEffect(() => {
+    if (engine === "ai") loadAi();
+  }, [engine]);
 
   const me: Run | undefined = state ? pickRun(state.runs, name) : undefined;
   const say = useCallback(
     (text: string) => {
       setRx(true);
-      speak(text, voiceURI, () => setRx(false));
+      const standard = () => speak(text, voiceURI, () => setRx(false));
+      if (engine === "ai" && speakAi(text, aiVoice, () => setRx(false), standard)) return;
+      standard();
     },
-    [voiceURI],
+    [voiceURI, engine, aiVoice],
   );
 
   // React to new state: start beeps, radio messages, results. The first state only seeds what was already seen.
@@ -248,23 +258,77 @@ export function DriverPage() {
             />
           </div>
           <div className="r-form-field">
-            <span className="r-label">Voice</span>
-            <div className="r-select">
-              <select
-                aria-label="Voice"
-                value={voiceURI}
-                onChange={(e) => {
-                  setVoiceURI(e.target.value);
-                  store.set("voice", e.target.value);
-                }}
-              >
-                <option value="">Default</option>
-                {voices.map((v) => (
-                  <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
-                ))}
-              </select>
+            <span className="r-label">Voice type</span>
+            <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+              {(["standard", "ai"] as const).map((k) => (
+                <button
+                  key={k}
+                  className={`r-cell${engine === k ? " is-on" : ""}`}
+                  aria-pressed={engine === k}
+                  onClick={() => {
+                    setEngine(k);
+                    store.set("engine", k);
+                  }}
+                >
+                  {k === "ai" ? "AI" : "Standard"}
+                </button>
+              ))}
             </div>
           </div>
+          {engine === "standard" ? (
+            <div className="r-form-field">
+              <span className="r-label">Voice</span>
+              <div className="r-select">
+                <select
+                  aria-label="Voice"
+                  value={voiceURI}
+                  onChange={(e) => {
+                    setVoiceURI(e.target.value);
+                    store.set("voice", e.target.value);
+                  }}
+                >
+                  <option value="">Default</option>
+                  {voices.map((v) => (
+                    <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          ) : (
+            <div className="r-form-field">
+              <span className="r-label">AI voice</span>
+              <div className="r-select">
+                <select
+                  aria-label="AI voice"
+                  value={aiVoice}
+                  onChange={(e) => {
+                    setAiVoice(e.target.value);
+                    store.set("aivoice", e.target.value);
+                  }}
+                >
+                  {[...new Set(AI_VOICES.map((v) => v.group))].map((g) => (
+                    <optgroup key={g} label={g}>
+                      {AI_VOICES.filter((v) => v.group === g).map((v) => (
+                        <option key={v.id} value={v.id}>{v.label}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              </div>
+              {ai.state === "loading" && (
+                <>
+                  <span className="r-label">Downloading the AI voice model, {Math.round(ai.progress * 100)}%</span>
+                  <div className={`r-progress${ai.progress === 0 ? " is-wait" : ""}`} style={{ ["--value" as string]: ai.progress }} role="progressbar" aria-valuenow={Math.round(ai.progress * 100)} />
+                </>
+              )}
+              {ai.state === "failed" && (
+                <div className="r-row" style={{ alignItems: "center" }}>
+                  <span className="r-label r-fill">AI voices could not load, the standard voice is used.</span>
+                  <button className="r-btn" style={{ width: 90 }} onClick={() => loadAi()}>Retry</button>
+                </div>
+              )}
+            </div>
+          )}
           <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
             <button className="r-btn" disabled={!audioOn} onClick={() => startBeeps(3)}>Test beeps</button>
             <button className="r-btn" disabled={!audioOn} onClick={() => say("Radio check.")}>Test voice</button>
