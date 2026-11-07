@@ -11,22 +11,30 @@ const unb64 = (s: string) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/
 const key = (secret: string, usage: KeyUsage[]) =>
   crypto.subtle.importKey("raw", enc.encode(secret), { name: "HMAC", hash: "SHA-256" }, false, usage);
 
-export async function signSession(secret: string, sub: string): Promise<string> {
-  const payload = b64(enc.encode(JSON.stringify({ sub, exp: Date.now() + SESSION_TTL_MS })));
+export interface SessionClaims {
+  sub: string;
+  /** "token": signed in with an access code; carries no global roles. `v` ties it to that code. */
+  via: "roblox" | "token";
+  v?: number;
+}
+
+export async function signSession(secret: string, sub: string, via: "roblox" | "token" = "roblox", v?: number): Promise<string> {
+  const payload = b64(enc.encode(JSON.stringify({ sub, via, v, exp: Date.now() + SESSION_TTL_MS })));
   const sig = await crypto.subtle.sign("HMAC", await key(secret, ["sign"]), enc.encode(payload));
   return `${payload}.${b64(sig)}`;
 }
 
-/** Returns the Roblox user id, or null if the cookie is missing, forged or expired. */
-export async function readSession(secret: string, cookie: string | undefined): Promise<string | null> {
+/** Returns the session claims, or null if the cookie is missing, forged or expired. */
+export async function readSession(secret: string, cookie: string | undefined): Promise<SessionClaims | null> {
   if (!cookie) return null;
   const [payload, sig] = cookie.split(".");
   if (!payload || !sig) return null;
   try {
     const ok = await crypto.subtle.verify("HMAC", await key(secret, ["verify"]), unb64(sig), enc.encode(payload));
     if (!ok) return null;
-    const { sub, exp } = JSON.parse(new TextDecoder().decode(unb64(payload)));
-    return typeof sub === "string" && Date.now() < exp ? sub : null;
+    const { sub, via, v, exp } = JSON.parse(new TextDecoder().decode(unb64(payload)));
+    if (typeof sub !== "string" || !(Date.now() < exp)) return null;
+    return via === "token" ? { sub, via, v: typeof v === "number" ? v : 0 } : { sub, via: "roblox" };
   } catch {
     return null;
   }
@@ -37,3 +45,5 @@ export async function sha256b64url(s: string) {
 }
 
 export const randomToken = (bytes = 32) => b64(crypto.getRandomValues(new Uint8Array(bytes)));
+
+export const hmacB64 = async (secret: string, data: string) => b64(await crypto.subtle.sign("HMAC", await key(secret, ["sign"]), enc.encode(data)));

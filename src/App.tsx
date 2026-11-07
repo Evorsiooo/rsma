@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Route, Routes } from "react-router-dom";
 import type { Me, RaceSummary } from "../shared/types";
 import { MeContext } from "./me";
+import { SignInHost } from "./access";
 import { Boot, type BootData } from "./Boot";
 import { Home } from "./Home";
 import { RacePage } from "./RacePage";
@@ -31,6 +32,7 @@ export function App() {
     );
   return (
     <MeContext.Provider value={{ me, setMe }}>
+      <SignInHost />
       <Routes>
         <Route path="/" element={<Home races={data.races} />} />
         <Route path="/race/:id" element={<RaceRedirect />} />

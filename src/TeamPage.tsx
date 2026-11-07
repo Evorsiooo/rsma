@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { startSignIn } from "./access";
 import { useNavigate, useParams } from "react-router-dom";
 import { classify, fmtPenalty, fmtTime, type Flag, type RadioMsg, type Run } from "../shared/race";
 import { fmtClock } from "../shared/sessions";
@@ -69,8 +70,8 @@ export function TeamPage() {
         <div className="r-dialog">
           <div className="r-header">Sign in</div>
           <div className="r-dialog__foot">
-            <button className="r-btn r-btn--advance r-fill" onClick={() => location.assign(`/api/auth/roblox/login?next=${encodeURIComponent(location.pathname)}`)}>
-              <span>Sign in with Roblox</span>
+            <button className="r-btn r-btn--advance r-fill" onClick={() => startSignIn()}>
+              <span>Sign in</span>
             </button>
           </div>
         </div>

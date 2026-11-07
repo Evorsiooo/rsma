@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { inGroup, REG_KIND_LABEL, REG_KINDS, type GroupStatus, type RegKind, type Registration, type RegistrationView } from "../../shared/registration";
 import type { AdminRace } from "../../shared/types";
 import { api, registrationApi } from "../api";
+import { CodeDialog, useTokenMode } from "../access";
 import { Dialog, toast } from "../ui";
 
 const ERRORS: Record<string, string> = {
@@ -71,6 +72,8 @@ export function RegistrationsTab({ races }: { races: AdminRace[] }) {
 function StaffSection({ view, sid, act }: { view: RegistrationView; sid: string; act: (p: Promise<Res>) => Promise<boolean> }) {
   const [edit, setEdit] = useState<Registration | null>(null);
   const [adding, setAdding] = useState(false);
+  const tokens = useTokenMode();
+  const [codeFor, setCodeFor] = useState<Registration | null>(null);
   const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
   useEffect(() => {
     api.teams().then(setTeams, () => {});
@@ -92,7 +95,7 @@ function StaffSection({ view, sid, act }: { view: RegistrationView; sid: string;
               <th className="is-left" style={{ width: 150 }}>Discord</th>
               <th style={{ width: 120 }}>Group</th>
               <th style={{ width: 90 }}>Status</th>
-              <th style={{ width: 240 }} />
+              <th style={{ width: tokens ? 320 : 240 }} />
             </tr>
           </thead>
           <tbody>
@@ -105,9 +108,10 @@ function StaffSection({ view, sid, act }: { view: RegistrationView; sid: string;
                 <td>{r.kind === "driver" ? (inGroup(r.group) ? "In group" : "Not in group") : ""}</td>
                 <td>{CUT_LABEL[r.cut]}</td>
                 <td style={{ padding: 2 }}>
-                  <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: tokens ? 4 : 3 }}>
                     <button className="r-cell" onClick={() => act(registrationApi.staffEdit(sid, r.userId, { denied: !r.denied }))}>{r.denied ? "Restore" : "Deny"}</button>
                     <button className="r-cell" onClick={() => setEdit(r)}>Edit</button>
+                    {tokens && <button className="r-cell" disabled={!!r.teamId} onClick={() => setCodeFor(r)}>Code</button>}
                     <button className="r-cell r-cell--red" onClick={() => act(registrationApi.staffRemove(sid, r.userId))}>Remove</button>
                   </div>
                 </td>
@@ -119,6 +123,7 @@ function StaffSection({ view, sid, act }: { view: RegistrationView; sid: string;
       <div style={{ padding: 4 }}>
         <button className="r-btn" style={{ width: 160 }} onClick={() => setAdding(true)}>Add person</button>
       </div>
+      {codeFor && <CodeDialog name={codeFor.username} issue={() => registrationApi.staffCode(sid, codeFor.userId)} onClose={() => setCodeFor(null)} />}
       {adding && <PersonDialog title="Add person" teams={teams} onClose={() => setAdding(false)} onSave={async (v) => act(registrationApi.staffAdd(sid, { username: v.username!, kind: v.kind, teamId: v.teamId, discord: v.discord || undefined, group: v.group }))} />}
       {edit && (
         <PersonDialog

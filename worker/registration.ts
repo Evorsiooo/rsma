@@ -1,3 +1,4 @@
+import { canIssueFor, hit, issueCode, tokenMode } from "./access-codes";
 import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import type { Me } from "../shared/types";
@@ -220,6 +221,30 @@ registration.post("/:sid/independent", async (c) => {
   return err ?? c.json({ ok: true });
 });
 
+/**
+ * With access codes on, an independent has no way to sign in yet. They ask by Roblox username; staff check the
+ * Discord contact and hand out a code. Needs no sign-in, so it is limited per address.
+ */
+registration.post("/:sid/independent-request", async (c) => {
+  if (!(await tokenMode(c.env.DB))) return c.json({ error: "forbidden" }, 403);
+  const ip = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "local";
+  if (!(await hit(c.env.DB, `reg:${ip}`, 5))) return c.json({ error: "rate_limited" }, 429);
+  const s = await requireOpen(c);
+  if (s instanceof Response) return s;
+  if (!s.independents) return c.json({ error: "independents_closed" }, 403);
+  const body = (await c.req.json().catch(() => ({}))) as { username?: unknown; discord?: unknown; group?: unknown };
+  const username = cleanUsername(body.username);
+  const discord = cleanDiscord(body.discord);
+  const group = body.group === "joined" || body.group === "pending" ? body.group : null;
+  if (!username) return c.json({ error: "invalid_username" }, 400);
+  if (!discord) return c.json({ error: "invalid_discord" }, 400);
+  if (!group) return c.json({ error: "group_required" }, 400);
+  const user = await resolveUser(c, username);
+  if (user instanceof Response) return user;
+  const err = await insertReg(c, c.req.param("sid"), user.id, "driver", null, discord, group);
+  return err ?? c.json({ ok: true });
+});
+
 registration.delete("/:sid/independent", async (c) => {
   const me = needMe(c);
   if (me instanceof Response) return me;
@@ -292,6 +317,14 @@ registration.put("/:sid/staff/:uid", async (c) => {
     .bind(kind, teamId, group, denied, discord, sid, uid)
     .run();
   return c.json({ ok: true });
+});
+
+/** Staff hand an access code to a registered person who has no team. */
+registration.post("/:sid/staff/:uid/code", async (c) => {
+  const me = await staff(c);
+  if (me instanceof Response) return me;
+  if (!(await canIssueFor(c.env.DB, c.req.param("uid"), { registered: c.req.param("sid") }))) return c.json({ error: "code_not_allowed" }, 403);
+  return c.json(await issueCode(c.env, c.req.param("uid"), me.id));
 });
 
 registration.delete("/:sid/staff/:uid", async (c) => {

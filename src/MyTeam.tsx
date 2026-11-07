@@ -6,6 +6,7 @@ import { hasAny, MANAGER_ROLES, TEAM_ROLE_LABEL } from "../shared/teams";
 import { api, myTeam, registrationApi } from "./api";
 import { fmtWhen, regStatus, upcomingSessions } from "./regUi";
 import { useMe } from "./me";
+import { CodeDialog, useTokenMode } from "./access";
 import { Shell } from "./Shell";
 import { AddMember, MemberTable } from "./TeamMembers";
 import { Dialog, toast } from "./ui";
@@ -60,6 +61,8 @@ export function MyTeamPage() {
   const [team, setTeam] = useState<MyTeamData | null>(null);
   const [missing, setMissing] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const tokens = useTokenMode();
+  const [codeFor, setCodeFor] = useState<{ id: string; username: string } | null>(null);
   const [races, setRaces] = useState<RaceSummary[]>([]);
   const [regs, setRegs] = useState<RegSummary[]>([]);
   useEffect(() => {
@@ -120,6 +123,7 @@ export function MyTeamPage() {
         <MemberTable
           members={team.members}
           canEdit={canEdit}
+          onCode={tokens ? setCodeFor : undefined}
           onRoles={(m, roles) => act(myTeam.setRoles(team.id, m.id, roles))}
           onRemove={(m) => act(myTeam.remove(team.id, m.id))}
         />
@@ -136,6 +140,7 @@ export function MyTeamPage() {
           </button>
         </div>
       )}
+      {codeFor && <CodeDialog name={codeFor.username} issue={() => myTeam.code(team.id, codeFor.id)} revoke={() => myTeam.revokeCode(team.id, codeFor.id)} onClose={() => setCodeFor(null)} />}
       {leaving && (
         <Dialog
           title="Leave team"

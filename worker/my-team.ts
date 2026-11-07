@@ -4,6 +4,7 @@ import type { Me, MyTeam, TeamKind } from "../shared/types";
 import { cleanRoles, hasAny, MANAGER_ROLES, parseRoles, type TeamRole } from "../shared/teams";
 import { getMe } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
+import { canIssueFor, issueCode, revokeCode } from "./access-codes";
 import { cleanUsername, resolveUser, type AdminEnv } from "./admin";
 
 type C = Context<{ Bindings: AdminEnv; Variables: { me: Me } }>;
@@ -90,6 +91,29 @@ myTeams.delete("/:teamId/members/:uid", async (c) => {
     c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(team.id, target.id),
     c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ? AND roblox_id = ? AND kind != 'spectator'").bind(team.id, target.id),
   ]);
+  return c.json({ ok: true });
+});
+
+/** A code for a member of this team. Managers only, and only for people who belong to no other team. */
+async function codeTarget(c: C): Promise<{ id: string } | Response> {
+  const team = await manager(c);
+  if (team instanceof Response) return team;
+  const target = team.members.find((m) => m.id === c.req.param("uid"));
+  if (!target) return c.json({ error: "not_found" }, 404);
+  if (target.roles.includes("principal") || (target.roles.includes("sporting_director") && !team.roles.includes("principal"))) return c.json({ error: "forbidden" }, 403);
+  if (!(await canIssueFor(c.env.DB, target.id, { teamId: team.id }))) return c.json({ error: "code_not_allowed" }, 403);
+  return target;
+}
+
+myTeams.post("/:teamId/members/:uid/code", async (c) => {
+  const t = await codeTarget(c);
+  return t instanceof Response ? t : c.json(await issueCode(c.env, t.id, c.get("me").id));
+});
+
+myTeams.delete("/:teamId/members/:uid/code", async (c) => {
+  const t = await codeTarget(c);
+  if (t instanceof Response) return t;
+  await revokeCode(c.env.DB, t.id);
   return c.json({ ok: true });
 });
 

@@ -53,6 +53,11 @@ async function send(method: string, path: string, body?: unknown): Promise<{ ok:
   return res.ok ? { ok: true, data } : { ok: false, error: (data as { error?: string }).error ?? "failed" };
 }
 
+export const accessApi = {
+  config: () => get<{ tokenMode: boolean }>("/api/config"),
+  signIn: (code: string) => send("POST", "/api/auth/token", { code }),
+};
+
 export const admin = {
   users: () => get<AdminUser[]>("/api/admin/users"),
   addUser: (username: string) => send("POST", "/api/admin/users", { username }),
@@ -78,6 +83,9 @@ export const admin = {
   setRegistration: (sessionId: string, s: RegSettings) => send("PUT", `/api/admin/sessions/${sessionId}/registration`, s),
   clearRegistration: (sessionId: string) => send("DELETE", `/api/admin/sessions/${sessionId}/registration`),
   system: () => get<SystemInfo>("/api/admin/system"),
+  setTokenMode: (on: boolean) => send("PUT", "/api/admin/system/token-mode", { on }),
+  userCode: (id: string) => send("POST", `/api/admin/users/${id}/code`),
+  revokeUserCode: (id: string) => send("DELETE", `/api/admin/users/${id}/code`),
 };
 
 async function teamCall(method: string, path: string, body?: unknown): Promise<string | null> {
@@ -116,6 +124,8 @@ export const myTeam = {
   add: (teamId: string, username: string, roles: TeamRole[]) => send("POST", `/api/my-teams/${teamId}/members`, { username, roles }),
   setRoles: (teamId: string, userId: string, roles: TeamRole[]) => send("PUT", `/api/my-teams/${teamId}/members/${userId}/roles`, { roles }),
   remove: (teamId: string, userId: string) => send("DELETE", `/api/my-teams/${teamId}/members/${userId}`),
+  code: (teamId: string, userId: string) => send("POST", `/api/my-teams/${teamId}/members/${userId}/code`),
+  revokeCode: (teamId: string, userId: string) => send("DELETE", `/api/my-teams/${teamId}/members/${userId}/code`),
   leave: (teamId: string) => send("POST", `/api/my-teams/${teamId}/leave`),
 };
 
@@ -126,9 +136,11 @@ export const registrationApi = {
   teamAdd: (sid: string, teamId: string, username: string, kind: RegKind) => send("POST", reg(sid, `/team/${teamId}`), { username, kind }),
   teamRemove: (sid: string, teamId: string, userId: string) => send("DELETE", reg(sid, `/team/${teamId}/${userId}`)),
   independent: (sid: string, discord: string) => send("POST", reg(sid, "/independent"), { discord, group: "pending" }),
+  independentRequest: (sid: string, username: string, discord: string) => send("POST", reg(sid, "/independent-request"), { username, discord, group: "pending" }),
   withdraw: (sid: string) => send("DELETE", reg(sid, "/independent")),
   selfGroup: (sid: string, group: GroupStatus) => send("PUT", reg(sid, "/self/group"), { group }),
   staffAdd: (sid: string, b: { username: string; kind: RegKind; teamId: string | null; discord?: string; group?: GroupStatus }) => send("POST", reg(sid, "/staff"), b),
   staffEdit: (sid: string, userId: string, b: { denied?: boolean; teamId?: string | null; group?: GroupStatus; kind?: RegKind; discord?: string }) => send("PUT", reg(sid, `/staff/${userId}`), b),
+  staffCode: (sid: string, userId: string) => send("POST", reg(sid, `/staff/${userId}/code`)),
   staffRemove: (sid: string, userId: string) => send("DELETE", reg(sid, `/staff/${userId}`)),
 };
