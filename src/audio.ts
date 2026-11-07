@@ -49,3 +49,17 @@ export function speak(text: string, voiceURI: string, onEnd?: () => void) {
   u.onerror = () => onEnd?.();
   speechSynthesis.speak(u);
 }
+
+/** Play raw mono samples (neural voices) through the same context and volume as the beeps. */
+export function playSamples(samples: Float32Array, rate: number, onEnd: () => void) {
+  if (!ctx || ctx.state !== "running" || volume === 0) return onEnd();
+  const buf = ctx.createBuffer(1, samples.length, rate);
+  buf.getChannelData(0).set(samples);
+  const src = ctx.createBufferSource();
+  const gain = ctx.createGain();
+  gain.gain.value = volume;
+  src.buffer = buf;
+  src.connect(gain).connect(ctx.destination);
+  src.onended = () => onEnd();
+  src.start();
+}
