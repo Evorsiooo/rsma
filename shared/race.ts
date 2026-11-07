@@ -26,6 +26,8 @@ export interface Run {
   car?: string;
   /** Driver number. */
   number?: string;
+  /** Staged from registration; follows the registration cut while still queued. */
+  reg?: boolean;
   /** Quali: one lap, then stop. Long run: several laps counted with Lap, the best lap is the time. */
   mode?: "quali" | "long";
   /** Long run: lap durations in ms, in order. */

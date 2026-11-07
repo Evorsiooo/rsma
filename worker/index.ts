@@ -7,6 +7,7 @@ import { SESSION_COOKIE } from "./auth/session";
 import { admin } from "./admin";
 import { myTeams } from "./my-team";
 import { registration } from "./registration";
+import { teamWithCar } from "./stage";
 import { loadRaces, loadSession } from "./sessions";
 
 export { RaceDO } from "./race-do";
@@ -67,14 +68,6 @@ app.get("/api/sessions/:id/state", async (c) => {
 });
 
 /** A team with the car its drivers run: its own for a factory team, the factory team's for a customer team. */
-async function teamWithCar(db: D1Database, id: string) {
-  const t = await db.prepare("SELECT id, name, kind, car, factory_id AS factoryId FROM teams WHERE id = ?").bind(id).first<{ id: string; name: string; kind: string; car: string | null; factoryId: string | null }>();
-  if (!t) return null;
-  let car = t.car;
-  if (t.kind === "customer" && t.factoryId) car = (await db.prepare("SELECT car FROM teams WHERE id = ?").bind(t.factoryId).first<{ car: string | null }>())?.car ?? null;
-  return { id: t.id, name: t.name, car: car ?? undefined };
-}
-
 async function isRaceSteward(env: Env, me: Me | null, raceId: string) {
   if (!me) return false;
   if (hasRole(me, "steward")) return true;
@@ -118,7 +111,7 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
   // Team commands only come through the team routes; self-timed sessions have no steward Go or Stop.
-  if (["teamGo", "teamFinish", "teamMove", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
+  if (["teamGo", "teamFinish", "teamMove", "syncReg", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
   if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish")) return c.json({ error: "self_timed" }, 409);
   // Races are run differently for now: no live timing.
   if (info.session.type === "race" && RACE_TIMING_CMDS.includes(cmd.type)) return c.json({ error: "race_timing_off" }, 409);

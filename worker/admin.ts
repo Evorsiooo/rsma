@@ -6,10 +6,12 @@ import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { sessionsOf } from "./sessions";
 import { resolveUserId } from "./roblox-users";
+import { regSessionsOf, syncRegistered, syncSessions } from "./stage";
 import { issueCode, revokeCode, setTokenMode, tokenMode } from "./access-codes";
 
 export interface AdminEnv extends AuthEnv {
   /** Local development only: point username lookups at a mock server. */
+  RACE: DurableObjectNamespace;
   ROBLOX_USERS_BASE?: string;
   ROBLOX_WWW_BASE?: string;
 }
@@ -262,6 +264,7 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
   )
     .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0)
     .run();
+  await syncRegistered(c.env, id);
   return c.json({ ok: true });
 });
 
@@ -332,10 +335,12 @@ admin.patch("/teams/:id", guard("users"), async (c) => {
 
 admin.delete("/teams/:id", guard("users"), async (c) => {
   if (await c.env.DB.prepare("SELECT 1 FROM teams WHERE factory_id = ?").bind(c.req.param("id")).first()) return c.json({ error: "has_customers" }, 409);
+  const sessions = await regSessionsOf(c.env, c.req.param("id") ?? "");
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ?").bind(c.req.param("id")),
     c.env.DB.prepare("DELETE FROM teams WHERE id = ?").bind(c.req.param("id")),
   ]);
+  await syncSessions(c.env, sessions);
   return c.json({ ok: true });
 });
 
@@ -373,10 +378,12 @@ admin.put("/teams/:id/members/:uid/roles", guard("users"), async (c) => {
 });
 
 admin.delete("/teams/:id/members/:uid", guard("users"), async (c) => {
+  const sessions = await regSessionsOf(c.env, c.req.param("id") ?? "", c.req.param("uid") ?? "");
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(c.req.param("id"), c.req.param("uid")),
     c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ? AND roblox_id = ? AND kind != 'spectator'").bind(c.req.param("id"), c.req.param("uid")),
   ]);
+  await syncSessions(c.env, sessions);
   return c.json({ ok: true });
 });
 
