@@ -25,20 +25,37 @@ export const DEFAULT_AI_VOICE = "af_heart";
 
 export interface AiStatus {
   state: "idle" | "loading" | "ready" | "failed";
-  /** 0..1 while loading. */
+  /** 0..1 while the model downloads. */
   progress: number;
+  /** A voice's style file (about 0.5 MB) is being fetched and the voice warmed up. */
+  voiceLoading: boolean;
+  /** A message is being synthesised. */
+  generating: boolean;
 }
+
+/** About 92 MB, shared by every voice. Each voice then adds a style file of about 0.5 MB. */
+export const MODEL_SIZE_MB = 90;
 
 type Model = { generate: (text: string, o: { voice: string }) => Promise<{ audio: Float32Array; sampling_rate: number }> };
 
-let status: AiStatus = { state: "idle", progress: 0 };
+let status: AiStatus = { state: "idle", progress: 0, voiceLoading: false, generating: false };
 let model: Promise<Model | null> | null = null;
 let ready: Model | null = null;
 const listeners = new Set<(s: AiStatus) => void>();
 
-const set = (s: AiStatus) => {
-  status = s;
-  listeners.forEach((fn) => fn(s));
+const set = (patch: Partial<AiStatus>) => {
+  status = { ...status, ...patch };
+  listeners.forEach((fn) => fn(status));
+};
+
+// The model is kept in the browser cache after the first download; remember that, so it loads by itself next time.
+const FLAG = "flagman.driver.aiReady";
+export const wasDownloaded = () => {
+  try {
+    return localStorage.getItem(FLAG) === "1";
+  } catch {
+    return false;
+  }
 };
 
 export const aiStatus = () => status;
@@ -78,6 +95,11 @@ export function loadAi(): Promise<boolean> {
       )
       .then((m) => {
         ready = m as unknown as Model;
+        try {
+          localStorage.setItem(FLAG, "1");
+        } catch {
+          /* private mode */
+        }
         set({ state: "ready", progress: 1 });
         return ready;
       })
@@ -92,6 +114,32 @@ export function loadAi(): Promise<boolean> {
 
 let chain: Promise<void> = Promise.resolve();
 
+const prepared = new Set<string>();
+
+/**
+ * Fetch a voice's style file and run one throwaway sentence, which also starts the phonemiser and the model's
+ * first run. That is what made the first sentence slow, so it is done ahead of time, when a voice is chosen.
+ */
+export function prepareVoice(voiceId: string): void {
+  const m = ready;
+  if (!m || prepared.has(voiceId)) return;
+  prepared.add(voiceId);
+  set({ voiceLoading: true });
+  chain = chain.then(async () => {
+    try {
+      const a = await m.generate("Radio check.", { voice: voiceId });
+      cache.set(`${voiceId}|Radio check.`, { audio: a.audio, rate: a.sampling_rate });
+    } catch {
+      prepared.delete(voiceId);
+    }
+    set({ voiceLoading: false });
+  });
+}
+
+// Recent sentences are kept, so repeated ones (radio check, DNF, flags) play at once.
+const cache = new Map<string, { audio: Float32Array; rate: number }>();
+const CACHE_MAX = 40;
+
 /**
  * Speak with the neural voice. Returns false when the model is not ready, so the caller speaks with the standard
  * voice at once. If synthesis fails half way, `fallback` speaks the message instead. Messages play in order.
@@ -101,10 +149,24 @@ export function speakAi(text: string, voiceId: string, onEnd: () => void, fallba
   if (!m) return false;
   chain = chain.then(async () => {
     try {
-      const a = await m.generate(text, { voice: voiceId });
-      await new Promise<void>((done) => playSamples(a.audio, a.sampling_rate, done));
+      const key = `${voiceId}|${text}`;
+      let hit = cache.get(key);
+      if (hit) {
+        cache.delete(key);
+      } else {
+        set({ generating: true });
+        const a = await m.generate(text, { voice: voiceId });
+        hit = { audio: a.audio, rate: a.sampling_rate };
+        prepared.add(voiceId);
+        if (cache.size >= CACHE_MAX) cache.delete(cache.keys().next().value as string);
+      }
+      cache.set(key, hit);
+      set({ generating: false });
+      const { audio, rate } = hit;
+      await new Promise<void>((done) => playSamples(audio, rate, done));
       onEnd();
     } catch {
+      set({ generating: false });
       fallback();
     }
   });
