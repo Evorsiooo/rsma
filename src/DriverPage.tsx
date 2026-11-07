@@ -6,7 +6,7 @@ import type { SessionInfo } from "../shared/types";
 import { answerAsk, api, driverRadio } from "./api";
 import { enableAudio, setVolume, speak, startBeeps } from "./audio";
 import { NotFound } from "./NotFound";
-import { AI_VOICES, aiStatus, DEFAULT_AI_VOICE, loadAi, onAiStatus, speakAi, type AiStatus } from "./tts";
+import { AI_VOICES, aiStatus, loadAi, MODEL_SIZE_MB, onAiStatus, prepareVoice, speakAi, wasDownloaded, type AiStatus } from "./tts";
 import { useMe } from "./me";
 import { Dialog, sessionCountdown, toast, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
@@ -55,7 +55,7 @@ export function DriverPage() {
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURI] = useState(() => store.get("voice") ?? "");
   const [engine, setEngine] = useState<"standard" | "ai">(() => (store.get("engine") === "ai" ? "ai" : "standard"));
-  const [aiVoice, setAiVoice] = useState(() => store.get("aivoice") ?? DEFAULT_AI_VOICE);
+  const [aiVoice, setAiVoice] = useState(() => store.get("aivoice") ?? "");
   const [ai, setAi] = useState<AiStatus>(aiStatus());
   const [rx, setRx] = useState(false);
   const [settings, setSettings] = useState(false);
@@ -72,16 +72,20 @@ export function DriverPage() {
   }, []);
   useEffect(() => setVolume(vol / 100), [vol]);
   useEffect(() => onAiStatus(setAi), []);
+  // The model only downloads when a voice is picked. Once it has been downloaded it loads by itself.
   useEffect(() => {
-    if (engine === "ai") loadAi();
+    if (engine === "ai" && wasDownloaded()) loadAi();
   }, [engine]);
+  useEffect(() => {
+    if (engine === "ai" && aiVoice && ai.state === "ready") prepareVoice(aiVoice);
+  }, [engine, aiVoice, ai.state]);
 
   const me: Run | undefined = state ? pickRun(state.runs, name) : undefined;
   const say = useCallback(
     (text: string) => {
       setRx(true);
       const standard = () => speak(text, voiceURI, () => setRx(false));
-      if (engine === "ai" && speakAi(text, aiVoice, () => setRx(false), standard)) return;
+      if (engine === "ai" && aiVoice && speakAi(text, aiVoice, () => setRx(false), standard)) return;
       standard();
     },
     [voiceURI, engine, aiVoice],
@@ -304,8 +308,10 @@ export function DriverPage() {
                   onChange={(e) => {
                     setAiVoice(e.target.value);
                     store.set("aivoice", e.target.value);
+                    if (e.target.value) loadAi();
                   }}
                 >
+                  <option value="">Choose a voice</option>
                   {[...new Set(AI_VOICES.map((v) => v.group))].map((g) => (
                     <optgroup key={g} label={g}>
                       {AI_VOICES.filter((v) => v.group === g).map((v) => (
@@ -315,6 +321,13 @@ export function DriverPage() {
                   ))}
                 </select>
               </div>
+              {ai.state !== "ready" && ai.state !== "loading" && (
+                <span className="r-label">Choosing a voice downloads the AI model once, about {MODEL_SIZE_MB} MB. Every voice uses it.</span>
+              )}
+              {ai.state === "ready" && (
+                <span className="r-label">{ai.voiceLoading ? "Loading the voice, about 0.5 MB" : "AI model ready. Each new voice adds about 0.5 MB."}</span>
+              )}
+              {ai.state === "ready" && ai.voiceLoading && <div className="r-progress is-wait" role="progressbar" />}
               {ai.state === "loading" && (
                 <>
                   <span className="r-label">Downloading the AI voice model, {Math.round(ai.progress * 100)}%</span>
@@ -331,7 +344,7 @@ export function DriverPage() {
           )}
           <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
             <button className="r-btn" disabled={!audioOn} onClick={() => startBeeps(3)}>Test beeps</button>
-            <button className="r-btn" disabled={!audioOn} onClick={() => say("Radio check.")}>Test voice</button>
+            <button className="r-btn" disabled={!audioOn || (engine === "ai" && ai.generating)} onClick={() => say("Radio check.")}>{engine === "ai" && ai.generating ? "Generating…" : "Test voice"}</button>
           </div>
         </div>
         </Dialog>
