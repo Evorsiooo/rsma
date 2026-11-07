@@ -23,6 +23,7 @@ export type Command =
   | { type: "noteDel"; id: string }
   | { type: "pitAdd"; team: string; teamName: string; fromMs: number; toMs: number; lengthMs: number }
   | { type: "pitDel"; team: string; id: string }
+  | { type: "syncReg"; drivers: { name: string; team?: { id: string; name: string; car?: string } }[] }
   | { type: "remove"; runId: string }
   | { type: "move"; runId: string; dir: -1 | 1 }
   | { type: "go" }
@@ -103,6 +104,35 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const team = cmd.team && clean(cmd.team.id, 60) && clean(cmd.team.name, 40) ? { id: clean(cmd.team.id, 60), name: clean(cmd.team.name, 40) } : undefined;
       s.runs.push({ id: ctx.newId(), name, plate, status: "queued", penalties: [], penaltyMs: 0, number: clean(cmd.number, 4) || undefined, team: team?.id, teamName: team?.name, car: team ? clean(cmd.team?.car, 40) || undefined : undefined });
       note(`Staged ${name} (${plate})${team ? `, ${team.name}` : ""}`);
+      break;
+    }
+    case "syncReg": {
+      // Registered drivers who made the cut, one car each, kept in step with registration. Plate and number come later
+      // through Edit info. Only cars staged from registration that are still queued are removed again.
+      const want = new Map<string, NonNullable<(typeof cmd.drivers)[number]>>();
+      for (const d of cmd.drivers ?? []) {
+        const name = clean(d?.name, 40);
+        if (name) want.set(name.toLowerCase(), d);
+      }
+      let added = 0;
+      let removed = 0;
+      s.runs = s.runs.filter((r) => {
+        if (r.reg && r.status === "queued" && !want.has(r.name.toLowerCase())) {
+          removed++;
+          return false;
+        }
+        return true;
+      });
+      const have = new Set(s.runs.map((r) => r.name.toLowerCase()));
+      for (const [key, d] of want) {
+        if (have.has(key)) continue;
+        const team = d.team && clean(d.team.id, 60) && clean(d.team.name, 40) ? { id: clean(d.team.id, 60), name: clean(d.team.name, 40) } : undefined;
+        s.runs.push({ id: ctx.newId(), name: clean(d.name, 40), plate: "", reg: true, status: "queued", penalties: [], penaltyMs: 0, team: team?.id, teamName: team?.name, car: team ? clean(d.team?.car, 40) || undefined : undefined });
+        added++;
+      }
+      if (!added && !removed) return { error: "nothing_to_add" };
+      if (added) note(`${added} driver${added === 1 ? "" : "s"} staged from registration`);
+      if (removed) note(`${removed} driver${removed === 1 ? "" : "s"} removed from the queue by registration`);
       break;
     }
     case "remove": {

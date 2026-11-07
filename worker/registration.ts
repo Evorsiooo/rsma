@@ -18,6 +18,7 @@ import {
 import { hasAny, MANAGER_ROLES, PANEL_ROLES, parseRoles } from "../shared/teams";
 import { getMe, hasRole } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
+import { syncRegistered } from "./stage";
 import { cleanUsername, resolveUser, type AdminEnv } from "./admin";
 
 type E = { Bindings: AdminEnv; Variables: { me: Me | null } };
@@ -53,7 +54,7 @@ export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSetti
 const isStaff = (me: Me | null) => hasRole(me, "races", "steward");
 const managedTeams = (me: Me | null) => (me?.memberships ?? []).filter((t) => hasAny(t.roles, MANAGER_ROLES));
 
-async function loadRegs(env: AdminEnv, sid: string, s: RegSettings): Promise<Registration[]> {
+export async function loadRegs(env: AdminEnv, sid: string, s: RegSettings): Promise<Registration[]> {
   const { results } = await env.DB.prepare(
     `SELECT r.roblox_id AS userId, u.username, r.kind, r.team_id AS teamId, t.name AS teamName, r.discord,
             r.grp AS "group", r.denied, r.created_at AS at
@@ -190,6 +191,7 @@ registration.post("/:sid/team/:teamId", async (c) => {
     user = m;
   }
   const err = await insertReg(c, c.req.param("sid"), user.id, kind, team.id, null, "unverified");
+  if (!err) await syncRegistered(c.env, c.req.param("sid"));
   return err ?? c.json({ ok: true });
 });
 
@@ -201,6 +203,7 @@ registration.delete("/:sid/team/:teamId/:uid", async (c) => {
   await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ?")
     .bind(c.req.param("sid"), c.req.param("uid"), team.id)
     .run();
+  await syncRegistered(c.env, c.req.param("sid"));
   return c.json({ ok: true });
 });
 
@@ -218,6 +221,7 @@ registration.post("/:sid/independent", async (c) => {
   if (!discord) return c.json({ error: "invalid_discord" }, 400);
   if (!group) return c.json({ error: "group_required" }, 400);
   const err = await insertReg(c, c.req.param("sid"), me.id, "driver", null, discord, group);
+  if (!err) await syncRegistered(c.env, c.req.param("sid"));
   return err ?? c.json({ ok: true });
 });
 
@@ -253,6 +257,7 @@ registration.delete("/:sid/independent", async (c) => {
   await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id IS NULL")
     .bind(c.req.param("sid"), me.id)
     .run();
+  await syncRegistered(c.env, c.req.param("sid"));
   return c.json({ ok: true });
 });
 
@@ -294,6 +299,7 @@ registration.post("/:sid/staff", async (c) => {
   const user = await resolveUser(c, username);
   if (user instanceof Response) return user;
   const err = await insertReg(c, sid, user.id, kind, teamId as string | null, cleanDiscord(body.discord), cleanGroup(body.group) ?? "unverified");
+  if (!err) await syncRegistered(c.env, sid);
   return err ?? c.json({ ok: true });
 });
 
@@ -316,6 +322,7 @@ registration.put("/:sid/staff/:uid", async (c) => {
   await c.env.DB.prepare("UPDATE registrations SET kind = ?, team_id = ?, grp = ?, denied = ?, discord = ? WHERE session_id = ? AND roblox_id = ?")
     .bind(kind, teamId, group, denied, discord, sid, uid)
     .run();
+  await syncRegistered(c.env, sid);
   return c.json({ ok: true });
 });
 
@@ -331,5 +338,6 @@ registration.delete("/:sid/staff/:uid", async (c) => {
   const me = await staff(c);
   if (me instanceof Response) return me;
   await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ?").bind(c.req.param("sid"), c.req.param("uid")).run();
+  await syncRegistered(c.env, c.req.param("sid"));
   return c.json({ ok: true });
 });

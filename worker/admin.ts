@@ -6,10 +6,12 @@ import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { sessionsOf } from "./sessions";
 import { resolveUserId } from "./roblox-users";
+import { syncRegistered } from "./stage";
 import { issueCode, revokeCode, setTokenMode, tokenMode } from "./access-codes";
 
 export interface AdminEnv extends AuthEnv {
   /** Local development only: point username lookups at a mock server. */
+  RACE: DurableObjectNamespace;
   ROBLOX_USERS_BASE?: string;
   ROBLOX_WWW_BASE?: string;
 }
@@ -262,6 +264,7 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
   )
     .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0)
     .run();
+  await syncRegistered(c.env, id);
   return c.json({ ok: true });
 });
 

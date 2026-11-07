@@ -318,3 +318,14 @@ test("public view only carries Global radio", () => {
   assert.deepEqual(pub.radio.map((m) => m.text), ["everyone"]);
   assert.deepEqual(viewFor(s, { staff: false, teams: [], user: "alpha" }).radio.map((m) => m.text), ["everyone", "just alpha"]);
 });
+
+test("syncReg stages the registered drivers and follows the cut", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Steward Added", plate: "ZZ 1" }, 500);
+  s = run(s, { type: "syncReg", drivers: [{ name: "Ann", team: { id: "t1", name: "Red", car: "GT" } }, { name: "Bob" }] }, 1000);
+  assert.deepEqual(s.runs.map((r) => [r.name, r.plate, r.teamName, r.car]), [["Steward Added", "ZZ 1", undefined, undefined], ["Ann", "", "Red", "GT"], ["Bob", "", undefined, undefined]]);
+  assert.equal(fails(s, { type: "syncReg", drivers: [{ name: "ann" }, { name: "bob" }] }, 2000), "nothing_to_add");
+  s = run(s, { type: "editInfo", runId: s.runs[1].id, plate: "ab 12", number: "7" }, 2500);
+  s = run(s, { type: "syncReg", drivers: [{ name: "Cy" }] }, 3000);
+  assert.deepEqual(s.runs.map((r) => r.name), ["Steward Added", "Cy"]);
+});
