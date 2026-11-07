@@ -285,31 +285,51 @@ export function TeamsDialog({ teams, selected, onClose, onConfirm }: { teams: Te
 
 const noteTime = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-export function NotesDialog({ run, notes, onClose, send }: { run: Run; notes: DriverNote[]; onClose: () => void; send: Send }) {
+export function NotesDialog({ run, notes, onClose, send, team }: { run: Run; notes: DriverNote[]; onClose: () => void; send: Send; team?: string }) {
   const [text, setText] = useState("");
   const mine = notes.filter((n) => n.driver.toLowerCase() === run.name.toLowerCase());
+  // A team panel only writes the team's own notes; stewards keep theirs apart from every team's.
+  const groups: { key: string; label: string; list: DriverNote[] }[] = team
+    ? [{ key: "team", label: "", list: mine.filter((n) => n.team === team) }]
+    : [
+        { key: "stewards", label: "Steward notes", list: mine.filter((n) => !n.team) },
+        ...[...new Set(mine.filter((n) => n.team).map((n) => n.team!))].map((t) => ({ key: t, label: `${mine.find((n) => n.team === t)?.teamName ?? "Team"} notes`, list: mine.filter((n) => n.team === t) })),
+      ];
   const add = async () => {
-    if (text.trim() && (await send({ type: "note", runId: run.id, text }))) setText("");
+    const cmd = team ? ({ type: "teamNote", team, runId: run.id, text } as const) : ({ type: "note", runId: run.id, text } as const);
+    if (text.trim() && (await send(cmd))) setText("");
   };
+  const del = (n: DriverNote) => send(n.team && team ? { type: "teamNoteDel", team, id: n.id } : { type: "noteDel", id: n.id });
   return (
-    <Dialog title={`Notes: ${run.name}`} size="l" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
-      {mine.length === 0 ? (
+    <Dialog title={`${team ? "Team notes" : "Notes"}: ${run.name}`} size="l" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
+      {mine.length === 0 || groups.every((g) => g.list.length === 0) ? (
         <div className="r-empty">No notes.</div>
       ) : (
-        <div className="r-log r-log--wrap" style={{ maxHeight: 200 }}>
-          {mine.map((n) => (
-            <div className="r-row" key={n.id} style={{ alignItems: "flex-start", gap: 4 }}>
-              <div className="r-log__line r-fill">{noteTime.format(n.at)} {n.by}: {n.text}</div>
-              <button className="r-cell" style={{ height: 19 }} onClick={() => send({ type: "noteDel", id: n.id })}>Delete</button>
+        <div className="r-stack">
+          {groups.filter((g) => g.list.length).map((g) => (
+            <div key={g.key} className="r-stack">
+              {g.label && <span className="r-label">{g.label}</span>}
+              <div className="r-log r-log--wrap" style={{ maxHeight: 200 }}>
+                {g.list.map((n) => (
+                  <div className="r-row" key={n.id} style={{ alignItems: "flex-start", gap: 4 }}>
+                    <div className={`r-log__line r-fill${n.team && !team ? " is-teal" : ""}`}>{noteTime.format(n.at)} {n.by}: {n.text}</div>
+                    <button className="r-cell" style={{ height: 19 }} onClick={() => del(n)}>Delete</button>
+                  </div>
+                ))}
+              </div>
             </div>
           ))}
         </div>
       )}
-      <div className="r-form-field">
-        <span className="r-label">New note</span>
-        <textarea className="r-field" style={{ height: 64, resize: "none" }} aria-label="New note" maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />
-      </div>
-      <button className="r-btn" disabled={!text.trim()} onClick={add}>Add note</button>
+      {(!team || run.team === team) && (
+        <>
+          <div className="r-form-field">
+            <span className="r-label">New note</span>
+            <textarea className="r-field" style={{ height: 64, resize: "none" }} aria-label="New note" maxLength={500} value={text} onChange={(e) => setText(e.target.value)} />
+          </div>
+          <button className="r-btn" disabled={!text.trim()} onClick={add}>Add note</button>
+        </>
+      )}
     </Dialog>
   );
 }

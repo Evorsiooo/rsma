@@ -119,6 +119,8 @@ export interface TeamFields {
 }
 export const teamRunCmd = (sessionId: string, teamId: string, cmd: object) => teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/run`, cmd);
 
+export const teamNoteCmd = (sessionId: string, teamId: string, cmd: object) => teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/note`, cmd);
+
 export const myTeam = {
   get: (teamId: string) => get<MyTeam>(`/api/my-teams/${teamId}`),
   add: (teamId: string, username: string, roles: TeamRole[]) => send("POST", `/api/my-teams/${teamId}/members`, { username, roles }),

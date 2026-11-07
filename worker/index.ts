@@ -111,7 +111,7 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
   // Team commands only come through the team routes; self-timed sessions have no steward Go or Stop.
-  if (["teamGo", "teamFinish", "teamMove", "syncReg", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
+  if (["teamGo", "teamFinish", "teamMove", "teamNote", "teamNoteDel", "syncReg", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
   if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish")) return c.json({ error: "self_timed" }, 409);
   // Races are run differently for now: no live timing.
   if (info.session.type === "race" && RACE_TIMING_CMDS.includes(cmd.type)) return c.json({ error: "race_timing_off" }, 409);
@@ -234,6 +234,21 @@ app.post("/api/sessions/:id/team/:teamId/run", async (c) => {
   const body = (await c.req.json().catch(() => null)) as { type?: unknown } | null;
   if (!body || typeof body.type !== "string" || !TEAM_RUN_CMDS.includes(body.type)) return c.json({ error: "invalid" }, 400);
   const cmd = { ...body, team: r.team.id };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+// A team's notes about its own drivers, in any session.
+app.post("/api/sessions/:id/team/:teamId/note", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  const body = (await c.req.json().catch(() => null)) as { type?: unknown; runId?: unknown; text?: unknown; id?: unknown } | null;
+  const cmd =
+    body?.type === "teamNote"
+      ? { type: "teamNote", team: r.team.id, runId: typeof body.runId === "string" ? body.runId : "", text: typeof body.text === "string" ? body.text : "" }
+      : body?.type === "teamNoteDel"
+        ? { type: "teamNoteDel", team: r.team.id, id: typeof body.id === "string" ? body.id : "" }
+        : null;
+  if (!cmd) return c.json({ error: "invalid" }, 400);
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 

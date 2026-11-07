@@ -12,6 +12,7 @@ const ERRORS: Record<string, string> = {
   invalid: "Invalid value.",
   forbidden: "Not allowed.",
 };
+const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } as const;
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
 const dim = { color: "var(--r-text-dim)" } as const;
@@ -90,21 +91,21 @@ function StaffSection({ view, sid, act }: { view: RegistrationView; sid: string;
           <thead>
             <tr>
               <th className="is-left">Name</th>
-              <th className="is-left" style={{ width: 100 }}>Type</th>
-              <th className="is-left" style={{ width: 170 }}>Team</th>
-              <th className="is-left" style={{ width: 150 }}>Discord</th>
-              <th style={{ width: 120 }}>Group</th>
-              <th style={{ width: 90 }}>Status</th>
+              <th className="is-left" style={{ width: 80 }}>Type</th>
+              <th className="is-left" style={{ width: 140 }}>Team</th>
+              <th className="is-left" style={{ width: 120 }}>Discord</th>
+              <th style={{ width: 100 }}>Group</th>
+              <th style={{ width: 70 }}>Status</th>
               <th style={{ width: tokens ? 320 : 240 }} />
             </tr>
           </thead>
           <tbody>
             {rows.map((r) => (
               <tr key={r.userId}>
-                <td className="is-left">{r.username}</td>
-                <td className="is-left">{REG_KIND_LABEL[r.kind]}</td>
-                <td className="is-left">{r.teamName ?? "Independent"}</td>
-                <td className="is-left" style={dim}>{r.discord ?? ""}</td>
+                <td className="is-left" style={clip}>{r.username}</td>
+                <td className="is-left" style={clip}>{REG_KIND_LABEL[r.kind]}</td>
+                <td className="is-left" style={clip}>{r.teamName ?? "Independent"}</td>
+                <td className="is-left" style={{ ...dim, ...clip }}>{r.discord ?? ""}</td>
                 <td>{r.kind === "driver" ? (inGroup(r.group) ? "In group" : "Not in group") : ""}</td>
                 <td>{CUT_LABEL[r.cut]}</td>
                 <td style={{ padding: 2 }}>

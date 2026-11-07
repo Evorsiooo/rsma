@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { classify, fmtPenalty, fmtTime, type Flag, type RadioMsg, type Run } from "../shared/race";
 import { fmtClock } from "../shared/sessions";
 import type { SessionInfo } from "../shared/types";
-import { addPitWindow, api, askDriver, moveOwnCar, removePitWindow, sendTeamRadio, teamRunCmd, teamTiming } from "./api";
+import { addPitWindow, api, askDriver, moveOwnCar, removePitWindow, sendTeamRadio, teamNoteCmd, teamRunCmd, teamTiming } from "./api";
 import { Lcd } from "./Lcd";
 import { useMe } from "./me";
 import { NotFound } from "./NotFound";
@@ -13,7 +13,7 @@ import { Topbar } from "./Shell";
 import { TimingTable } from "./TimingTable";
 import { Dialog, sessionCountdown, toast, useClock, useNow } from "./ui";
 import { useRaceLive } from "./useRaceLive";
-import { AttributeDialog, ConfirmDnf, SetTimeDialog } from "./steward/Dialogs";
+import { AttributeDialog, ConfirmDnf, NotesDialog, SetTimeDialog } from "./steward/Dialogs";
 import type { Command } from "../shared/commands";
 
 const FLAG_WORD: Record<Flag, string> = { green: "GREEN", yellow: "YELLOW", red: "RED" };
@@ -92,7 +92,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const [text, setText] = useState("");
   const [toStewards, setToStewards] = useState(false);
   const [asking, setAsking] = useState(false);
-  const [dialog, setDialog] = useState<null | { kind: "dnf" | "attribute" | "setTime"; runId: string }>(null);
+  const [dialog, setDialog] = useState<null | { kind: "dnf" | "attribute" | "setTime" | "notes"; runId: string }>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   const lengthMs = session.endsAt - session.startsAt;
@@ -128,6 +128,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const mineOnTrack = onTrack.filter((r) => r.team === team.id).length;
   const mineQueued = queued.filter((r) => r.team === team.id).length;
   const drivers = [...new Set(state.runs.filter((r) => r.team === team.id).map((r) => r.name))];
+  const selNotes = sel ? state.notes.filter((n) => n.team === team.id && n.driver.toLowerCase() === sel.name.toLowerCase()) : [];
   const dialogRun = dialog ? state.runs.find((r) => r.id === dialog.runId) : undefined;
   const modeText = (r: Run) => (r.team !== team.id ? "" : r.mode === "long" ? `Long run${r.laps?.length ? ` (${r.laps.length})` : ""}` : "Quali");
   const ownQueue = queued.filter((r) => r.team === team.id);
@@ -166,6 +167,11 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const send = async (cmd: Command) => {
     const err = await teamRunCmd(sessionId, team.id, cmd);
     if (err) toast(ERRORS[err] ?? "Command failed.");
+    return !err;
+  };
+  const sendNote = async (cmd: Command) => {
+    const err = await teamNoteCmd(sessionId, team.id, cmd);
+    if (err) toast(ERRORS[err] ?? "Note not saved.");
     return !err;
   };
   const moveCar = async (runId: string, dir: -1 | 1) => {
@@ -329,7 +335,15 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                   {sel?.penalties.map((p, i) => (
                     <div className="r-log__line is-red" key={i}>{fmtPenalty(p.ms)} {p.name}</div>
                   ))}
+                  {selNotes.map((n) => (
+                    <div className="r-log__line is-dim" key={n.id}>{n.text}</div>
+                  ))}
                 </div>
+                {sel && sel.team === team.id && !race.ended && (
+                  <div className="r-grid" style={{ ["--cols" as string]: 1 }}>
+                    <button className="r-cell" onClick={() => setDialog({ kind: "notes", runId: sel.id })}>{selNotes.length ? `Notes (${selNotes.length})` : "Notes"}</button>
+                  </div>
+                )}
                 {sel && session.selfTimed && sel.team === team.id && !race.ended && (
                   <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
                     {sel.status === "queued" && (
@@ -366,6 +380,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
           </div>
         </div>
       </div>
+      {dialog?.kind === "notes" && dialogRun && <NotesDialog run={dialogRun} notes={state.notes} team={team.id} onClose={() => setDialog(null)} send={sendNote} />}
       {dialog?.kind === "dnf" && dialogRun && <ConfirmDnf run={dialogRun} onClose={() => setDialog(null)} send={send} />}
       {dialog?.kind === "attribute" && dialogRun && <AttributeDialog run={dialogRun} state={state} team={team.id} onClose={() => setDialog(null)} send={send} />}
       {dialog?.kind === "setTime" && dialogRun && <SetTimeDialog run={dialogRun} team={team.id} onClose={() => setDialog(null)} send={send} />}

@@ -366,7 +366,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                     <div className={`r-log__line${l === Math.min(...sel.laps!) ? " is-magenta" : ""}`} key={`l${i}`}>Lap {i + 1} {fmtTime(l)}</div>
                   ))}
                   {selNotes.map((n) => (
-                    <div className="r-log__line is-dim" key={n.id}>{n.text}</div>
+                    <div className={`r-log__line ${n.team ? "is-teal" : "is-dim"}`} key={n.id}>{n.team ? `${n.teamName ?? "Team"}: ` : ""}{n.text}</div>
                   ))}
                 </div>
                 {sel && (
