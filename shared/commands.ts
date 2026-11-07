@@ -43,6 +43,7 @@ export type Command =
   | { type: "editInfo"; runId: string; plate: string; number?: string }
   | { type: "discard"; ts: number }
   | { type: "dnf"; runId: string; team?: string }
+  | { type: "undnf"; runId: string; team?: string }
   | { type: "penalty"; runId: string; ruleId: string; delta: 1 | -1 }
   | { type: "ruleAdd"; name: string; seconds: number }
   | { type: "ruleSet"; id: string; seconds: number }
@@ -375,6 +376,15 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       note(`DNF: ${r.name}`, "red");
       break;
     }
+    case "undnf": {
+      // Takes the DNF back. The timer never stopped, so the run is on stage again with its original start.
+      const r = run(cmd.runId);
+      if (!r || (cmd.team && r.team !== cmd.team)) return { error: "not_found" };
+      if (r.status !== "dnf" || r.startedAt == null) return { error: "not_dnf" };
+      r.status = "onstage";
+      note(`DNF withdrawn: ${r.name}`, "yellow");
+      break;
+    }
     case "penalty": {
       const r = run(cmd.runId);
       if (!r) return { error: "not_found" };
@@ -523,6 +533,8 @@ function announceResults(prev: RaceState, next: RaceState, auto: (to: string[], 
       auto([r.id], `Finished. Time ${fmtTime(r.rawMs)}.${pen} Position P${r.rank}.`, `Finished. Time ${spokenTime(r.rawMs)}.${spokenPen} Position ${r.rank}.`, "green");
     } else if (r.status === "finished" && p.status === "finished" && p.rank !== r.rank) {
       auto([r.id], `Position now P${r.rank}.`, `Position now ${r.rank}.`, (r.rank ?? 0) < (p.rank ?? 0) ? "green" : "yellow");
+    } else if (r.status === "onstage" && p.status === "dnf") {
+      auto([r.id], "DNF withdrawn. Timing continues.", undefined, "yellow");
     } else if (r.status === "dnf" && p.status !== "dnf") {
       auto([r.id], "Did not finish.", undefined, "red");
     }

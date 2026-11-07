@@ -113,6 +113,7 @@ export function DriverPage() {
   }, [messages.length]);
 
   if (info === null) return <NotFound />;
+  const hasRun = !!state?.runs.some((r) => r.name.toLowerCase() === name.toLowerCase());
   const hasTeam = !!state?.runs.some((r) => r.team && r.name.toLowerCase() === name.toLowerCase());
   const questions = messages.filter((m) => m.ask && !m.ask.answered);
   const sendChat = async () => {
@@ -220,10 +221,10 @@ export function DriverPage() {
             <div className={`r-log__line${m.tone ? ` is-${m.tone}` : ""}`} key={m.id}>{hhmm(m.at)} {m.text}</div>
           ))}
         </div>
-        {hasTeam && (
+        {user && (
           <div className="r-row" style={{ padding: 4 }}>
-            <input className="r-field r-fill" aria-label="Message to team" maxLength={200} value={chat} onChange={(e) => setChat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendChat()} />
-            <button className="r-btn" style={{ width: 90 }} disabled={!chat.trim()} onClick={sendChat}>Send</button>
+            <input className="r-field r-fill" aria-label="Message to team" disabled={!hasTeam} placeholder={hasTeam ? undefined : hasRun ? "Independent drivers have no team to message" : "You are not entered in this session"} maxLength={200} value={chat} onChange={(e) => setChat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendChat()} />
+            <button className="r-btn" style={{ width: 90 }} disabled={!hasTeam || !chat.trim()} onClick={sendChat}>Send</button>
           </div>
         )}
       </div>

@@ -7,7 +7,7 @@ import { SESSION_COOKIE } from "./auth/session";
 import { admin } from "./admin";
 import { myTeams } from "./my-team";
 import { registration } from "./registration";
-import { teamWithCar } from "./stage";
+import { syncRegistered, teamWithCar } from "./stage";
 import { loadRaces, loadSession } from "./sessions";
 
 export { RaceDO } from "./race-do";
@@ -61,13 +61,21 @@ app.get("/api/sessions/:id", async (c) => {
 
 const doOf = (env: Env, sessionId: string) => env.RACE.get(env.RACE.idFromName(sessionId));
 
+// Registrations made before a session's queue existed (or before this worker version) are brought in once per isolate.
+const synced = new Set<string>();
+async function ensureRegistered(env: Env, id: string) {
+  if (synced.has(id)) return;
+  synced.add(id);
+  await syncRegistered(env, id).catch(() => synced.delete(id));
+}
+
 app.get("/api/sessions/:id/state", async (c) => {
   const id = c.req.param("id");
   if (!(await loadSession(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
+  await ensureRegistered(c.env, id);
   return doOf(c.env, id).fetch("http://do/state");
 });
 
-/** A team with the car its drivers run: its own for a factory team, the factory team's for a customer team. */
 async function isRaceSteward(env: Env, me: Me | null, raceId: string) {
   if (!me) return false;
   if (hasRole(me, "steward")) return true;
@@ -80,6 +88,7 @@ app.get("/api/sessions/:id/ws", async (c) => {
   const id = c.req.param("id");
   const info = await loadSession(c.env.DB, id);
   if (!info) return c.json({ error: "not_found" }, 404);
+  await ensureRegistered(c.env, id);
   const headers = new Headers(c.req.raw.headers);
   for (const h of ["x-staff", "x-user", "x-teams"]) headers.delete(h);
   if (c.req.query("staff") === "1" || c.req.query("auth") === "1") {
@@ -98,7 +107,7 @@ app.get("/api/sessions/:id/ws", async (c) => {
 });
 
 // Steward commands. The role check happens here; the Durable Object validates and applies.
-const RACE_TIMING_CMDS = ["go", "finish", "assign", "discard", "lap", "setTime", "unattribute", "reattribute", "dnf", "setMode", "penalty", "teamGo", "teamFinish", "teamMove"];
+const RACE_TIMING_CMDS = ["go", "finish", "assign", "discard", "lap", "setTime", "unattribute", "reattribute", "dnf", "undnf", "setMode", "penalty", "teamGo", "teamFinish", "teamMove"];
 
 app.post("/api/sessions/:id/cmd", async (c) => {
   const id = c.req.param("id");
@@ -225,7 +234,7 @@ app.post("/api/sessions/:id/driver/radio", async (c) => {
 });
 
 // Self-timed practice: a team fixes the times of its own cars (DNF, attribute or remove a time, enter a time).
-const TEAM_RUN_CMDS = ["cadence", "dnf", "assign", "unattribute", "reattribute", "setTime", "setMode", "lap"];
+const TEAM_RUN_CMDS = ["cadence", "dnf", "undnf", "assign", "unattribute", "reattribute", "setTime", "setMode", "lap"];
 app.post("/api/sessions/:id/team/:teamId/run", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;

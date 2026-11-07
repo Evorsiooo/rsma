@@ -347,3 +347,31 @@ test("team notes: own drivers only, kept apart from steward notes and private to
   s = run(s, { type: "teamNoteDel", team: "t1", id: s.notes[0].id }, 700);
   assert.equal(s.notes.length, 2);
 });
+
+test("DNF keeps the start, the finish line moves on, and undnf puts the car back on stage", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Ann", plate: "A1", team: { id: "t1", name: "Red" } }, 100);
+  s = run(s, { type: "add", name: "Bob", plate: "B1" }, 100);
+  s = run(s, { type: "go" }, 1000);
+  s = run(s, { type: "go" }, 2000);
+  const [ann, bob] = s.runs;
+  s = run(s, { type: "dnf", runId: ann.id }, 10_000);
+  assert.equal(s.runs[0].status, "dnf");
+  assert.equal(s.runs[0].startedAt, ann.startedAt);
+  s = run(s, { type: "finish" }, 20_000); // the stop goes to the next running car, not the DNF
+  assert.equal(s.runs[1].status, "finished");
+  assert.equal(fails(s, { type: "undnf", runId: bob.id }, 21_000), "not_dnf");
+  assert.equal(fails(s, { type: "undnf", runId: ann.id, team: "other" }, 21_000), "not_found");
+  s = run(s, { type: "undnf", runId: ann.id }, 21_000);
+  assert.equal(s.runs[0].status, "onstage");
+});
+
+test("a steward message to a team reaches that team's staged drivers, not other drivers", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Ann", plate: "A1", team: { id: "t1", name: "Red" } }, 100);
+  s = run(s, { type: "add", name: "Bob", plate: "B1", team: { id: "t2", name: "Blue" } }, 100);
+  s = run(s, { type: "radioTeams", text: "box now", teams: [{ id: "t1", name: "Red" }] }, 200);
+  assert.deepEqual(viewFor(s, { staff: false, teams: [], user: "ann" }).radio.map((m) => m.text), ["box now"]);
+  assert.deepEqual(viewFor(s, { staff: false, teams: [], user: "bob" }).radio, []);
+  assert.deepEqual(viewFor(s, { staff: false, teams: ["t1"], user: "x" }).radio.map((m) => m.text), ["box now"]);
+});

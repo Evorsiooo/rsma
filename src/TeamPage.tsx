@@ -364,6 +364,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                         )}
                       </>
                     )}
+                    {sel.status === "dnf" && sel.startedAt != null && <button className="r-cell" onClick={() => send({ type: "undnf", runId: sel.id })}>Undo DNF</button>}
                     {sel.status === "finished" && sel.startedAt != null && (
                       <button className="r-cell" onClick={() => send({ type: "unattribute", runId: sel.id })}>Remove time</button>
                     )}
