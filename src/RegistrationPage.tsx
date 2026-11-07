@@ -87,7 +87,7 @@ function TeamSection({ team, view, open, sid, act }: { team: RegTeam; view: Regi
       <div className="r-header">{team.name}</div>
       {hasDriver && (
         <div className="r-banner is-teal">
-          Ask your drivers to {link(GROUP_URL, "join the RSMA Roblox group")} (a pending request counts) before the deadline, or they cannot race.
+          <span>Ask your drivers to {link(GROUP_URL, "join the RSMA Roblox group")} (a pending request counts) before the deadline, or they cannot race.</span>
         </div>
       )}
       {mine.length === 0 ? (
