@@ -63,6 +63,8 @@ export interface AdminUser {
   displayName: string;
   lastLogin: number | null;
   roles: Role[];
+  /** The access code on file, never the code itself. */
+  code: { at: number; lastUsed: number | null } | null;
 }
 
 /** One session with the event it belongs to. */

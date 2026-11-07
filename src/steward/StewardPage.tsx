@@ -113,9 +113,9 @@ function SessionClockLcd({ session, offset }: { session: SessionInfo["session"];
   const cd = sessionCountdown(session, now);
   return (
     <>
-      <div className="r-header">{cd.phase === "upcoming" ? "Session starts" : "Session ends"}</div>
+      <div className="r-header">{cd.header}</div>
       <div className="r-module__well">
-        <Lcd value={cd.phase === "ended" ? "--:--" : cd.value} h={36} label="Time to session end" />
+        <Lcd value={cd.lcd} h={36} label="Time to session end" />
       </div>
     </>
   );
@@ -217,12 +217,14 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
           <div className="r-module" style={{ width: 150 }}>
             <SessionClockLcd session={session} offset={offset} />
           </div>
-          <div className="r-module" style={{ width: 170 }}>
-            <div className="r-header">Next release</div>
-            <div className="r-module__well">
-              <Lcd value={releaseLeft == null ? "--:--" : fmtMMSS(releaseLeft)} h={36} label="Time to next release" />
+          {!session.selfTimed && (
+            <div className="r-module" style={{ width: 170 }}>
+              <div className="r-header">Next release</div>
+              <div className="r-module__well">
+                <Lcd value={releaseLeft == null ? "--:--" : fmtMMSS(releaseLeft)} h={36} label="Time to next release" />
+              </div>
             </div>
-          </div>
+          )}
           <div className="r-module" style={{ width: 76 }}>
             <div className="r-header">On track</div>
             <div className="r-module__well"><Lcd value={String(onTrack.length)} h={32} ghost={1} label="Cars on track" /></div>
@@ -274,21 +276,25 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                 </button>
               ))}
             </div>
-            <div className="r-section"><span>Release every</span></div>
-            <div className="r-row">
-              <div className="r-stepper r-fill">
-                <button className="r-cell" aria-label="Less" onClick={() => send({ type: "cadence", sec: Math.max(5, state.cadenceSec - 5) })}>-</button>
-                <div className="r-readout r-fill">{state.cadenceSec}s</div>
-                <button className="r-cell" aria-label="More" onClick={() => send({ type: "cadence", sec: Math.min(600, state.cadenceSec + 5) })}>+</button>
-              </div>
-            </div>
-            <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
-              {PRESETS.map((p) => (
-                <button key={p} className="r-btn" aria-pressed={state.cadenceSec === p} onClick={() => send({ type: "cadence", sec: p })}>
-                  {p}
-                </button>
-              ))}
-            </div>
+            {!session.selfTimed && (
+              <>
+                <div className="r-section"><span>Release every</span></div>
+                <div className="r-row">
+                  <div className="r-stepper r-fill">
+                    <button className="r-cell" aria-label="Less" onClick={() => send({ type: "cadence", sec: Math.max(5, state.cadenceSec - 5) })}>-</button>
+                    <div className="r-readout r-fill">{state.cadenceSec}s</div>
+                    <button className="r-cell" aria-label="More" onClick={() => send({ type: "cadence", sec: Math.min(600, state.cadenceSec + 5) })}>+</button>
+                  </div>
+                </div>
+                <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
+                  {PRESETS.map((p) => (
+                    <button key={p} className="r-btn" aria-pressed={state.cadenceSec === p} onClick={() => send({ type: "cadence", sec: p })}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             {session.staging && (
               <>
                 <div className="r-section"><span>Staging</span></div>
@@ -338,7 +344,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                 <div className="r-header">Radio message</div>
                 <input className="r-field" style={{ width: "100%" }} aria-label="Radio message" maxLength={200} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && transmit()} />
                 <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
-                  <button className={`r-cell${!teamTo && to === "all" ? " is-on" : ""}`} aria-pressed={!teamTo && to === "all"} onClick={() => { setTo("all"); setTeamTo(null); }}>All drivers</button>
+                  <button className={`r-cell${!teamTo && to === "all" ? " is-on" : ""}`} aria-pressed={!teamTo && to === "all"} onClick={() => { setTo("all"); setTeamTo(null); }}>Global</button>
                   <button className={`r-cell${!teamTo && to !== "all" ? " is-on" : ""}`} aria-pressed={!teamTo && to !== "all"} onClick={() => setDialog({ kind: "recipients" })}>
                     {to === "all" || teamTo ? "Drivers" : `Drivers (${radioTarget.length})`}
                   </button>

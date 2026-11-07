@@ -90,7 +90,7 @@ export function DriverPage() {
     }
     const s = seen.current;
     if (audioOn) {
-      for (const r of state.runs) {
+      for (const r of user ? state.runs : []) {
         if (r.startedAt == null || s.beeped.has(r.id)) continue;
         s.beeped.add(r.id);
         if (me && r.id !== me.id) continue; // with a driver picked, only their own start is beeped
@@ -113,19 +113,6 @@ export function DriverPage() {
   }, [messages.length]);
 
   if (info === null) return <NotFound />;
-  if (!user)
-    return (
-      <div className="r-window r-stack" style={{ minHeight: "100%", padding: 4, boxSizing: "border-box" }}>
-        <div className="r-panel">
-          <div className="r-header">Driver radio</div>
-          <div className="r-stack" style={{ padding: 4, background: "var(--r-chrome)" }}>
-            <button className="r-btn" onClick={() => startSignIn()}>
-              Sign in
-            </button>
-          </div>
-        </div>
-      </div>
-    );
   const hasTeam = !!state?.runs.some((r) => r.team && r.name.toLowerCase() === name.toLowerCase());
   const questions = messages.filter((m) => m.ask && !m.ask.answered);
   const sendChat = async () => {
@@ -178,8 +165,12 @@ export function DriverPage() {
       )}
 
       <div className="r-panel">
-        <div className="r-header">{user.username}</div>
-        {me ? (
+        <div className="r-header">{user ? user.username : "Public"}</div>
+        {!user ? (
+          <div className="r-row" style={{ padding: 4 }}>
+            <button className="r-btn r-fill" onClick={() => startSignIn()}>Sign in as a driver</button>
+          </div>
+        ) : me ? (
           <table className="r-table">
             <tbody>
               <tr><td className="is-left">Status</td><td>{status}</td></tr>

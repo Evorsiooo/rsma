@@ -139,7 +139,7 @@ test("radio is only visible to signed-in viewers it is addressed to", () => {
   s = run(s, { type: "teamRadio", team: "t1", teamName: "Red", text: "red only" }, 2);
   s = run(s, { type: "radio", to: "all", text: "everyone" }, 3);
   const texts = (v: Parameters<typeof viewFor>[1]) => viewFor(s, v).radio.map((m) => m.text);
-  assert.deepEqual(texts({ staff: false, teams: [] }), []);
+  assert.deepEqual(texts({ staff: false, teams: [] }), ["everyone"]); // the Public radio: Global only
   assert.deepEqual(texts({ staff: false, user: "alpha", teams: [] }), ["private", "red only", "everyone"]);
   assert.deepEqual(texts({ staff: false, user: "bravo", teams: [] }), ["everyone"]);
   assert.deepEqual(texts({ staff: false, user: "someone", teams: ["t1"] }), ["private", "red only", "everyone"]); // the team panel also sees messages to its drivers
@@ -307,4 +307,14 @@ test("editInfo sets plate and number, and rejects an empty plate", () => {
   assert.equal(s.runs[0].number, "7");
   assert.equal(fails(s, { type: "editInfo", runId: id, plate: "  " }, 0), "invalid");
   assert.equal(fails(s, { type: "editInfo", runId: "nope", plate: "X" }, 0), "not_found");
+});
+
+test("public view only carries Global radio", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "alpha", plate: "A" }, 0);
+  s = run(s, { type: "radio", to: "all", text: "everyone" }, 0);
+  s = run(s, { type: "radio", to: [s.runs[0].id], text: "just alpha" }, 0);
+  const pub = viewFor(s, { staff: false, teams: [] });
+  assert.deepEqual(pub.radio.map((m) => m.text), ["everyone"]);
+  assert.deepEqual(viewFor(s, { staff: false, teams: [], user: "alpha" }).radio.map((m) => m.text), ["everyone", "just alpha"]);
 });
