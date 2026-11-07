@@ -21,3 +21,15 @@ export async function syncRegistered(env: AdminEnv, sid: string): Promise<void> 
   const stub = env.RACE.get(env.RACE.idFromName(sid));
   await stub.fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd: { type: "syncReg", drivers }, actor: "Registration" }) });
 }
+
+/** Sessions a team (or one of its members) is registered in, taken before the registrations are deleted. */
+export async function regSessionsOf(env: AdminEnv, teamId: string, userId?: string): Promise<string[]> {
+  const q = userId
+    ? env.DB.prepare("SELECT DISTINCT session_id AS id FROM registrations WHERE team_id = ? AND roblox_id = ?").bind(teamId, userId)
+    : env.DB.prepare("SELECT DISTINCT session_id AS id FROM registrations WHERE team_id = ?").bind(teamId);
+  return (await q.all<{ id: string }>()).results.map((r) => r.id);
+}
+
+export async function syncSessions(env: AdminEnv, ids: string[]): Promise<void> {
+  for (const id of ids) await syncRegistered(env, id);
+}
