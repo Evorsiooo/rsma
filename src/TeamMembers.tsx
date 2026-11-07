@@ -15,6 +15,7 @@ export function MemberTable({
   compact,
   onRoles,
   onRemove,
+  onCode,
 }: {
   members: Member[];
   canEdit: boolean;
@@ -23,6 +24,8 @@ export function MemberTable({
   compact?: boolean;
   onRoles: (m: Member, roles: TeamRole[]) => void;
   onRemove: (m: Member) => void;
+  /** Hand out an access code; shown only when given. */
+  onCode?: (m: Member) => void;
 }) {
   if (members.length === 0) return <div className="r-empty">No members.</div>;
   return (
@@ -33,6 +36,7 @@ export function MemberTable({
           {TEAM_ROLES.map((r) => (
             <th key={r} style={{ width: compact ? 94 : 160, whiteSpace: "normal", verticalAlign: "bottom" }}>{TEAM_ROLE_LABEL[r]}</th>
           ))}
+          {canEdit && onCode && <th style={{ width: compact ? 64 : 80 }} />}
           {canEdit && <th style={{ width: compact ? 80 : 100 }} />}
         </tr>
       </thead>
@@ -58,6 +62,15 @@ export function MemberTable({
                   </label>
                 </td>
               ))}
+              {canEdit && onCode && (
+                <td style={{ padding: 2 }}>
+                  {!fixed && (
+                    <button className="r-btn" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => onCode(m)}>
+                      Code
+                    </button>
+                  )}
+                </td>
+              )}
               {canEdit && (
                 <td style={{ padding: 2 }}>
                   {!fixed && (

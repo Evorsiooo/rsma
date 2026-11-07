@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { startSignIn, useTokenMode } from "./access";
 import { GROUP_URL, inGroup, REG_KIND_LABEL, type RegSummary, type RegistrationView } from "../shared/registration";
 import type { RaceSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
@@ -9,6 +10,10 @@ import { toast } from "./ui";
 
 const ERRORS: Record<string, string> = {
   not_open: "Registration is not open.",
+  no_such_roblox_user: "No Roblox user with that name.",
+  lookup_failed: "Could not reach Roblox. Try again in a moment.",
+  rate_limited: "Too many requests. Try again in a few minutes.",
+  invalid_username: "Enter your Roblox username.",
   taken: "Already registered, by a team or as an independent.",
   invalid_discord: "Enter your Discord username.",
   group_required: "Tick the box to confirm you are in the group or have sent a join request.",
@@ -34,6 +39,9 @@ export function DriverRegistration() {
   const [view, setView] = useState<RegistrationView | null>(null);
   const [discord, setDiscord] = useState("");
   const [joined, setJoined] = useState(false);
+  const [username, setUsername] = useState("");
+  const [sent, setSent] = useState(false);
+  const tokens = useTokenMode();
   useEffect(() => {
     api.races().then(setRaces, () => {});
     registrationApi.list().then(setRegs, () => setRegs([]));
@@ -110,10 +118,37 @@ export function DriverRegistration() {
       {chosen && view && !self && open && (
         <div className="r-panel">
           <div className="r-header">{chosen.race.name} · {chosen.session.name} · starts {fmtWhen(chosen.session.startsAt)}</div>
-          {!me ? (
+          {!me && tokens ? (
+            <div style={{ padding: 4, display: "grid", gap: 8 }}>
+              {sent ? (
+                <div>Registered. Staff will contact you on Discord with an access code to sign in.</div>
+              ) : (
+                <>
+                  <input className="r-field" placeholder="Roblox username" aria-label="Roblox username" maxLength={20} value={username} onChange={(e) => setUsername(e.target.value)} />
+                  <input className="r-field" placeholder="Discord username" aria-label="Discord username" maxLength={32} value={discord} onChange={(e) => setDiscord(e.target.value)} />
+                  <label className="r-check">
+                    <input type="checkbox" checked={joined} onChange={(e) => setJoined(e.target.checked)} />
+                    <span>I have joined the RSMA Roblox group or my request is pending</span>
+                  </label>
+                  <button
+                    className="r-btn"
+                    disabled={!username.trim() || !discord.trim() || !joined}
+                    onClick={async () => {
+                      if (await act(registrationApi.independentRequest(sid, username.trim(), discord.trim()))) setSent(true);
+                    }}
+                  >
+                    Register
+                  </button>
+                </>
+              )}
+              <button className="r-btn" onClick={() => startSignIn("/driver-registration")}>
+                I have an access code
+              </button>
+            </div>
+          ) : !me ? (
             <div style={{ padding: 4 }}>
-              <button className="r-btn" style={{ width: "100%" }} onClick={() => location.assign("/api/auth/roblox/login?next=/driver-registration")}>
-                Sign in with Roblox to register
+              <button className="r-btn" style={{ width: "100%" }} onClick={() => startSignIn("/driver-registration")}>
+                Sign in to register
               </button>
             </div>
           ) : (

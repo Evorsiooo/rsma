@@ -6,6 +6,7 @@ import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { sessionsOf } from "./sessions";
 import { resolveUserId } from "./roblox-users";
+import { issueCode, revokeCode, setTokenMode, tokenMode } from "./access-codes";
 
 export interface AdminEnv extends AuthEnv {
   /** Local development only: point username lookups at a mock server. */
@@ -56,6 +57,25 @@ admin.post("/users", guard("users"), async (c) => {
   if (!username) return c.json({ error: "invalid_username" }, 400);
   const user = await resolveUser(c, username);
   return user instanceof Response ? user : c.json(user);
+});
+
+admin.put("/system/token-mode", guard("admin"), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { on?: unknown };
+  if (typeof body.on !== "boolean") return c.json({ error: "invalid" }, 400);
+  await setTokenMode(c.env.DB, body.on);
+  return c.json({ ok: true });
+});
+
+/** A new access code for anyone we hold, including people who never signed in. The old code stops working. */
+admin.post("/users/:id/code", guard("admin"), async (c) => {
+  const id = c.req.param("id") ?? "";
+  if (!(await c.env.DB.prepare("SELECT 1 FROM users WHERE roblox_id = ?").bind(id).first())) return c.json({ error: "not_found" }, 404);
+  return c.json(await issueCode(c.env, id, c.get("me").id));
+});
+
+admin.delete("/users/:id/code", guard("admin"), async (c) => {
+  await revokeCode(c.env.DB, c.req.param("id") ?? "");
+  return c.json({ ok: true });
 });
 
 admin.put("/users/:id/roles", guard("users"), async (c) => {
@@ -364,6 +384,7 @@ admin.get("/system", guard("admin"), async (c) => {
     activeRaces: await n("SELECT COUNT(*) AS n FROM races WHERE status = 'active' AND expires_at > ?", now),
     expiredRaces: await n("SELECT COUNT(*) AS n FROM races WHERE status = 'active' AND expires_at <= ?", now),
     archivedRaces: await n("SELECT COUNT(*) AS n FROM races WHERE status = 'archived'"),
+    tokenMode: await tokenMode(c.env.DB),
     robloxConfigured: !!(c.env.ROBLOX_CLIENT_ID && c.env.ROBLOX_CLIENT_SECRET && c.env.SESSION_SECRET),
   });
 });

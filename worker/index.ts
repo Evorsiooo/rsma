@@ -1,3 +1,4 @@
+import { tokenMode } from "./access-codes";
 import { Hono, type Context } from "hono";
 import type { Me } from "../shared/types";
 import { auth, getMe, hasRole, type AuthEnv } from "./auth";
@@ -29,6 +30,8 @@ app.route("/api/auth", auth);
 app.route("/api/admin", admin);
 app.route("/api/my-teams", myTeams);
 app.route("/api/registration", registration);
+
+app.get("/api/config", async (c) => c.json({ tokenMode: await tokenMode(c.env.DB) }));
 
 app.get("/api/me", async (c) => c.json(await getMe(c.env, getCookie(c, SESSION_COOKIE))));
 
@@ -75,6 +78,7 @@ async function teamWithCar(db: D1Database, id: string) {
 async function isRaceSteward(env: Env, me: Me | null, raceId: string) {
   if (!me) return false;
   if (hasRole(me, "steward")) return true;
+  if (me.via === "token") return false;
   return !!(await env.DB.prepare("SELECT 1 FROM race_stewards WHERE race_id = ? AND roblox_id = ?").bind(raceId, me.id).first());
 }
 

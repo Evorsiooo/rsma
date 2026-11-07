@@ -37,6 +37,8 @@ export interface Me {
   username: string;
   displayName: string;
   roles: Role[];
+  /** "token": signed in with an access code, which never carries global roles. */
+  via: "roblox" | "token";
   /** Teams whose panel this user may open. */
   teams: Team[];
   /** Every team this user belongs to, with their roles. */
@@ -85,6 +87,8 @@ export interface SystemInfo {
   expiredRaces: number;
   archivedRaces: number;
   robloxConfigured: boolean;
+  /** Everything except the admin panel signs in with access codes. */
+  tokenMode: boolean;
 }
 
 export interface MyTeam extends Team {

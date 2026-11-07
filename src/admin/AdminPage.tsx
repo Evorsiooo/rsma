@@ -10,6 +10,7 @@ import { Dialog, toast } from "../ui";
 import { NotFound } from "../NotFound";
 import { AddMember, MemberTable } from "../TeamMembers";
 import { RegistrationsTab } from "./RegistrationsTab";
+import { CodeDialog, useTokenMode } from "../access";
 
 type Tab = "users" | "races" | "registrations" | "teams" | "system";
 
@@ -632,13 +633,19 @@ function EditTeamDialog({ team, factories, onDone, onClose }: { team: AdminTeam;
 }
 
 function MembersDialog({ team, onChange, onClose }: { team: AdminTeam; onChange: () => void; onClose: () => void }) {
+  const tokens = useTokenMode();
+  const [codeFor, setCodeFor] = useState<{ id: string; username: string } | null>(null);
   return (
+    <>
+      {codeFor && <CodeDialog name={codeFor.username} issue={() => admin.userCode(codeFor.id)} revoke={() => admin.revokeUserCode(codeFor.id)} onClose={() => setCodeFor(null)} />}
+      {!codeFor && (
     <Dialog title={`Team members: ${team.name}`} size="l" onClose={onClose} foot={<button className="r-btn" onClick={onClose}>Close</button>}>
       <MemberTable
         members={team.members}
         canEdit
         canSetPrincipal
         compact
+        onCode={tokens ? setCodeFor : undefined}
         onRoles={async (m, roles) => {
           const r = await admin.setMemberRoles(team.id, m.id, roles);
           if (!r.ok) say(r.error);
@@ -662,13 +669,15 @@ function MembersDialog({ team, onChange, onClose }: { team: AdminTeam; onChange:
         }}
       />
     </Dialog>
+      )}
+    </>
   );
 }
 
 // ---- System -----------------------------------------------------------------
 
 function System() {
-  const { data, failed } = useLoad<SystemInfo>(admin.system);
+  const { data, failed, reload } = useLoad<SystemInfo>(admin.system);
   const rows: [string, string][] = data
     ? [
         ["Users", String(data.users)],
@@ -696,6 +705,20 @@ function System() {
             ))}
           </tbody>
         </table>
+      )}
+      {data && (
+        <label className="r-check" style={{ padding: 4 }}>
+          <input
+            type="checkbox"
+            checked={data.tokenMode}
+            onChange={async (e) => {
+              const r = await admin.setTokenMode(e.target.checked);
+              if (!r.ok) say(r.error);
+              reload();
+            }}
+          />
+          <span>Access token sign-in (everything except this admin panel)</span>
+        </label>
       )}
     </div>
   );

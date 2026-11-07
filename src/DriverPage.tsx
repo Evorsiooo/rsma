@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { startSignIn } from "./access";
 import { useParams } from "react-router-dom";
 import { classify, fmtPenalty, fmtTime, type Flag, type Run } from "../shared/race";
 import type { SessionInfo } from "../shared/types";
@@ -118,8 +119,8 @@ export function DriverPage() {
         <div className="r-panel">
           <div className="r-header">Driver radio</div>
           <div className="r-stack" style={{ padding: 4, background: "var(--r-chrome)" }}>
-            <button className="r-btn" onClick={() => location.assign(`/api/auth/roblox/login?next=${encodeURIComponent(location.pathname)}`)}>
-              Sign in with Roblox
+            <button className="r-btn" onClick={() => startSignIn()}>
+              Sign in
             </button>
           </div>
         </div>

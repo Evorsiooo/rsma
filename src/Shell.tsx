@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { startSignIn } from "./access";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "./api";
 import { useMe } from "./me";
@@ -44,8 +45,8 @@ export function Topbar({ children }: { children?: ReactNode }) {
             </button>
           </>
         ) : (
-          <button className="r-btn" onClick={() => location.assign("/api/auth/roblox/login")}>
-            Sign in with Roblox
+          <button className="r-btn" onClick={() => startSignIn("/")}>
+            Sign in
           </button>
         )}
       </div>

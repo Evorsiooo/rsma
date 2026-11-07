@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Me, Role } from "../../shared/types";
 import { hasAny, PANEL_ROLES, parseRoles } from "../../shared/teams";
+import { blocked, findCode, normalizeCode, recordFail, tokenMode } from "../access-codes";
 import { randomToken, readSession, sha256b64url, SESSION_COOKIE, SESSION_TTL_MS, signSession } from "./session";
 
 export interface AuthEnv {
@@ -27,11 +28,17 @@ function origin(c: { req: { url: string; header: (n: string) => string | undefin
 }
 
 export async function getMe(env: AuthEnv, cookie: string | undefined): Promise<Me | null> {
-  const id = await readSession(env.SESSION_SECRET, cookie);
-  if (!id) return null;
+  const claims = await readSession(env.SESSION_SECRET, cookie);
+  if (!claims) return null;
+  const id = claims.sub;
+  if (claims.via === "token") {
+    // A token session lasts only while the setting is on and the code it came from is still the current one.
+    const row = await env.DB.prepare("SELECT created_at AS at FROM access_codes WHERE roblox_id = ?").bind(id).first<{ at: number }>();
+    if (!row || row.at !== claims.v || !(await tokenMode(env.DB))) return null;
+  }
   const user = await env.DB.prepare("SELECT roblox_id AS id, username, display_name AS displayName FROM users WHERE roblox_id = ?")
     .bind(id)
-    .first<Omit<Me, "roles" | "teams" | "memberships">>();
+    .first<Omit<Me, "roles" | "via" | "teams" | "memberships">>();
   if (!user) return null;
   const { results } = await env.DB.prepare("SELECT role FROM user_roles WHERE roblox_id = ?").bind(id).all<{ role: Role }>();
   const rows = await env.DB.prepare(
@@ -41,7 +48,7 @@ export async function getMe(env: AuthEnv, cookie: string | undefined): Promise<M
     .all<{ id: string; name: string; roles: string }>();
   const memberships = rows.results.map((t) => ({ id: t.id, name: t.name, roles: parseRoles(t.roles) }));
   const teams = memberships.filter((t) => hasAny(t.roles, PANEL_ROLES)).map(({ id, name }) => ({ id, name }));
-  return { ...user, roles: results.map((r) => r.role), teams, memberships };
+  return { ...user, roles: claims.via === "token" ? [] : results.map((r) => r.role), via: claims.via, teams, memberships };
 }
 
 export const hasRole = (me: Me | null, ...roles: Role[]) =>
@@ -133,6 +140,30 @@ auth.get("/roblox/callback", async (c) => {
   const next = getCookie(c, NEXT_COOKIE);
   deleteCookie(c, NEXT_COOKIE, { path: "/" });
   return c.redirect(next && /^\/[A-Za-z0-9/_-]*$/.test(next) && !next.startsWith("//") ? next : "/");
+});
+
+/** Sign in with an access code. Needs the setting on; failed guesses are limited per address. */
+auth.post("/token", async (c) => {
+  if (!(await tokenMode(c.env.DB))) return c.json({ error: "token_off" }, 403);
+  const ip = c.req.header("cf-connecting-ip") ?? c.req.header("x-forwarded-for") ?? "local";
+  if (await blocked(c.env.DB, ip)) return c.json({ error: "rate_limited" }, 429);
+  const body = (await c.req.json().catch(() => ({}))) as { code?: unknown };
+  const code = normalizeCode(body.code);
+  const found = code ? await findCode(c.env, code) : null;
+  if (!found) {
+    await recordFail(c.env.DB, ip);
+    return c.json({ error: "invalid_code" }, 401);
+  }
+  await c.env.DB.prepare("UPDATE access_codes SET last_used = ? WHERE roblox_id = ?").bind(Date.now(), found.id).run();
+  const secure = new URL(c.req.url).protocol === "https:" || c.req.header("x-forwarded-proto") === "https";
+  setCookie(c, SESSION_COOKIE, await signSession(c.env.SESSION_SECRET, found.id, "token", found.at), {
+    path: "/",
+    httpOnly: true,
+    sameSite: "Lax",
+    secure,
+    maxAge: SESSION_TTL_MS / 1000,
+  });
+  return c.json({ ok: true });
 });
 
 auth.post("/logout", (c) => {
