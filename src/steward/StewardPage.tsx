@@ -113,7 +113,7 @@ function SessionClockLcd({ session, offset }: { session: SessionInfo["session"];
   const cd = sessionCountdown(session, now);
   return (
     <>
-      <div className="r-header">{cd.phase === "upcoming" ? "Session starts" : "Session ends"}</div>
+      <div className="r-header">{cd.header}</div>
       <div className="r-module__well">
         <Lcd value={cd.lcd} h={36} label="Time to session end" />
       </div>

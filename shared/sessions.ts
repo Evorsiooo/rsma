@@ -20,11 +20,14 @@ export function fmtClock(ms: number): string {
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-/** For the seven-segment display: from ten hours out the seconds are dropped (h:mm) so it still fits. */
+/** Ten hours or more is shown as days:hours:minutes (the header says so) so it fits the seven-segment display. */
+export const isLongClock = (ms: number) => ms >= 10 * 3600_000;
+
 export function fmtClockLcd(ms: number): string {
-  if (ms < 10 * 3600_000) return fmtClock(ms);
+  if (!isLongClock(ms)) return fmtClock(ms);
   const t = Math.floor(ms / 60_000);
-  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+  const d = Math.floor(t / 1440);
+  return `${d}:${String(Math.floor((t % 1440) / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
 }
 
 export type SessionPhase = { phase: "upcoming" | "running" | "ended"; ms: number };

@@ -90,11 +90,14 @@ function useLoad<T>(load: () => Promise<T>) {
 
 // ---- Users ------------------------------------------------------------------
 
+const dayFmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short" });
 function Users({ isAdmin, myId }: { isAdmin: boolean; myId: string }) {
   const { data, failed, reload, setData } = useLoad<AdminUser[]>(admin.users);
   const [name, setName] = useState("");
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState(false);
+  const tokens = useTokenMode();
+  const [codeFor, setCodeFor] = useState<AdminUser | null>(null);
 
   const add = async () => {
     if (!name.trim() || busy) return;
@@ -138,7 +141,9 @@ function Users({ isAdmin, myId }: { isAdmin: boolean; myId: string }) {
             <thead>
               <tr>
                 <th className="is-left">Username</th>
-                <th className="is-left" style={{ width: 150 }}>Last sign-in</th>
+                <th className="is-left" style={{ width: 170 }}>Last sign-in</th>
+                {tokens && isAdmin && <th className="is-left" style={{ width: 130 }}>Access code</th>}
+                {tokens && isAdmin && <th style={{ width: 100 }} />}
                 {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
                   <th key={r} style={{ width: 90 }}>{ROLE_LABEL[r]}</th>
                 ))}
@@ -149,6 +154,18 @@ function Users({ isAdmin, myId }: { isAdmin: boolean; myId: string }) {
                 <tr key={u.id}>
                   <td className="is-left">{u.username}{u.displayName !== u.username ? ` (${u.displayName})` : ""}</td>
                   <td className="is-left" style={{ color: "var(--r-text-dim)" }}>{u.lastLogin ? dateFmt.format(u.lastLogin) : ""}</td>
+                  {tokens && isAdmin && (
+                    <td className="is-left" style={{ color: "var(--r-text-dim)" }}>
+                      {u.code ? (u.code.lastUsed ? `Used ${dayFmt.format(u.code.lastUsed)}` : "Not used yet") : "None"}
+                    </td>
+                  )}
+                  {tokens && isAdmin && (
+                    <td style={{ padding: 2 }}>
+                      <button className="r-btn" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => setCodeFor(u)}>
+                        {u.code ? "Re-roll" : "Code"}
+                      </button>
+                    </td>
+                  )}
                   {(Object.keys(ROLE_LABEL) as Role[]).map((r) => (
                     <td key={r}>
                       <label className="r-check" style={{ justifyContent: "flex-end" }}>
@@ -168,6 +185,7 @@ function Users({ isAdmin, myId }: { isAdmin: boolean; myId: string }) {
           </table>
         )}
       </div>
+      {codeFor && <CodeDialog name={codeFor.username} issue={() => admin.userCode(codeFor.id)} revoke={codeFor.code ? () => admin.revokeUserCode(codeFor.id) : undefined} onClose={() => { setCodeFor(null); reload(); }} />}
     </>
   );
 }

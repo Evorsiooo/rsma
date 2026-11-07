@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { fmtClock, fmtClockLcd, sessionPhase } from "../shared/sessions";
+import { fmtClock, fmtClockLcd, isLongClock, sessionPhase } from "../shared/sessions";
 import type { SessionSummary } from "../shared/types";
 
 /** Server-synchronised clock in ms, refreshed every 100 ms while `active`. */
@@ -33,6 +33,8 @@ export function sessionCountdown(s: Pick<SessionSummary, "startsAt" | "endsAt">,
     label: p.phase === "upcoming" ? "Starts in" : p.phase === "running" ? "Ends in" : "Session",
     value: p.phase === "ended" ? "Ended" : fmtClock(p.ms),
     lcd: p.phase === "ended" ? "--:--" : fmtClockLcd(p.ms),
+    /** Header for the display: names the units when the display shows days:hours:minutes. */
+    header: p.phase === "ended" ? "Session ended" : isLongClock(p.ms) ? `${p.phase === "upcoming" ? "Starts" : "Ends"} D:HH:MM` : p.phase === "upcoming" ? "Session starts" : "Session ends",
     ms: p.ms,
   };
 }

@@ -45,10 +45,17 @@ export const cleanUsername = (v: unknown) => (typeof v === "string" && /^[A-Za-z
 admin.get("/users", guard("users"), async (c) => {
   const { results } = await c.env.DB.prepare(
     `SELECT u.roblox_id AS id, u.username, u.display_name AS displayName, u.last_login AS lastLogin,
-            COALESCE((SELECT group_concat(role) FROM user_roles r WHERE r.roblox_id = u.roblox_id), '') AS roles
-     FROM users u ORDER BY lower(u.username)`,
-  ).all<Omit<AdminUser, "roles"> & { roles: string }>();
-  return c.json(results.map((u) => ({ ...u, roles: u.roles ? (u.roles.split(",") as Role[]) : [] })) satisfies AdminUser[]);
+            COALESCE((SELECT group_concat(role) FROM user_roles r WHERE r.roblox_id = u.roblox_id), '') AS roles,
+            a.created_at AS codeAt, a.last_used AS codeUsed
+     FROM users u LEFT JOIN access_codes a ON a.roblox_id = u.roblox_id ORDER BY lower(u.username)`,
+  ).all<Omit<AdminUser, "roles" | "code"> & { roles: string; codeAt: number | null; codeUsed: number | null }>();
+  return c.json(
+    results.map(({ codeAt, codeUsed, ...u }) => ({
+      ...u,
+      roles: u.roles ? (u.roles.split(",") as Role[]) : [],
+      code: codeAt == null ? null : { at: codeAt, lastUsed: codeUsed },
+    })) satisfies AdminUser[],
+  );
 });
 
 admin.post("/users", guard("users"), async (c) => {
