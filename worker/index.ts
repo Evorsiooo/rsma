@@ -98,7 +98,7 @@ app.get("/api/sessions/:id/ws", async (c) => {
 });
 
 // Steward commands. The role check happens here; the Durable Object validates and applies.
-const RACE_TIMING_CMDS = ["go", "finish", "assign", "discard", "lap", "setTime", "unattribute", "reattribute", "dnf", "setMode", "penalty", "teamGo", "teamFinish", "teamMove"];
+const RACE_TIMING_CMDS = ["go", "finish", "assign", "discard", "lap", "setTime", "unattribute", "reattribute", "dnf", "undnf", "setMode", "penalty", "teamGo", "teamFinish", "teamMove"];
 
 app.post("/api/sessions/:id/cmd", async (c) => {
   const id = c.req.param("id");
@@ -225,7 +225,7 @@ app.post("/api/sessions/:id/driver/radio", async (c) => {
 });
 
 // Self-timed practice: a team fixes the times of its own cars (DNF, attribute or remove a time, enter a time).
-const TEAM_RUN_CMDS = ["cadence", "dnf", "assign", "unattribute", "reattribute", "setTime", "setMode", "lap"];
+const TEAM_RUN_CMDS = ["cadence", "dnf", "undnf", "assign", "unattribute", "reattribute", "setTime", "setMode", "lap"];
 app.post("/api/sessions/:id/team/:teamId/run", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;

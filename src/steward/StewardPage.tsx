@@ -387,6 +387,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                         {sel.mode === "long" && <button className="r-cell" disabled={sel.startedAt! > now} onClick={() => send({ type: "lap", runId: sel.id })}>Lap</button>}
                       </>
                     )}
+                    {sel.status === "dnf" && sel.startedAt != null && <button className="r-cell" onClick={() => send({ type: "undnf", runId: sel.id })}>Undo DNF</button>}
                     {sel.status === "finished" && (
                       <>
                         <button className="r-cell" onClick={() => setDialog({ kind: "penalty", runId: sel.id })}>Penalty</button>
