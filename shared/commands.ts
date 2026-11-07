@@ -393,7 +393,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
         return { error: "invalid" };
       }
       s.radio.push({ id: ctx.newId(), at: ctx.now, to: cmd.to, text, from: ctx.actor, tone: "magenta" });
-      note(`Radio to ${cmd.to === "all" ? "all drivers" : cmd.to.map((i) => run(i)!.name).join(", ")}: ${text}`, "magenta");
+      note(`Radio to ${cmd.to === "all" ? "Global" : cmd.to.map((i) => run(i)!.name).join(", ")}: ${text}`, "magenta");
       if (s.radio.length > MAX_RADIO) s.radio.splice(0, s.radio.length - MAX_RADIO);
       break;
     }

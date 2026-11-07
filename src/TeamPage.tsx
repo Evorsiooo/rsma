@@ -46,7 +46,7 @@ function SessionClockLcd({ session, offset }: { session: SessionInfo["session"];
     <>
       <div className="r-header">{cd.phase === "upcoming" ? "Session starts" : "Session ends"}</div>
       <div className="r-module__well">
-        <Lcd value={cd.phase === "ended" ? "--:--" : cd.value} h={36} label="Time to session end" />
+        <Lcd value={cd.lcd} h={36} label="Time to session end" />
       </div>
     </>
   );
@@ -233,6 +233,23 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
 
         <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
           <div className="r-stack" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
+            {session.selfTimed && (
+              <>
+                <div className="r-section"><span>Release every</span></div>
+                <div className="r-stepper">
+                  <button className="r-cell" aria-label="Less" disabled={race.ended} onClick={() => send({ type: "cadence", sec: Math.max(5, state.cadenceSec - 5) })}>-</button>
+                  <div className="r-readout r-fill">{state.cadenceSec}s</div>
+                  <button className="r-cell" aria-label="More" disabled={race.ended} onClick={() => send({ type: "cadence", sec: Math.min(600, state.cadenceSec + 5) })}>+</button>
+                </div>
+                <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
+                  {[15, 30, 45, 60].map((p) => (
+                    <button key={p} className="r-btn" aria-pressed={state.cadenceSec === p} disabled={race.ended} onClick={() => send({ type: "cadence", sec: p })}>
+                      {p}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
             <div className="r-section"><span>Pit window, min</span></div>
             <div className="r-timeline" aria-label="Pit windows">
               {windows.map((w) => (

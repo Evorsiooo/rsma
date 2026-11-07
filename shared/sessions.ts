@@ -20,6 +20,13 @@ export function fmtClock(ms: number): string {
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
+/** For the seven-segment display: from ten hours out the seconds are dropped (h:mm) so it still fits. */
+export function fmtClockLcd(ms: number): string {
+  if (ms < 10 * 3600_000) return fmtClock(ms);
+  const t = Math.floor(ms / 60_000);
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+}
+
 export type SessionPhase = { phase: "upcoming" | "running" | "ended"; ms: number };
 
 /** Where a session is relative to `now`; `ms` is the time until it starts, or until it ends while running. */
