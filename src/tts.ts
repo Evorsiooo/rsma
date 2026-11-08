@@ -73,9 +73,10 @@ export function loadAi(): Promise<boolean> {
     model = import("kokoro-js")
       .then(async ({ KokoroTTS }) => {
         // Try WebGPU hardware acceleration first if available in the browser
-        if (typeof navigator !== "undefined" && "gpu" in navigator) {
+        const nav = typeof navigator !== "undefined" ? (navigator as unknown as { gpu?: { requestAdapter?: () => Promise<unknown> } }) : undefined;
+        if (nav?.gpu?.requestAdapter) {
           try {
-            const adapter = await navigator.gpu.requestAdapter();
+            const adapter = await nav.gpu.requestAdapter();
             if (adapter) {
               return await KokoroTTS.from_pretrained(MODEL, {
                 dtype: "q8",
