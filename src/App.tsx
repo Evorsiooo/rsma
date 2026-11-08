@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Route, Routes } from "react-router-dom";
+import { Route, Routes, useLocation } from "react-router-dom";
 import type { Me, RaceSummary } from "../shared/types";
 import { MeContext } from "./me";
 import { SignInHost } from "./access";
@@ -21,7 +21,11 @@ import { RaceRedirect } from "./RaceRedirect";
 export function App() {
   const [data, setData] = useState<BootData | null>(null);
   const [me, setMe] = useState<Me | null>(null);
-  if (!data)
+  const { pathname } = useLocation();
+
+  const isLegal = pathname === "/terms" || pathname === "/privacy";
+
+  if (!data && !isLegal)
     return (
       <Boot
         onReady={(d) => {
@@ -34,7 +38,7 @@ export function App() {
     <MeContext.Provider value={{ me, setMe }}>
       <SignInHost />
       <Routes>
-        <Route path="/" element={<Home races={data.races} />} />
+        <Route path="/" element={data ? <Home races={data.races} /> : null} />
         <Route path="/race/:id" element={<RaceRedirect />} />
         <Route path="/session/:id" element={<RacePage />} />
         <Route path="/session/:id/register" element={<RegistrationPage />} />
