@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { GROUP_URL, inGroup, REG_KIND_LABEL, REG_KINDS, type RegKind, type RegistrationView, type RegTeam } from "../shared/registration";
+import { GROUP_URL, REG_KIND_LABEL, REG_KINDS, type RegKind, type RegistrationView, type RegTeam } from "../shared/registration";
 import { PANEL_ROLES, hasAny } from "../shared/teams";
 import type { SessionInfo } from "../shared/types";
 import { api, registrationApi } from "./api";
@@ -99,7 +99,6 @@ function TeamSection({ team, view, open, sid, act }: { team: RegTeam; view: Regi
               <tr key={r.userId}>
                 <td className="is-left">{r.username}</td>
                 <td style={{ width: 110, ...dim }}>{REG_KIND_LABEL[r.kind]}</td>
-                <td style={{ width: 130, ...dim }}>{r.kind === "driver" ? (inGroup(r.group) ? "In group" : "Not in group") : ""}</td>
                 <td style={{ width: 90 }}>{CUT_LABEL[r.cut]}</td>
                 {open && (
                   <td style={{ width: 100, padding: 2 }}>
