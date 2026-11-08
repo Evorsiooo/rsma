@@ -299,14 +299,44 @@ test("long run: laps are counted per car, the best lap is the time, the generic 
   assert.equal(fails(s, { type: "unattribute", runId: lr }, 171000), "invalid");
 });
 
-test("editInfo sets plate and number, and rejects an empty plate", () => {
+test("editInfo sets plate and number, accepts either or both, and rejects when both are empty", () => {
   let s = run(emptyState(), { type: "add", name: "alpha", plate: "P1" }, 0);
   const id = s.runs[0].id;
+  // both plate and number
   s = run(s, { type: "editInfo", runId: id, plate: " ab-12 ", number: "7" }, 0);
   assert.equal(s.runs[0].plate, "AB-12");
   assert.equal(s.runs[0].number, "7");
+  // plate only (clearing number)
+  s = run(s, { type: "editInfo", runId: id, plate: "XY-99", number: "" }, 0);
+  assert.equal(s.runs[0].plate, "XY-99");
+  assert.equal(s.runs[0].number, undefined);
+  // number only (clearing plate)
+  s = run(s, { type: "editInfo", runId: id, plate: "", number: "42" }, 0);
+  assert.equal(s.runs[0].plate, "");
+  assert.equal(s.runs[0].number, "42");
+  // rejects when both are empty
+  assert.equal(fails(s, { type: "editInfo", runId: id, plate: "  ", number: "  " }, 0), "invalid");
   assert.equal(fails(s, { type: "editInfo", runId: id, plate: "  " }, 0), "invalid");
   assert.equal(fails(s, { type: "editInfo", runId: "nope", plate: "X" }, 0), "not_found");
+});
+
+test("add accepts plate only, number only, or both, and rejects when neither is provided", () => {
+  let s = emptyState();
+  // plate only
+  s = run(s, { type: "add", name: "driver1", plate: "plate-1" }, 0);
+  assert.equal(s.runs[0].plate, "PLATE-1");
+  assert.equal(s.runs[0].number, undefined);
+  // number only
+  s = run(s, { type: "add", name: "driver2", number: "99" }, 0);
+  assert.equal(s.runs[1].plate, "");
+  assert.equal(s.runs[1].number, "99");
+  // both
+  s = run(s, { type: "add", name: "driver3", plate: "pl-3", number: "07" }, 0);
+  assert.equal(s.runs[2].plate, "PL-3");
+  assert.equal(s.runs[2].number, "07");
+  // rejects when neither is provided
+  assert.equal(fails(s, { type: "add", name: "driver4" }, 0), "invalid");
+  assert.equal(fails(s, { type: "add", name: "driver4", plate: "   ", number: "  " }, 0), "invalid");
 });
 
 test("public view only carries Global radio", () => {
@@ -476,4 +506,38 @@ test("queueAgain in team-timed session enforces team ownership and supports DNF"
     ["Bob", "queued"],
     ["Bob", "dnf"],
   ]);
+});
+
+test("position announcements carry team tagging and only reach the relevant team", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "RedDriver", plate: "R1", team: { id: "t-red", name: "Red Team" } }, 0);
+  s = run(s, { type: "add", name: "BlueDriver", plate: "B1", team: { id: "t-blue", name: "Blue Team" } }, 0);
+  const [redId, blueId] = s.runs.map((r) => r.id);
+
+  // Red driver finishes first with 60s -> P1
+  s = run(s, { type: "teamGo", team: "t-red" }, 1000); // starts 4000
+  s = run(s, { type: "teamFinish", team: "t-red" }, 64000); // 60s
+  const redFinishMsg = s.radio.find((m) => Array.isArray(m.to) && m.to.includes(redId) && m.text.includes("Finished"));
+  assert.ok(redFinishMsg);
+  assert.equal(redFinishMsg?.team, "t-red");
+  assert.equal(redFinishMsg?.teamName, "Red Team");
+
+  // Blue driver finishes with 55s -> takes P1, Red driver becomes P2
+  s = run(s, { type: "teamGo", team: "t-blue" }, 70000); // starts 73000
+  s = run(s, { type: "teamFinish", team: "t-blue" }, 128000); // 55s
+
+  const redPosMsg = s.radio.find((m) => Array.isArray(m.to) && m.to.includes(redId) && m.text === "Position now P2.");
+  assert.ok(redPosMsg);
+  assert.equal(redPosMsg?.team, "t-red");
+  assert.equal(redPosMsg?.teamName, "Red Team");
+
+  // Red team viewer receives Red's finish and Red's position change to P2, but NOT Blue's finish
+  const redView = viewFor(s, { staff: false, user: "red-staff", teams: ["t-red"] });
+  assert.ok(redView.radio.some((m) => Array.isArray(m.to) && m.to.includes(redId) && m.text === "Position now P2."));
+  assert.ok(!redView.radio.some((m) => Array.isArray(m.to) && m.to.includes(blueId)));
+
+  // Blue team viewer receives Blue's finish, but NOT Red's position change to P2
+  const blueView = viewFor(s, { staff: false, user: "blue-staff", teams: ["t-blue"] });
+  assert.ok(blueView.radio.some((m) => Array.isArray(m.to) && m.to.includes(blueId) && m.text.includes("Finished")));
+  assert.ok(!blueView.radio.some((m) => Array.isArray(m.to) && m.to.includes(redId)));
 });

@@ -19,10 +19,12 @@ interface Props {
   mine?: (r: Row) => boolean;
   /** Adds a Mode column with this text per car. */
   modeLabel?: (r: Row) => string;
+  /** Usernames of active driver radio listeners. */
+  onRadio?: string[];
 }
 
 /** Timing table shared by the steward and team panels. */
-export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeLabel }: Props) {
+export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeLabel, onRadio }: Props) {
   return (
     <table className="r-table">
       <thead>
@@ -53,7 +55,26 @@ export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeL
           >
             <td className="is-left" style={{ color: "var(--r-teal)" }}>{r.rank ?? ""}</td>
             <td className="is-left">{r.number ?? ""}</td>
-            <td className="is-left" style={mine?.(r) ? { color: "var(--r-teal)" } : undefined}>{r.name}</td>
+            <td className="is-left" style={mine?.(r) ? { color: "var(--r-teal)" } : undefined}>
+              {r.name}
+              {mine?.(r) && onRadio && (
+                <span
+                  className={`r-lamp r-lamp--fixed${onRadio.includes(r.name.toLowerCase()) ? "" : " is-off"}`}
+                  style={{
+                    marginLeft: 6,
+                    fontSize: 8,
+                    height: 14,
+                    lineHeight: "14px",
+                    padding: "0 3px",
+                    display: "inline-block",
+                    verticalAlign: "middle",
+                  }}
+                  title={onRadio.includes(r.name.toLowerCase()) ? "Driver is on the radio" : "Driver is not on the radio"}
+                >
+                  RD
+                </span>
+              )}
+            </td>
             <td className="is-left" style={{ color: "var(--r-red)" }}>{r.plate}</td>
             <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.teamName ?? ""}</td>
             <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.car ?? ""}</td>

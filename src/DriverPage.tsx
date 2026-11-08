@@ -8,8 +8,9 @@ import { enableAudio, setVolume, speak, startBeeps } from "./audio";
 import { NotFound } from "./NotFound";
 import { AI_VOICES, aiStatus, DEFAULT_AI_VOICE, loadAi, onAiStatus, preloadVoice, speakAi, type AiStatus } from "./tts";
 import { useMe } from "./me";
-import { Dialog, sessionCountdown, toast, useClock } from "./ui";
+import { sessionCountdown, toast, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
+import { AudioSettingsDialog, audioStore as store } from "./AudioSettings";
 
 const FLAG: Record<Flag, { label: string; tone: string }> = {
   green: { label: "Green flag", tone: " is-green" },
@@ -17,22 +18,6 @@ const FLAG: Record<Flag, { label: string; tone: string }> = {
   red: { label: "Red flag", tone: " is-red" },
 };
 
-const store = {
-  get: (k: string) => {
-    try {
-      return localStorage.getItem(`flagman.driver.${k}`);
-    } catch {
-      return null;
-    }
-  },
-  set: (k: string, v: string) => {
-    try {
-      localStorage.setItem(`flagman.driver.${k}`, v);
-    } catch {
-      /* private mode: settings just do not persist */
-    }
-  },
-};
 
 /** A driver can have several runs; pick the one that matters now: on stage, else queued, else the latest. */
 function pickRun(runs: Run[], name: string): Run | undefined {
@@ -47,9 +32,9 @@ export function DriverPage() {
   const { id = "" } = useParams();
   const [info, setInfo] = useState<SessionInfo | null | undefined>(undefined);
   const { me: user } = useMe();
-  const { state, live, offset } = useRaceLive(id, user ? "auth" : "public");
-  const clock = useClock(offset);
   const [audioOn, setAudioOn] = useState(false);
+  const { state, live, offset } = useRaceLive(id, user && audioOn ? "radio" : user ? "auth" : "public");
+  const clock = useClock(offset);
   const name = user?.username ?? "";
   const [vol, setVol] = useState(() => Number(store.get("vol") ?? 100));
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
@@ -116,14 +101,19 @@ export function DriverPage() {
       for (const r of user ? state.runs : []) {
         if (r.startedAt == null || s.beeped.has(r.id)) continue;
         s.beeped.add(r.id);
-        if (me && r.id !== me.id) continue; // with a driver picked, only their own start is beeped
+        if (!me || r.id !== me.id) continue; // only their own start is beeped
         const goIn = (r.startedAt - offset - Date.now()) / 1000;
         if (goIn > 0) startBeeps(goIn);
       }
       for (const m of state.radio) {
         if (s.radio.has(m.id)) continue;
         s.radio.add(m.id);
-        say(m.say ?? m.text); // the server only sends this viewer what is addressed to them
+        if (Array.isArray(m.to) && (!me || !m.to.includes(me.id))) continue;
+        say(m.say ?? m.text);
+      }
+    } else {
+      for (const r of state.runs) {
+        if (r.startedAt != null) s.beeped.add(r.id);
       }
     }
     for (const m of state.radio) s.radio.add(m.id);
@@ -150,6 +140,84 @@ export function DriverPage() {
   const myRank = me?.status === "finished" ? classify(state!.runs).find((r) => r.id === me.id)?.rank : undefined;
   const status = me ? { queued: `Queued, #${queuePos}`, onstage: "On stage", finished: `Finished, P${myRank}`, dnf: "DNF" }[me.status] : "";
 
+  const settingsModal = settings && (
+    <AudioSettingsDialog
+      onClose={() => setSettings(false)}
+      audioOn={audioOn}
+      onEnable={async () => {
+        if (await enableAudio()) setAudioOn(true);
+      }}
+      onDisable={() => setAudioOn(false)}
+      vol={vol}
+      setVol={(v) => {
+        setVol(v);
+        store.set("vol", String(v));
+      }}
+      engine={engine}
+      setEngine={(e) => {
+        setEngine(e);
+        store.set("engine", e);
+      }}
+      voices={voices}
+      voiceURI={voiceURI}
+      setVoiceURI={(v) => {
+        setVoiceURI(v);
+        store.set("voice", v);
+      }}
+      aiVoice={aiVoice}
+      setAiVoice={(v) => {
+        setAiVoice(v);
+        store.set("aivoice", v);
+        preloadVoice(v);
+      }}
+      ai={ai}
+      say={say}
+      showBeeps={true}
+      onTestBeeps={() => startBeeps(3)}
+    />
+  );
+
+  if (!audioOn) {
+    return (
+      <div className="r-window r-stack" style={{ minHeight: "100%", padding: 4, gap: 4, boxSizing: "border-box" }}>
+        <div className="r-row" style={{ alignItems: "center" }}>
+          <div className="r-banner r-fill">Radio Offline</div>
+          <button className="r-btn r-btn--icon" aria-label="Settings" title="Settings" style={{ width: 30, padding: 0 }} onClick={() => setSettings(true)}>
+            <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor" style={{ display: "block", margin: "auto" }}>
+              <path d="M6 0h4v2h2v1h1v2h2v4h-2v1h-1v2h-2v1h-2v2H6v-2H4v-1H3v-2H1V5h2V4h1V2h2zM8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" fillRule="evenodd" />
+            </svg>
+          </button>
+        </div>
+
+        <div className="r-panel r-fill" style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", minHeight: 280 }}>
+          <div className="r-header" style={{ width: "100%" }}>{user ? user.username : "Driver Radio"}</div>
+          <div className="r-stack" style={{ padding: 24, gap: 14, alignItems: "center", width: "100%", maxWidth: 280, boxSizing: "border-box" }}>
+            <div className="r-lamp r-lamp--fixed r-lamp--yellow">AUDIO REQUIRED</div>
+            <div className="r-text" style={{ textAlign: "center", lineHeight: "1.4" }}>
+              Click Enable to activate radio audio and connect to race control.
+            </div>
+            <button
+              className="r-btn r-cell--wide is-green"
+              style={{ width: "100%", height: 38, fontSize: 13, fontWeight: "bold" }}
+              onClick={async () => {
+                if (await enableAudio()) setAudioOn(true);
+              }}
+            >
+              Enable Radio
+            </button>
+            {!user && (
+              <button className="r-btn" style={{ width: "100%" }} onClick={() => startSignIn()}>
+                Sign in as a driver
+              </button>
+            )}
+          </div>
+        </div>
+
+        {settingsModal}
+      </div>
+    );
+  }
+
   return (
     <div className="r-window r-stack" style={{ minHeight: "100%", padding: 4, gap: 4, boxSizing: "border-box" }}>
       <div className="r-row" style={{ alignItems: "center" }}>
@@ -174,19 +242,6 @@ export function DriverPage() {
         </div>
       )}
 
-      {!audioOn && (
-        <div className="r-banner">
-          <span>Audio is off.</span>
-          <button
-            className="r-cell r-cell--wide"
-            onClick={async () => {
-              if (await enableAudio()) setAudioOn(true);
-            }}
-          >
-            Enable
-          </button>
-        </div>
-      )}
 
       <div className="r-panel">
         <div className="r-header">{user ? user.username : "Public"}</div>
@@ -252,104 +307,7 @@ export function DriverPage() {
         )}
       </div>
 
-      {settings && (
-        <Dialog title="Audio" size="s" onClose={() => setSettings(false)} foot={<button className="r-btn" onClick={() => setSettings(false)}>Close</button>}>
-        <div className="r-stack">
-          <div className="r-form-field">
-            <span className="r-label">Volume {vol}%</span>
-            <input
-              className="r-slider"
-              type="range"
-              min={0}
-              max={100}
-              value={vol}
-              aria-label="Volume"
-              onChange={(e) => {
-                setVol(Number(e.target.value));
-                store.set("vol", e.target.value);
-              }}
-            />
-          </div>
-          <div className="r-form-field">
-            <span className="r-label">Voice type</span>
-            <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
-              {(["standard", "ai"] as const).map((k) => (
-                <button
-                  key={k}
-                  className={`r-cell${engine === k ? " is-on" : ""}`}
-                  aria-pressed={engine === k}
-                  onClick={() => {
-                    setEngine(k);
-                    store.set("engine", k);
-                  }}
-                >
-                  {k === "ai" ? "AI" : "Standard"}
-                </button>
-              ))}
-            </div>
-          </div>
-          {engine === "standard" ? (
-            <div className="r-form-field">
-              <span className="r-label">Voice</span>
-              <div className="r-select">
-                <select
-                  aria-label="Voice"
-                  value={voiceURI}
-                  onChange={(e) => {
-                    setVoiceURI(e.target.value);
-                    store.set("voice", e.target.value);
-                  }}
-                >
-                  <option value="">Default</option>
-                  {voices.map((v) => (
-                    <option key={v.voiceURI} value={v.voiceURI}>{v.name} ({v.lang})</option>
-                  ))}
-                </select>
-              </div>
-            </div>
-          ) : (
-            <div className="r-form-field">
-              <span className="r-label">AI voice</span>
-              <div className="r-select">
-                <select
-                  aria-label="AI voice"
-                  value={aiVoice}
-                  onChange={(e) => {
-                    setAiVoice(e.target.value);
-                    store.set("aivoice", e.target.value);
-                    preloadVoice(e.target.value);
-                  }}
-                >
-                  {[...new Set(AI_VOICES.map((v) => v.group))].map((g) => (
-                    <optgroup key={g} label={g}>
-                      {AI_VOICES.filter((v) => v.group === g).map((v) => (
-                        <option key={v.id} value={v.id}>{v.label}</option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
-              </div>
-              {ai.state === "loading" && (
-                <>
-                  <span className="r-label">Downloading the AI voice model, {Math.round(ai.progress * 100)}%</span>
-                  <div className={`r-progress${ai.progress === 0 ? " is-wait" : ""}`} style={{ ["--value" as string]: ai.progress }} role="progressbar" aria-valuenow={Math.round(ai.progress * 100)} />
-                </>
-              )}
-              {ai.state === "failed" && (
-                <div className="r-row" style={{ alignItems: "center" }}>
-                  <span className="r-label r-fill">AI voices could not load, the standard voice is used.</span>
-                  <button className="r-btn" style={{ width: 90 }} onClick={() => loadAi()}>Retry</button>
-                </div>
-              )}
-            </div>
-          )}
-          <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
-            <button className="r-btn" disabled={!audioOn} onClick={() => startBeeps(3)}>Test beeps</button>
-            <button className="r-btn" disabled={!audioOn} onClick={() => say("Radio check.")}>Test voice</button>
-          </div>
-        </div>
-        </Dialog>
-      )}
+      {settingsModal}
     </div>
   );
 }

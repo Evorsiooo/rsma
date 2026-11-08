@@ -113,6 +113,8 @@ export interface RaceState {
   notes: DriverNote[];
   /** Visible to staff and to the team they belong to. */
   pitWindows: PitWindow[];
+  /** Usernames of active driver radio listeners. */
+  onRadio?: string[];
 }
 
 export const COUNTDOWN_MS = 3000;
@@ -134,6 +136,7 @@ export const emptyState = (): RaceState => ({
   log: [],
   notes: [],
   pitWindows: [],
+  onRadio: [],
 });
 
 export interface Viewer {

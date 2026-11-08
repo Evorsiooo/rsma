@@ -27,6 +27,9 @@ const ERRORS: Record<string, string> = {
   has_principal: "This team already has a Team Principal.",
   invalid_roles: "Pick at least one role.",
   has_customers: "Customer teams still run this factory team's car.",
+  invalid_url: "Enter a valid URL (starting with http:// or https://).",
+  no_webhook: "Enter or save a webhook URL first.",
+  delivery_failed: "Discord rejected the test message. Check your webhook URL.",
 };
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
@@ -696,6 +699,16 @@ function MembersDialog({ team, onChange, onClose }: { team: AdminTeam; onChange:
 
 function System() {
   const { data, failed, reload } = useLoad<SystemInfo>(admin.system);
+  const [webhook, setWebhook] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+
+  useEffect(() => {
+    if (data?.discordWebhook !== undefined) {
+      setWebhook(data.discordWebhook ?? "");
+    }
+  }, [data?.discordWebhook]);
+
   const rows: [string, string][] = data
     ? [
         ["Users", String(data.users)],
@@ -725,18 +738,64 @@ function System() {
         </table>
       )}
       {data && (
-        <label className="r-check" style={{ padding: 4 }}>
-          <input
-            type="checkbox"
-            checked={data.tokenMode}
-            onChange={async (e) => {
-              const r = await admin.setTokenMode(e.target.checked);
-              if (!r.ok) say(r.error);
-              reload();
-            }}
-          />
-          <span>Access token sign-in (everything except this admin panel)</span>
-        </label>
+        <>
+          <label className="r-check" style={{ padding: 4 }}>
+            <input
+              type="checkbox"
+              checked={data.tokenMode}
+              onChange={async (e) => {
+                const r = await admin.setTokenMode(e.target.checked);
+                if (!r.ok) say(r.error);
+                reload();
+              }}
+            />
+            <span>Access token sign-in (everything except this admin panel)</span>
+          </label>
+          <div className="r-header" style={{ marginTop: 12 }}>Discord Webhook</div>
+          <div style={{ padding: 4 }}>
+            <div className="r-row" style={{ gap: 6 }}>
+              <input
+                className="r-field r-fill"
+                placeholder="https://discord.com/api/webhooks/..."
+                aria-label="Discord webhook URL"
+                value={webhook}
+                onChange={(e) => setWebhook(e.target.value)}
+              />
+              <button
+                className="r-btn"
+                style={{ width: 70 }}
+                disabled={saving || webhook.trim() === (data.discordWebhook ?? "")}
+                onClick={async () => {
+                  setSaving(true);
+                  const r = await admin.setDiscordWebhook(webhook.trim());
+                  setSaving(false);
+                  if (!r.ok) say(r.error);
+                  else toast(webhook.trim() ? "Webhook saved." : "Webhook cleared.");
+                  reload();
+                }}
+              >
+                {saving ? "..." : "Save"}
+              </button>
+              <button
+                className="r-btn"
+                style={{ width: 70 }}
+                disabled={testing || (!webhook.trim() && !data.discordWebhook)}
+                onClick={async () => {
+                  setTesting(true);
+                  const r = await admin.testDiscordWebhook(webhook.trim() || undefined);
+                  setTesting(false);
+                  if (!r.ok) say(r.error);
+                  else toast("Test message sent to Discord!");
+                }}
+              >
+                {testing ? "..." : "Test"}
+              </button>
+            </div>
+            <div className="r-log__line is-dim" style={{ fontSize: 11, marginTop: 4 }}>
+              All messages stewards send will be posted to this Discord webhook in format: ## &lt;:RSMA:1559243161744973966&gt; | [message]
+            </div>
+          </div>
+        </>
       )}
     </div>
   );

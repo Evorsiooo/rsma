@@ -14,6 +14,8 @@ import { TimingTable } from "./TimingTable";
 import { Dialog, sessionCountdown, toast, useClock, useNow } from "./ui";
 import { useRaceLive } from "./useRaceLive";
 import { AttributeDialog, ConfirmDnf, NotesDialog, SetTimeDialog } from "./steward/Dialogs";
+import { AudioSettingsDialog, useRadioTTS } from "./AudioSettings";
+import { startBeeps } from "./audio";
 import type { Command } from "../shared/commands";
 
 const FLAG_WORD: Record<Flag, string> = { green: "GREEN", yellow: "YELLOW", red: "RED" };
@@ -90,6 +92,55 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const now = useNow(offset, true);
   const [selId, setSelId] = useState<string | null>(null);
   const [sort, setSort] = useState<"fastest" | "last">("fastest");
+  const runById = useMemo(() => new Map(state?.runs.map((r) => [r.id, r])), [state?.runs]);
+  const teamRuns = useMemo(() => new Set(state?.runs.filter((r) => r.team === team.id).map((r) => r.id)), [state?.runs, team.id]);
+  const teamRadio = useMemo(() => {
+    if (!state) return [];
+    return state.radio.filter((m) => {
+      if (m.to === "all") return true;
+      if (m.to === "team" && m.team === team.id) return true;
+      if (m.to === "stewards" && m.team === team.id) return true;
+      if (Array.isArray(m.to)) return m.team === team.id || m.to.some((id) => teamRuns.has(id));
+      return false;
+    });
+  }, [state?.radio, team.id, teamRuns]);
+
+  const audio = useRadioTTS({
+    radio: teamRadio,
+    formatSay: (m) => {
+      const targetDriver = Array.isArray(m.to)
+        ? m.to.map((id) => runById.get(id)?.name).filter(Boolean).join(", ")
+        : undefined;
+      const prefix = targetDriver ? `${targetDriver}: ` : "";
+      if (m.say) return `${prefix}${m.say}`;
+      if (m.to === "stewards") return `${m.from} to stewards: ${m.text}`;
+      return `${prefix}${m.text}`;
+    },
+  });
+
+  const beeped = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    if (!beeped.current) {
+      beeped.current = new Set(state.runs.filter((r) => r.startedAt != null).map((r) => r.id));
+      return;
+    }
+    const s = beeped.current;
+    if (audio.audioOn) {
+      for (const r of state.runs) {
+        if (r.startedAt == null || s.has(r.id)) continue;
+        s.add(r.id);
+        if (r.team !== team.id) continue;
+        const goIn = (r.startedAt - offset - Date.now()) / 1000;
+        if (goIn > 0) startBeeps(goIn);
+      }
+    } else {
+      for (const r of state.runs) {
+        if (r.startedAt != null) s.add(r.id);
+      }
+    }
+  }, [state, audio.audioOn, team.id, offset]);
+
   const [text, setText] = useState("");
   const [toStewards, setToStewards] = useState(false);
   const [asking, setAsking] = useState(false);
@@ -104,10 +155,9 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const fromMs = Math.min(from, Math.max(0, lengthMs - stepMs));
   const toMs = Math.min(Math.max(to, fromMs + stepMs), lengthMs);
 
-  const radio = state?.radio ?? [];
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [radio.length]);
+  }, [teamRadio.length]);
 
   const rows = useMemo(() => {
     if (!state) return [];
@@ -144,7 +194,17 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
 
   const line = (m: RadioMsg) => {
     const tone = m.tone ?? (m.to === "stewards" ? "teal" : undefined);
-    const who = m.to === "stewards" ? `${m.from} to stewards` : m.to === "team" ? `${m.from} to team` : m.from;
+    const targetDriver = Array.isArray(m.to)
+      ? m.to.map((id) => runById.get(id)?.name).filter(Boolean).join(", ")
+      : undefined;
+    const who =
+      m.to === "stewards"
+        ? `${m.from} to stewards`
+        : m.to === "team"
+          ? `${m.from} to team`
+          : targetDriver
+            ? `${m.from} to ${targetDriver}`
+            : m.from;
     return (
       <div className={`r-log__line${tone ? ` is-${tone}` : ""}`} key={m.id}>
         {hhmm(m.at)} {who}: {m.text}
@@ -192,6 +252,20 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
         <span className="r-text r-text--dim">{race.name}</span>
         <SessionSelect sessions={race.sessions} current={session.id} suffix={`/team/${team.id}`} width={180} />
         <button className="r-btn" onClick={() => nav(`/session/${sessionId}`)}>Timing</button>
+        {!audio.audioOn ? (
+          <button className="r-btn is-green" onClick={audio.enable} title="Enable radio audio">
+            Enable Audio
+          </button>
+        ) : (
+          <button className={`r-btn${audio.rx ? " is-on" : ""}`} onClick={() => audio.setSettingsOpen(true)} title="Audio settings">
+            🔊 Audio{audio.rx ? " (RX)" : ""}
+          </button>
+        )}
+        <button className="r-btn r-btn--icon" aria-label="Audio settings" title="Audio settings" style={{ width: 30, padding: 0 }} onClick={() => audio.setSettingsOpen(true)}>
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor" style={{ display: "block", margin: "auto" }}>
+            <path d="M6 0h4v2h2v1h1v2h2v4h-2v1h-1v2h-2v1h-2v2H6v-2H4v-1H3v-2H1V5h2V4h1V2h2zM8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" fillRule="evenodd" />
+          </svg>
+        </button>
       </Topbar>
       <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
         {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended.</div>}
@@ -230,7 +304,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
           )}
           <div className={`r-plate is-${state.flag}`} style={{ width: 120 }}>{FLAG_WORD[state.flag]}</div>
           <div className="r-plate r-fill">
-            {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : session.selfTimed && nextCar ? `${nextCar.name}  ${nextCar.plate}` : ""}
+            {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : session.selfTimed && nextCar ? [nextCar.name, nextCar.number ? `#${nextCar.number}` : "", nextCar.plate].filter(Boolean).join("  ") : ""}
           </div>
           {session.selfTimed && (
             <button className="r-btn r-btn--advance" style={{ width: 150 }} disabled={race.ended || now < session.startsAt} onClick={() => timing("finish")}>
@@ -304,18 +378,34 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
               <button className="r-btn" aria-pressed={sort === "fastest"} onClick={() => setSort("fastest")}>Fastest</button>
               <button className="r-btn" aria-pressed={sort === "last"} onClick={() => setSort("last")}>Last run</button>
             </div>
+            <div className="r-section"><span>Audio</span></div>
+            <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+              <button className={`r-btn${audio.audioOn ? " is-green" : ""}`} onClick={audio.audioOn ? audio.disable : audio.enable}>
+                {audio.audioOn ? "Audio On" : "Enable"}
+              </button>
+              <button className="r-btn" onClick={() => audio.setSettingsOpen(true)}>Settings</button>
+            </div>
           </div>
 
           <div className="r-stack r-fill">
             <div className="r-panel r-fill" style={{ overflow: "auto" }}>
-              <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} mine={(r) => r.team === team.id} modeLabel={session.selfTimed ? modeText : undefined} />
+              <TimingTable
+                rows={rows}
+                now={now}
+                selId={selId}
+                onSelect={setSelId}
+                bestFinal={bestFinal}
+                mine={(r) => r.team === team.id}
+                modeLabel={session.selfTimed ? modeText : undefined}
+                onRadio={state?.onRadio}
+              />
             </div>
 
             <div className="r-row" style={{ height: 270, flex: "none" }}>
               <div className="r-panel r-fill">
                 <div className="r-header">Race log</div>
                 <div className="r-log r-log--wrap" ref={logRef} style={{ flex: "1 1 0", minHeight: 0 }}>
-                  {radio.map(line)}
+                  {teamRadio.map(line)}
                 </div>
                 <div className="r-header">Team message</div>
                 <input className="r-field" style={{ width: "100%" }} aria-label="Team message" maxLength={200} value={text} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && transmit()} />
@@ -329,7 +419,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
 
               <div className="r-panel" style={{ width: 340 }}>
                 <div className="r-header">Selected car</div>
-                <div className="r-log r-log--title">{sel ? `${sel.name}  ${sel.plate}` : ""}</div>
+                <div className="r-log r-log--title">{sel ? [sel.name, sel.number ? `#${sel.number}` : "", sel.plate].filter(Boolean).join("  ") : ""}</div>
                 <div className="r-log" style={{ flex: "1 1 0", minHeight: 0 }}>
                   {sel?.laps?.map((l, i) => (
                     <div className={`r-log__line${l === Math.min(...sel.laps!) ? " is-magenta" : ""}`} key={`l${i}`}>Lap {i + 1} {fmtTime(l)}</div>
@@ -393,6 +483,27 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
       {dialog?.kind === "attribute" && dialogRun && <AttributeDialog run={dialogRun} state={state} team={team.id} onClose={() => setDialog(null)} send={send} />}
       {dialog?.kind === "setTime" && dialogRun && <SetTimeDialog run={dialogRun} team={team.id} onClose={() => setDialog(null)} send={send} />}
       {asking && <AskDialog sessionId={sessionId} teamId={team.id} drivers={drivers} onClose={() => setAsking(false)} />}
+      {audio.settingsOpen && (
+        <AudioSettingsDialog
+          onClose={() => audio.setSettingsOpen(false)}
+          audioOn={audio.audioOn}
+          onEnable={audio.enable}
+          onDisable={audio.disable}
+          vol={audio.vol}
+          setVol={audio.setVol}
+          engine={audio.engine}
+          setEngine={audio.setEngine}
+          voices={audio.voices}
+          voiceURI={audio.voiceURI}
+          setVoiceURI={audio.setVoiceURI}
+          aiVoice={audio.aiVoice}
+          setAiVoice={audio.setAiVoice}
+          ai={audio.ai}
+          say={audio.say}
+          showBeeps={true}
+          onTestBeeps={() => startBeeps(3)}
+        />
+      )}
     </div>
   );
 }

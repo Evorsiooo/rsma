@@ -65,7 +65,7 @@ export function RacePage() {
       <div className="r-panel">
         <div className="r-header">{race?.name ?? " "}</div>
         {rows.length === 0 ? (
-          <div className="r-empty">{state ? "No runs recorded." : ""}</div>
+          <div className="r-empty">{state ? "No runs recorded." : "Loading timing data..."}</div>
         ) : (
           <ClassificationTable rows={rows} />
         )}

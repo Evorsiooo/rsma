@@ -9,6 +9,7 @@ import { myTeams } from "./my-team";
 import { registration } from "./registration";
 import { syncRegistered, teamWithCar } from "./stage";
 import { loadRaces, loadSession } from "./sessions";
+import { notifyStewardMessage } from "./discord";
 
 export { RaceDO } from "./race-do";
 
@@ -71,9 +72,17 @@ async function ensureRegistered(env: Env, id: string) {
 
 app.get("/api/sessions/:id/state", async (c) => {
   const id = c.req.param("id");
-  if (!(await loadSession(c.env.DB, id))) return c.json({ error: "not_found" }, 404);
+  const info = await loadSession(c.env.DB, id);
+  if (!info) return c.json({ error: "not_found" }, 404);
   await ensureRegistered(c.env, id);
-  return doOf(c.env, id).fetch("http://do/state");
+  const headers = new Headers();
+  const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
+  if (me) {
+    if (await isRaceSteward(c.env, me, info.race.id)) headers.set("x-staff", "1");
+    headers.set("x-user", me.username);
+    headers.set("x-teams", me.teams.map((t) => t.id).join(","));
+  }
+  return doOf(c.env, id).fetch("http://do/state", new Request("http://do/state", { headers }));
 });
 
 async function isRaceSteward(env: Env, me: Me | null, raceId: string) {
@@ -90,8 +99,8 @@ app.get("/api/sessions/:id/ws", async (c) => {
   if (!info) return c.json({ error: "not_found" }, 404);
   await ensureRegistered(c.env, id);
   const headers = new Headers(c.req.raw.headers);
-  for (const h of ["x-staff", "x-user", "x-teams"]) headers.delete(h);
-  if (c.req.query("staff") === "1" || c.req.query("auth") === "1") {
+  for (const h of ["x-staff", "x-user", "x-teams", "x-radio"]) headers.delete(h);
+  if (c.req.query("staff") === "1" || c.req.query("auth") === "1" || c.req.query("radio") === "1") {
     const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
     if (!me) return c.json({ error: "unauthorized" }, 401);
     if (c.req.query("staff") === "1") {
@@ -101,6 +110,9 @@ app.get("/api/sessions/:id/ws", async (c) => {
       // Signed-in feed: own radio, plus the channels of the teams this user may open.
       headers.set("x-user", me.username);
       headers.set("x-teams", me.teams.map((t) => t.id).join(","));
+      if (c.req.query("radio") === "1") {
+        headers.set("x-radio", me.username);
+      }
     }
   }
   return doOf(c.env, id).fetch("http://do/ws", new Request(c.req.raw, { headers }));
@@ -136,10 +148,19 @@ app.post("/api/sessions/:id/cmd", async (c) => {
     const known = (await c.env.DB.prepare("SELECT id, name FROM teams ORDER BY lower(name)").all<{ id: string; name: string }>()).results;
     cmd.teams = known.filter((t) => ids.includes(t.id));
   }
-  return doOf(c.env, id).fetch("http://do/cmd", {
+  const doRes = await doOf(c.env, id).fetch("http://do/cmd", {
     method: "POST",
     body: JSON.stringify({ cmd, actor: me.username }),
   });
+  if (doRes.ok && (cmd.type === "radio" || cmd.type === "radioTeams") && typeof cmd.text === "string" && cmd.text.trim()) {
+    const p = notifyStewardMessage(c.env.DB, cmd.text.trim());
+    if (c.executionCtx?.waitUntil) {
+      c.executionCtx.waitUntil(p);
+    } else {
+      await p;
+    }
+  }
+  return doRes;
 });
 
 // Team names for the staging dropdown.

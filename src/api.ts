@@ -2,6 +2,7 @@ import type { GroupStatus, RegKind, RegSettings, RegSummary, RegistrationView } 
 import type { TeamRole } from "../shared/teams";
 import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
 import type { Command } from "../shared/commands";
+import type { RaceState } from "../shared/race";
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(path, { cache: "no-store" });
@@ -15,6 +16,7 @@ export const api = {
   health: () => get<{ ok: boolean }>("/api/health"),
   race: (id: string) => get<RaceSummary>(`/api/races/${id}`),
   session: (id: string) => get<SessionInfo>(`/api/sessions/${id}`),
+  sessionState: (id: string) => get<{ state: RaceState; now: number }>(`/api/sessions/${id}/state`),
   races: () => get<RaceSummary[]>("/api/races"),
   pastRaces: () => get<RaceSummary[]>("/api/races/past"),
   teams: () => get<Team[]>("/api/teams"),
@@ -84,6 +86,8 @@ export const admin = {
   clearRegistration: (sessionId: string) => send("DELETE", `/api/admin/sessions/${sessionId}/registration`),
   system: () => get<SystemInfo>("/api/admin/system"),
   setTokenMode: (on: boolean) => send("PUT", "/api/admin/system/token-mode", { on }),
+  setDiscordWebhook: (url: string) => send("PUT", "/api/admin/system/discord-webhook", { url }),
+  testDiscordWebhook: (url?: string) => send("POST", "/api/admin/system/discord-webhook/test", { url }),
   userCode: (id: string) => send("POST", `/api/admin/users/${id}/code`),
   revokeUserCode: (id: string) => send("DELETE", `/api/admin/users/${id}/code`),
 };

@@ -8,6 +8,7 @@ import { sessionsOf } from "./sessions";
 import { resolveUserId } from "./roblox-users";
 import { regSessionsOf, syncRegistered, syncSessions } from "./stage";
 import { issueCode, revokeCode, setTokenMode, tokenMode } from "./access-codes";
+import { formatDiscordStewardMessage, getDiscordWebhook, sendDiscordWebhook, setDiscordWebhook } from "./discord";
 
 export interface AdminEnv extends AuthEnv {
   /** Local development only: point username lookups at a mock server. */
@@ -72,6 +73,40 @@ admin.put("/system/token-mode", guard("admin"), async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { on?: unknown };
   if (typeof body.on !== "boolean") return c.json({ error: "invalid" }, 400);
   await setTokenMode(c.env.DB, body.on);
+  return c.json({ ok: true });
+});
+
+admin.put("/system/discord-webhook", guard("admin"), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { url?: unknown };
+  if (typeof body.url !== "string") return c.json({ error: "invalid" }, 400);
+  const url = body.url.trim();
+  if (url) {
+    try {
+      const u = new URL(url);
+      if (u.protocol !== "https:" && u.protocol !== "http:") return c.json({ error: "invalid_url" }, 400);
+    } catch {
+      return c.json({ error: "invalid_url" }, 400);
+    }
+  }
+  await setDiscordWebhook(c.env.DB, url);
+  return c.json({ ok: true });
+});
+
+admin.post("/system/discord-webhook/test", guard("admin"), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { url?: unknown };
+  let url = typeof body.url === "string" ? body.url.trim() : "";
+  if (!url) {
+    url = (await getDiscordWebhook(c.env.DB)) ?? "";
+  }
+  if (!url) return c.json({ error: "no_webhook" }, 400);
+  try {
+    const u = new URL(url);
+    if (u.protocol !== "https:" && u.protocol !== "http:") return c.json({ error: "invalid_url" }, 400);
+  } catch {
+    return c.json({ error: "invalid_url" }, 400);
+  }
+  const ok = await sendDiscordWebhook(url, formatDiscordStewardMessage("Test message from Flagman system settings"));
+  if (!ok) return c.json({ error: "delivery_failed" }, 400);
   return c.json({ ok: true });
 });
 
@@ -399,6 +434,7 @@ admin.get("/system", guard("admin"), async (c) => {
     expiredRaces: await n("SELECT COUNT(*) AS n FROM races WHERE status = 'active' AND expires_at <= ?", now),
     archivedRaces: await n("SELECT COUNT(*) AS n FROM races WHERE status = 'archived'"),
     tokenMode: await tokenMode(c.env.DB),
+    discordWebhook: (await getDiscordWebhook(c.env.DB)) ?? "",
     robloxConfigured: !!(c.env.ROBLOX_CLIENT_ID && c.env.ROBLOX_CLIENT_SECRET && c.env.SESSION_SECRET),
   });
 });

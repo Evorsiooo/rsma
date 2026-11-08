@@ -11,9 +11,20 @@ export class RaceDO extends DurableObject {
     return this.state;
   }
 
+  private activeRadioUsers(): string[] {
+    const list = new Set<string>();
+    for (const ws of this.ctx.getWebSockets()) {
+      for (const t of this.ctx.getTags(ws)) {
+        if (t.startsWith("radio:")) list.add(t.slice(6));
+      }
+    }
+    return Array.from(list);
+  }
+
   /** Each socket sees what its viewer may: staff everything, signed-in viewers their own radio, others none. */
   private frame(state: RaceState, viewer: Viewer) {
-    return JSON.stringify({ state: viewFor(state, viewer), now: Date.now() });
+    const s = { ...state, onRadio: this.activeRadioUsers() };
+    return JSON.stringify({ state: viewFor(s, viewer), now: Date.now() });
   }
 
   /** Socket tags carry the viewer: "staff", "user:<name>", "team:<id>". */
@@ -39,13 +50,23 @@ export class RaceDO extends DurableObject {
       const user = req.headers.get("x-user");
       if (user) tags.push(`user:${user.toLowerCase()}`);
       for (const t of (req.headers.get("x-teams") ?? "").split(",").filter(Boolean)) tags.push(`team:${t}`);
+      const radio = req.headers.get("x-radio");
+      if (radio) tags.push(`radio:${radio.toLowerCase()}`);
       const pair = new WebSocketPair();
       this.ctx.acceptWebSocket(pair[1], tags);
-      pair[1].send(this.frame(await this.load(), this.viewerOf(tags)));
+      const state = await this.load();
+      pair[1].send(this.frame(state, this.viewerOf(tags)));
+      if (radio) this.broadcast(state);
       return new Response(null, { status: 101, webSocket: pair[0] });
     }
     if (url.pathname === "/state" && req.method === "GET") {
-      return Response.json({ state: publicView(await this.load()), now: Date.now() });
+      const tags: string[] = [];
+      if (req.headers.get("x-staff") === "1") tags.push("staff");
+      const user = req.headers.get("x-user");
+      if (user) tags.push(`user:${user.toLowerCase()}`);
+      for (const t of (req.headers.get("x-teams") ?? "").split(",").filter(Boolean)) tags.push(`team:${t}`);
+      const s = { ...(await this.load()), onRadio: this.activeRadioUsers() };
+      return Response.json({ state: viewFor(s, this.viewerOf(tags)), now: Date.now() });
     }
     if (url.pathname === "/cmd" && req.method === "POST") {
       const { cmd, actor } = (await req.json()) as { cmd: Command; actor: string };
@@ -59,6 +80,19 @@ export class RaceDO extends DurableObject {
     return new Response("Not found", { status: 404 });
   }
 
-  // Clients only receive; commands go through the authenticated HTTP endpoint.
-  webSocketMessage() {}
+  // Clients receive state updates; handle keep-alive ping to prevent idle connection drop.
+  webSocketMessage(ws: WebSocket, message: string | ArrayBuffer) {
+    if (message === "ping") {
+      try {
+        ws.send("pong");
+      } catch {}
+    }
+  }
+
+  webSocketClose(ws: WebSocket) {
+    const tags = this.ctx.getTags(ws);
+    if (tags.some((t) => t.startsWith("radio:"))) {
+      this.load().then((s) => this.broadcast(s));
+    }
+  }
 }

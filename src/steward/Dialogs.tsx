@@ -38,6 +38,8 @@ export function ConfirmReset({ onClose, send }: { onClose: () => void; send: Sen
   );
 }
 
+const carId = (r: { plate: string; number?: string }) => [r.number ? `#${r.number}` : "", r.plate].filter(Boolean).join(" ");
+
 export function ConfirmDelete({ run, onClose, send }: { run: Run; onClose: () => void; send: Send }) {
   return (
     <Dialog
@@ -58,7 +60,7 @@ export function ConfirmDelete({ run, onClose, send }: { run: Run; onClose: () =>
         </>
       }
     >
-      <div>Delete the run of {run.name} ({run.plate})? It is removed from the results.</div>
+      <div>Delete the run of {run.name} ({carId(run) || "unassigned"})? It is removed from the results.</div>
     </Dialog>
   );
 }
@@ -247,7 +249,7 @@ export function AssignDialog({ ts, cars, onClose, send }: { ts: number; cars: Ru
           <div className="r-select">
             <select value={id} onChange={(e) => setId(e.target.value)} aria-label="Car">
               {cars.map((c) => (
-                <option key={c.id} value={c.id}>{c.name} ({c.plate})</option>
+                <option key={c.id} value={c.id}>{c.name} ({carId(c) || "unassigned"})</option>
               ))}
             </select>
           </div>
@@ -353,7 +355,7 @@ export function AttributeDialog({ run, state, team, onClose, send }: { run: Run;
     if (ts < start) continue;
     options.push({
       key: `r${r.id}`,
-      label: `Time of ${r.name} (${r.plate}): ${fmtTime(ts - start)}`,
+      label: `Time of ${r.name} (${carId(r) || "unassigned"}): ${fmtTime(ts - start)}`,
       cmd: { type: "reattribute", fromRunId: r.id, runId: run.id, team },
     });
   }
@@ -398,7 +400,7 @@ export function AttributeDialog({ run, state, team, onClose, send }: { run: Run;
 export function EditInfoDialog({ run, onClose, send }: { run: Run; onClose: () => void; send: Send }) {
   const [plate, setPlate] = useState(run.plate);
   const [number, setNumber] = useState(run.number ?? "");
-  const ok = !!plate.trim();
+  const ok = !!(plate.trim() || number.trim());
   const submit = async () => {
     if (ok && (await send({ type: "editInfo", runId: run.id, plate, number }))) onClose();
   };

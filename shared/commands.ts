@@ -12,7 +12,7 @@ import {
 
 export type Command =
   | { type: "flag"; flag: Flag }
-  | { type: "add"; name: string; plate: string; number?: string; team?: { id: string; name: string; car?: string } }
+  | { type: "add"; name: string; plate?: string; number?: string; team?: { id: string; name: string; car?: string } }
   | { type: "teamMove"; team: string; runId: string; dir: -1 | 1 }
   | { type: "teamRadio"; team: string; teamName: string; text: string; to?: "team" | "stewards" }
   | { type: "ask"; team: string; teamName: string; driver: string; text: string; options?: string[] }
@@ -40,7 +40,7 @@ export type Command =
   | { type: "unattribute"; runId: string; team?: string }
   | { type: "reattribute"; fromRunId: string; runId: string; team?: string }
   | { type: "setTime"; runId: string; ms: number; team?: string }
-  | { type: "editInfo"; runId: string; plate: string; number?: string }
+  | { type: "editInfo"; runId: string; plate?: string; number?: string }
   | { type: "discard"; ts: number }
   | { type: "dnf"; runId: string; team?: string }
   | { type: "undnf"; runId: string; team?: string }
@@ -75,8 +75,8 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
   };
   s.notes ??= [];
   s.pitWindows ??= [];
-  const auto = (to: "all" | string[], text: string, say?: string, tone?: Tone) => {
-    s.radio.push({ id: ctx.newId(), at: ctx.now, to, text, say, from: "Race control", auto: true, tone });
+  const auto = (to: "all" | string[], text: string, say?: string, tone?: Tone, team?: string, teamName?: string) => {
+    s.radio.push({ id: ctx.newId(), at: ctx.now, to, text, say, from: "Race control", auto: true, tone, team, teamName });
   };
   const run = (id: string): Run | undefined => s.runs.find((r) => r.id === id);
   const recompute = (r: Run) => (r.penaltyMs = r.penalties.reduce((a, p) => a + p.ms, 0));
@@ -104,10 +104,12 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
     case "add": {
       const name = clean(cmd.name, 40);
       const plate = clean(cmd.plate, 12).toUpperCase();
-      if (!name || !plate) return { error: "invalid" };
+      const number = clean(cmd.number, 4) || undefined;
+      if (!name || (!plate && !number)) return { error: "invalid" };
       const team = cmd.team && clean(cmd.team.id, 60) && clean(cmd.team.name, 40) ? { id: clean(cmd.team.id, 60), name: clean(cmd.team.name, 40) } : undefined;
-      s.runs.push({ id: ctx.newId(), name, plate, status: "queued", penalties: [], penaltyMs: 0, number: clean(cmd.number, 4) || undefined, team: team?.id, teamName: team?.name, car: team ? clean(cmd.team?.car, 40) || undefined : undefined });
-      note(`Staged ${name} (${plate})${team ? `, ${team.name}` : ""}`);
+      s.runs.push({ id: ctx.newId(), name, plate, status: "queued", penalties: [], penaltyMs: 0, number, team: team?.id, teamName: team?.name, car: team ? clean(cmd.team?.car, 40) || undefined : undefined });
+      const idStr = [number ? `#${number}` : "", plate].filter(Boolean).join(" ");
+      note(`Staged ${name}${idStr ? ` (${idStr})` : ""}${team ? `, ${team.name}` : ""}`);
       break;
     }
     case "syncReg": {
@@ -372,10 +374,12 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const r = run(cmd.runId);
       if (!r) return { error: "not_found" };
       const plate = clean(cmd.plate, 12).toUpperCase();
-      if (!plate) return { error: "invalid" };
+      const number = clean(cmd.number, 4) || undefined;
+      if (!plate && !number) return { error: "invalid" };
       r.plate = plate;
-      r.number = clean(cmd.number, 4) || undefined;
-      note(`Info updated for ${r.name}: ${plate}${r.number ? `, #${r.number}` : ""}`);
+      r.number = number;
+      const idStr = [number ? `#${number}` : "", plate].filter(Boolean).join(" ");
+      note(`Info updated for ${r.name}: ${idStr}`);
       break;
     }
     case "setTime": {
@@ -421,14 +425,14 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
         if (!rule) return { error: "not_found" };
         r.penalties.push({ ruleId: rule.id, name: rule.name, ms: rule.seconds * 1000 });
         recompute(r);
-        auto([r.id], `Penalty ${fmtPenalty(rule.seconds * 1000)}: ${rule.name}. Total penalties ${fmtPenalty(r.penaltyMs)}.`, `Penalty, ${rule.seconds} seconds, ${rule.name}. Total penalties ${r.penaltyMs / 1000} seconds.`, "red");
+        auto([r.id], `Penalty ${fmtPenalty(rule.seconds * 1000)}: ${rule.name}. Total penalties ${fmtPenalty(r.penaltyMs)}.`, `Penalty, ${rule.seconds} seconds, ${rule.name}. Total penalties ${r.penaltyMs / 1000} seconds.`, "red", r.team, r.teamName);
         note(`${fmtPenalty(rule.seconds * 1000)} ${rule.name} to ${r.name}`, "red");
       } else {
         const idx = r.penalties.map((p) => p.ruleId).lastIndexOf(cmd.ruleId);
         if (idx < 0) return { error: "not_found" };
         const [p] = r.penalties.splice(idx, 1);
         recompute(r);
-        auto([r.id], `Penalty removed: ${p.name}. Total penalties ${fmtPenalty(r.penaltyMs)}.`, `Penalty removed, ${p.name}. Total penalties ${r.penaltyMs / 1000} seconds.`, "green");
+        auto([r.id], `Penalty removed: ${p.name}. Total penalties ${fmtPenalty(r.penaltyMs)}.`, `Penalty removed, ${p.name}. Total penalties ${r.penaltyMs / 1000} seconds.`, "green", r.team, r.teamName);
         note(`Removed ${p.name} from ${r.name}`, "green");
       }
       break;
@@ -566,11 +570,11 @@ function announceResults(prev: RaceState, next: RaceState, auto: (to: string[], 
       const spokenRankText = rank ? ` Position ${rank}.` : "";
       const pen = r.penaltyMs ? ` Penalties ${fmtPenalty(r.penaltyMs)}, final ${fmtTime(finalMs)}.` : "";
       const spokenPen = r.penaltyMs ? ` Penalties ${r.penaltyMs / 1000} seconds, final ${spokenTime(finalMs)}.` : "";
-      auto([r.id], `Finished. Time ${fmtTime(r.rawMs)}.${pen}${rankText}`, `Finished. Time ${spokenTime(r.rawMs)}.${spokenPen}${spokenRankText}`, "green");
+      auto([r.id], `Finished. Time ${fmtTime(r.rawMs)}.${pen}${rankText}`, `Finished. Time ${spokenTime(r.rawMs)}.${spokenPen}${spokenRankText}`, "green", r.team, r.teamName);
     } else if (r.status === "onstage" && p.status === "dnf") {
-      auto([r.id], "DNF withdrawn. Timing continues.", undefined, "yellow");
+      auto([r.id], "DNF withdrawn. Timing continues.", undefined, "yellow", r.team, r.teamName);
     } else if (r.status === "dnf" && p.status !== "dnf") {
-      auto([r.id], "Did not finish.", undefined, "red");
+      auto([r.id], "Did not finish.", undefined, "red", r.team, r.teamName);
     }
   }
 
@@ -578,7 +582,7 @@ function announceResults(prev: RaceState, next: RaceState, auto: (to: string[], 
     if (r.status !== "finished" || r.rank == null) continue;
     const p = before.get(r.id);
     if (p && p.status === "finished" && p.rank !== r.rank) {
-      auto([r.id], `Position now P${r.rank}.`, `Position now ${r.rank}.`, (r.rank ?? 0) < (p.rank ?? 0) ? "green" : "yellow");
+      auto([r.id], `Position now P${r.rank}.`, `Position now ${r.rank}.`, (r.rank ?? 0) < (p.rank ?? 0) ? "green" : "yellow", r.team, r.teamName);
     }
   }
 }

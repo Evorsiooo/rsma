@@ -91,6 +91,7 @@ export interface SystemInfo {
   robloxConfigured: boolean;
   /** Everything except the admin panel signs in with access codes. */
   tokenMode: boolean;
+  discordWebhook?: string;
 }
 
 export interface MyTeam extends Team {

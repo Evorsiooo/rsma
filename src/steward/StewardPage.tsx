@@ -13,6 +13,8 @@ import { SessionSelect } from "../SessionSelect";
 import { fmtLive, sessionCountdown, toast, useClock, useNow } from "../ui";
 import { useRaceLive } from "../useRaceLive";
 import { AssignDialog, AttributeDialog, ConfirmDelete, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, EditInfoDialog, RulesDialog, SetTimeDialog, TeamsDialog } from "./Dialogs";
+import { AudioSettingsDialog, useRadioTTS } from "../AudioSettings";
+import { startBeeps } from "../audio";
 
 const ERRORS: Record<string, string> = {
   not_queued: "Only queued drivers can be removed.",
@@ -139,6 +141,43 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
   const [teams, setTeams] = useState<Team[]>([]);
   const [teamId, setTeamId] = useState("");
   const [sort, setSort] = useState<"fastest" | "last">("fastest");
+  const runById = useMemo(() => new Map(state?.runs.map((r) => [r.id, r])), [state?.runs]);
+  const audio = useRadioTTS({
+    radio: state?.radio,
+    formatSay: (m) => {
+      const targetDriver = Array.isArray(m.to)
+        ? m.to.map((id) => runById.get(id)?.name).filter(Boolean).join(", ")
+        : undefined;
+      const prefix = targetDriver ? `${targetDriver}: ` : "";
+      if (m.say) return `${prefix}${m.say}`;
+      if (m.to === "stewards" && m.teamName) return `${m.teamName} to stewards: ${m.text}`;
+      return `${prefix}${m.text}`;
+    },
+  });
+
+  const beeped = useRef<Set<string> | null>(null);
+  useEffect(() => {
+    if (!state) return;
+    if (!beeped.current) {
+      beeped.current = new Set(state.runs.filter((r) => r.startedAt != null).map((r) => r.id));
+      return;
+    }
+    const s = beeped.current;
+    if (audio.audioOn) {
+      for (const r of state.runs) {
+        if (r.startedAt == null || s.has(r.id)) continue;
+        s.add(r.id);
+        // Only beep when stewards are timing (when not self-timed)
+        if (session.selfTimed) continue;
+        const goIn = (r.startedAt - offset - Date.now()) / 1000;
+        if (goIn > 0) startBeeps(goIn);
+      }
+    } else {
+      for (const r of state.runs) {
+        if (r.startedAt != null) s.add(r.id);
+      }
+    }
+  }, [state, audio.audioOn, session.selfTimed, offset]);
   useEffect(() => {
     api.teams().then(setTeams, () => {});
   }, []);
@@ -190,7 +229,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
     if (await send(cmd)) setText("");
   };
   const stage = async () => {
-    if (!name.trim() || !plate.trim()) return;
+    if (!name.trim() || (!plate.trim() && !number.trim())) return;
     const team = teams.find((t) => t.id === teamId);
     if (await send({ type: "add", name, plate, number, team })) {
       setName("");
@@ -205,6 +244,20 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
         <span className="r-text r-text--dim">{race.name}</span>
         <SessionSelect sessions={race.sessions} current={session.id} suffix="/steward" width={180} />
         <button className="r-btn" onClick={() => nav(`/session/${raceId}`)}>Timing</button>
+        {!audio.audioOn ? (
+          <button className="r-btn is-green" onClick={audio.enable} title="Enable radio audio">
+            Enable Audio
+          </button>
+        ) : (
+          <button className={`r-btn${audio.rx ? " is-on" : ""}`} onClick={() => audio.setSettingsOpen(true)} title="Audio settings">
+            🔊 Audio{audio.rx ? " (RX)" : ""}
+          </button>
+        )}
+        <button className="r-btn r-btn--icon" aria-label="Audio settings" title="Audio settings" style={{ width: 30, padding: 0 }} onClick={() => audio.setSettingsOpen(true)}>
+          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor" style={{ display: "block", margin: "auto" }}>
+            <path d="M6 0h4v2h2v1h1v2h2v4h-2v1h-1v2h-2v1h-2v2H6v-2H4v-1H3v-2H1V5h2V4h1V2h2zM8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" fillRule="evenodd" />
+          </svg>
+        </button>
       </Topbar>
       <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
         {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended. Commands are disabled.</div>}
@@ -259,7 +312,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
           )}
           <div className={`r-plate is-${state.flag}`} style={{ width: 120 }}>{FLAG_WORD[state.flag]}</div>
           <div className="r-plate r-fill">
-            {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : next ? `${next.name}  ${next.plate}` : ""}
+            {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : next ? [next.name, next.number ? `#${next.number}` : "", next.plate].filter(Boolean).join("  ") : ""}
           </div>
           {!session.selfTimed && session.type !== "race" && (
             <button className="r-btn r-btn--advance" style={{ width: 150 }} onClick={() => send({ type: "finish" })}>
@@ -312,7 +365,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                 <div className="r-row">
                   <input className="r-field r-fill" placeholder="Plate" aria-label="Plate" value={plate} onChange={(e) => setPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
                   <input className="r-field" style={{ width: 64 }} placeholder="No" aria-label="Driver number" maxLength={4} value={number} onChange={(e) => setNumber(e.target.value)} onKeyDown={(e) => e.key === "Enter" && stage()} />
-                  <button className="r-btn" style={{ width: 90 }} disabled={!name.trim() || !plate.trim()} onClick={stage}>Stage</button>
+                  <button className="r-btn" style={{ width: 90 }} disabled={!name.trim() || (!plate.trim() && !number.trim())} onClick={stage}>Stage</button>
                 </div>
               </>
             )}
@@ -325,6 +378,13 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
             <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
               <button className="r-btn" onClick={() => setDialog({ kind: "rules" })}>Rules</button>
               <button className="r-btn" onClick={() => setDialog({ kind: "reset" })}>Reset</button>
+            </div>
+            <div className="r-section"><span>Audio</span></div>
+            <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+              <button className={`r-btn${audio.audioOn ? " is-green" : ""}`} onClick={audio.audioOn ? audio.disable : audio.enable}>
+                {audio.audioOn ? "Audio On" : "Enable"}
+              </button>
+              <button className="r-btn" onClick={() => audio.setSettingsOpen(true)}>Settings</button>
             </div>
           </div>
 
@@ -359,7 +419,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
 
               <div className="r-panel" style={{ width: 340 }}>
                 <div className="r-header">Selected car</div>
-                <div className="r-log r-log--title">{sel ? `${sel.name}  ${sel.plate}` : ""}</div>
+                <div className="r-log r-log--title">{sel ? [sel.name, sel.number ? `#${sel.number}` : "", sel.plate].filter(Boolean).join("  ") : ""}</div>
                 <div className="r-log" style={{ flex: "1 1 0", minHeight: 0 }}>
                   {sel?.penalties.map((p, i) => (
                     <div className="r-log__line is-red" key={i}>{fmtPenalty(p.ms)} {p.name}</div>
@@ -455,6 +515,27 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
       {dialog?.kind === "notes" && dialogRun && <NotesDialog run={dialogRun} notes={state.notes} onClose={closeDialog} send={send} />}
       {dialog?.kind === "assign" && (
         <AssignDialog ts={dialog.ts} cars={onTrack.filter((r: Run) => r.startedAt! <= dialog.ts)} onClose={closeDialog} send={send} />
+      )}
+      {audio.settingsOpen && (
+        <AudioSettingsDialog
+          onClose={() => audio.setSettingsOpen(false)}
+          audioOn={audio.audioOn}
+          onEnable={audio.enable}
+          onDisable={audio.disable}
+          vol={audio.vol}
+          setVol={audio.setVol}
+          engine={audio.engine}
+          setEngine={audio.setEngine}
+          voices={audio.voices}
+          voiceURI={audio.voiceURI}
+          setVoiceURI={audio.setVoiceURI}
+          aiVoice={audio.aiVoice}
+          setAiVoice={audio.setAiVoice}
+          ai={audio.ai}
+          say={audio.say}
+          showBeeps={true}
+          onTestBeeps={() => startBeeps(3)}
+        />
       )}
     </div>
   );

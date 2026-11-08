@@ -71,34 +71,16 @@ export function loadAi(): Promise<boolean> {
     };
 
     model = import("kokoro-js")
-      .then(async ({ KokoroTTS }) => {
-        // Try WebGPU hardware acceleration first if available in the browser
-        const nav = typeof navigator !== "undefined" ? (navigator as unknown as { gpu?: { requestAdapter?: () => Promise<unknown> } }) : undefined;
-        if (nav?.gpu?.requestAdapter) {
-          try {
-            const adapter = await nav.gpu.requestAdapter();
-            if (adapter) {
-              return await KokoroTTS.from_pretrained(MODEL, {
-                dtype: "q8",
-                device: "webgpu",
-                progress_callback: onProgress,
-              });
-            }
-          } catch {
-            // WebGPU initialization failed or blocked, fall back to wasm
-          }
-        }
-        return await KokoroTTS.from_pretrained(MODEL, {
+      .then(({ KokoroTTS }) =>
+        KokoroTTS.from_pretrained(MODEL, {
           dtype: "q8",
           device: "wasm",
           progress_callback: onProgress,
-        });
-      })
+        }),
+      )
       .then((m) => {
         ready = m as unknown as Model;
         set({ state: "ready", progress: 1 });
-        // Warm up the model pipeline & cache default voice in background
-        ready.generate(" ", { voice: DEFAULT_AI_VOICE }).catch(() => {});
         return ready;
       })
       .catch(() => {
@@ -113,7 +95,7 @@ export function loadAi(): Promise<boolean> {
 /** Preload a voice embedding so subsequent speech generation doesn't suffer a download delay. */
 export function preloadVoice(voiceId: string) {
   if (ready) {
-    ready.generate(" ", { voice: voiceId }).catch(() => {});
+    ready.generate("Radio", { voice: voiceId }).catch(() => {});
   }
 }
 
