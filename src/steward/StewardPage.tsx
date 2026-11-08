@@ -29,6 +29,7 @@ const ERRORS: Record<string, string> = {
   self_timed: "The teams time this session.",
   staging_off: "Staging is off for this session.",
   not_finished: "Only finished or DNF runs can be deleted.",
+  already_queued: "That driver is already in the queue or on stage.",
 };
 
 type DialogState =
@@ -175,6 +176,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
   const selNotes = sel ? state.notes.filter((n) => n.driver.toLowerCase() === sel.name.toLowerCase()) : [];
   const bestFinal = rows.reduce<number | undefined>((m, r) => (r.finalMs != null && (m == null || r.finalMs < m) ? r.finalMs : m), undefined);
   const selIndex = sel ? queued.indexOf(sel) : -1;
+  const hasActiveRun = sel ? state.runs.some((r) => r.name.toLowerCase() === sel.name.toLowerCase() && (r.status === "queued" || r.status === "onstage")) : false;
   const radioTarget = to === "all" ? "all" : to.filter((i) => byId(i));
   const teamTarget = teamTo ? teams.filter((t) => teamTo.includes(t.id)) : null;
   const canTransmit = text.trim() !== "" && (teamTarget ? teamTarget.length > 0 : radioTarget === "all" || radioTarget.length > 0);
@@ -396,6 +398,11 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
                       </>
                     )}
                     {sel.status === "dnf" && <button className="r-cell r-cell--red" onClick={() => setDialog({ kind: "delete", runId: sel.id })}>Delete run</button>}
+                    {!session.selfTimed && (sel.status === "finished" || sel.status === "dnf") && (
+                      <button className="r-cell" disabled={hasActiveRun} onClick={() => send({ type: "queueAgain", runId: sel.id })}>
+                        Queue Again
+                      </button>
+                    )}
                     {(sel.status === "queued" || sel.status === "onstage") && (
                       <button className="r-cell" aria-pressed={sel.mode === "long"} disabled={!!sel.laps?.length && sel.mode === "long"} onClick={() => send({ type: "setMode", runId: sel.id, mode: sel.mode === "long" ? "quali" : "long" })}>
                         {sel.mode === "long" ? "Long run" : "Quali"}

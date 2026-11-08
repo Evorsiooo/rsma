@@ -6,7 +6,7 @@ import type { SessionInfo } from "../shared/types";
 import { answerAsk, api, driverRadio } from "./api";
 import { enableAudio, setVolume, speak, startBeeps } from "./audio";
 import { NotFound } from "./NotFound";
-import { AI_VOICES, aiStatus, DEFAULT_AI_VOICE, loadAi, onAiStatus, speakAi, type AiStatus } from "./tts";
+import { AI_VOICES, aiStatus, DEFAULT_AI_VOICE, loadAi, onAiStatus, preloadVoice, speakAi, type AiStatus } from "./tts";
 import { useMe } from "./me";
 import { Dialog, sessionCountdown, toast, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
@@ -79,9 +79,22 @@ export function DriverPage() {
   const me: Run | undefined = state ? pickRun(state.runs, name) : undefined;
   const say = useCallback(
     (text: string) => {
-      setRx(true);
-      const standard = () => speak(text, voiceURI, () => setRx(false));
-      if (engine === "ai" && speakAi(text, aiVoice, () => setRx(false), standard)) return;
+      const standard = () => {
+        setRx(true);
+        speak(text, voiceURI, () => setRx(false));
+      };
+      if (
+        engine === "ai" &&
+        speakAi(
+          text,
+          aiVoice,
+          () => setRx(false),
+          standard,
+          () => setRx(true),
+        )
+      ) {
+        return;
+      }
       standard();
     },
     [voiceURI, engine, aiVoice],
@@ -304,6 +317,7 @@ export function DriverPage() {
                   onChange={(e) => {
                     setAiVoice(e.target.value);
                     store.set("aivoice", e.target.value);
+                    preloadVoice(e.target.value);
                   }}
                 >
                   {[...new Set(AI_VOICES.map((v) => v.group))].map((g) => (

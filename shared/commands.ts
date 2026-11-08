@@ -49,6 +49,7 @@ export type Command =
   | { type: "ruleSet"; id: string; seconds: number }
   | { type: "ruleDel"; id: string }
   | { type: "radio"; to: "all" | string[]; text: string }
+  | { type: "queueAgain"; runId: string; team?: string }
   | { type: "reset" };
 
 export interface Ctx {
@@ -254,6 +255,32 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       if (r.status !== "finished" && r.status !== "dnf") return { error: "not_finished" };
       s.runs = s.runs.filter((x) => x !== r);
       note(`Deleted the time of ${r.name}`, "red");
+      break;
+    }
+    case "queueAgain": {
+      const r = run(cmd.runId);
+      if (!r) return { error: "not_found" };
+      if (cmd.team && r.team !== cmd.team) return { error: "not_found" };
+      if (r.status !== "finished" && r.status !== "dnf") return { error: "invalid" };
+      const hasActive = s.runs.some(
+        (x) => x.name.toLowerCase() === r.name.toLowerCase() && (x.status === "queued" || x.status === "onstage"),
+      );
+      if (hasActive) return { error: "already_queued" };
+      s.runs.push({
+        id: ctx.newId(),
+        name: r.name,
+        plate: r.plate,
+        status: "queued",
+        penalties: [],
+        penaltyMs: 0,
+        team: r.team,
+        teamName: r.teamName,
+        car: r.car,
+        number: r.number,
+        reg: r.reg,
+        mode: r.mode,
+      });
+      note(`Queued ${r.name} again${r.teamName ? `, ${r.teamName}` : ""}`);
       break;
     }
     case "cadence": {
@@ -523,20 +550,35 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
 
 /** Tell drivers what changed for them: their finish, a new position, a DNF. */
 function announceResults(prev: RaceState, next: RaceState, auto: (to: string[], text: string, say?: string, tone?: Tone) => void) {
-  const before = new Map(classify(prev.runs).map((r) => [r.id, r]));
-  for (const r of classify(next.runs)) {
-    const p = before.get(r.id);
+  const beforeRanked = classify(prev.runs);
+  const before = new Map(beforeRanked.map((r) => [r.id, r]));
+  const afterRanked = classify(next.runs);
+  const afterDriverRank = new Map(afterRanked.filter((r) => r.status === "finished" && r.rank != null).map((r) => [r.name.toLowerCase(), r.rank!]));
+
+  const prevRuns = new Map(prev.runs.map((r) => [r.id, r]));
+  for (const r of next.runs) {
+    const p = prevRuns.get(r.id);
     if (!p) continue;
-    if (r.status === "finished" && p.status !== "finished" && r.rawMs != null && r.finalMs != null) {
-      const pen = r.penaltyMs ? ` Penalties ${fmtPenalty(r.penaltyMs)}, final ${fmtTime(r.finalMs)}.` : "";
-      const spokenPen = r.penaltyMs ? ` Penalties ${r.penaltyMs / 1000} seconds, final ${spokenTime(r.finalMs)}.` : "";
-      auto([r.id], `Finished. Time ${fmtTime(r.rawMs)}.${pen} Position P${r.rank}.`, `Finished. Time ${spokenTime(r.rawMs)}.${spokenPen} Position ${r.rank}.`, "green");
-    } else if (r.status === "finished" && p.status === "finished" && p.rank !== r.rank) {
-      auto([r.id], `Position now P${r.rank}.`, `Position now ${r.rank}.`, (r.rank ?? 0) < (p.rank ?? 0) ? "green" : "yellow");
+    if (r.status === "finished" && p.status !== "finished" && r.rawMs != null) {
+      const finalMs = r.rawMs + r.penaltyMs;
+      const rank = afterDriverRank.get(r.name.toLowerCase());
+      const rankText = rank ? ` Position P${rank}.` : "";
+      const spokenRankText = rank ? ` Position ${rank}.` : "";
+      const pen = r.penaltyMs ? ` Penalties ${fmtPenalty(r.penaltyMs)}, final ${fmtTime(finalMs)}.` : "";
+      const spokenPen = r.penaltyMs ? ` Penalties ${r.penaltyMs / 1000} seconds, final ${spokenTime(finalMs)}.` : "";
+      auto([r.id], `Finished. Time ${fmtTime(r.rawMs)}.${pen}${rankText}`, `Finished. Time ${spokenTime(r.rawMs)}.${spokenPen}${spokenRankText}`, "green");
     } else if (r.status === "onstage" && p.status === "dnf") {
       auto([r.id], "DNF withdrawn. Timing continues.", undefined, "yellow");
     } else if (r.status === "dnf" && p.status !== "dnf") {
       auto([r.id], "Did not finish.", undefined, "red");
+    }
+  }
+
+  for (const r of afterRanked) {
+    if (r.status !== "finished" || r.rank == null) continue;
+    const p = before.get(r.id);
+    if (p && p.status === "finished" && p.rank !== r.rank) {
+      auto([r.id], `Position now P${r.rank}.`, `Position now ${r.rank}.`, (r.rank ?? 0) < (p.rank ?? 0) ? "green" : "yellow");
     }
   }
 }

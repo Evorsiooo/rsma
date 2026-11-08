@@ -58,27 +58,46 @@ export function loadAi(): Promise<boolean> {
   if (!model) {
     set({ state: "loading", progress: 0 });
     const files = new Map<string, { loaded: number; total: number }>();
+    const onProgress = (e: { status?: string; file?: string; loaded?: number; total?: number }) => {
+      if (e.status !== "progress" || !e.file || !e.total) return;
+      files.set(e.file, { loaded: e.loaded ?? 0, total: e.total });
+      let loaded = 0;
+      let total = 0;
+      for (const f of files.values()) {
+        loaded += f.loaded;
+        total += f.total;
+      }
+      set({ state: "loading", progress: total ? Math.min(1, loaded / total) : 0 });
+    };
+
     model = import("kokoro-js")
-      .then(({ KokoroTTS }) =>
-        KokoroTTS.from_pretrained(MODEL, {
+      .then(async ({ KokoroTTS }) => {
+        // Try WebGPU hardware acceleration first if available in the browser
+        if (typeof navigator !== "undefined" && "gpu" in navigator) {
+          try {
+            const adapter = await navigator.gpu.requestAdapter();
+            if (adapter) {
+              return await KokoroTTS.from_pretrained(MODEL, {
+                dtype: "q8",
+                device: "webgpu",
+                progress_callback: onProgress,
+              });
+            }
+          } catch {
+            // WebGPU initialization failed or blocked, fall back to wasm
+          }
+        }
+        return await KokoroTTS.from_pretrained(MODEL, {
           dtype: "q8",
           device: "wasm",
-          progress_callback: (e: { status?: string; file?: string; loaded?: number; total?: number }) => {
-            if (e.status !== "progress" || !e.file || !e.total) return;
-            files.set(e.file, { loaded: e.loaded ?? 0, total: e.total });
-            let loaded = 0;
-            let total = 0;
-            for (const f of files.values()) {
-              loaded += f.loaded;
-              total += f.total;
-            }
-            set({ state: "loading", progress: total ? Math.min(1, loaded / total) : 0 });
-          },
-        }),
-      )
+          progress_callback: onProgress,
+        });
+      })
       .then((m) => {
         ready = m as unknown as Model;
         set({ state: "ready", progress: 1 });
+        // Warm up the model pipeline & cache default voice in background
+        ready.generate(" ", { voice: DEFAULT_AI_VOICE }).catch(() => {});
         return ready;
       })
       .catch(() => {
@@ -90,18 +109,32 @@ export function loadAi(): Promise<boolean> {
   return model.then((m) => !!m);
 }
 
+/** Preload a voice embedding so subsequent speech generation doesn't suffer a download delay. */
+export function preloadVoice(voiceId: string) {
+  if (ready) {
+    ready.generate(" ", { voice: voiceId }).catch(() => {});
+  }
+}
+
 let chain: Promise<void> = Promise.resolve();
 
 /**
  * Speak with the neural voice. Returns false when the model is not ready, so the caller speaks with the standard
  * voice at once. If synthesis fails half way, `fallback` speaks the message instead. Messages play in order.
  */
-export function speakAi(text: string, voiceId: string, onEnd: () => void, fallback: () => void): boolean {
+export function speakAi(
+  text: string,
+  voiceId: string,
+  onEnd: () => void,
+  fallback: () => void,
+  onStart?: () => void,
+): boolean {
   const m = ready;
   if (!m) return false;
   chain = chain.then(async () => {
     try {
       const a = await m.generate(text, { voice: voiceId });
+      onStart?.();
       await new Promise<void>((done) => playSamples(a.audio, a.sampling_rate, done));
       onEnd();
     } catch {

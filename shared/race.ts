@@ -175,20 +175,55 @@ export interface Row extends Run {
 
 const ORDER: Record<RunStatus, number> = { finished: 0, onstage: 1, queued: 2, dnf: 3 };
 
-/** Finished runs ranked by final time, then on stage, queued, DNF in entry order. */
+/** Finished runs ranked by fastest final time, then on stage, queued, DNF in entry order. */
 export function classify(runs: Run[]): Row[] {
-  const rows: Row[] = runs.map((r) => ({
+  const all: Row[] = runs.map((r) => ({
     ...r,
     finalMs: r.status === "finished" && r.rawMs != null ? r.rawMs + r.penaltyMs : undefined,
   }));
-  rows.sort((a, b) => {
+
+  const byDriver = new Map<string, Row[]>();
+  for (const r of all) {
+    const key = r.name.toLowerCase();
+    const list = byDriver.get(key) ?? [];
+    list.push(r);
+    byDriver.set(key, list);
+  }
+
+  const selected: Row[] = [];
+  for (const list of byDriver.values()) {
+    // Best finished run (fastest finalMs)
+    const finished = list.filter((r) => r.status === "finished" && r.finalMs != null);
+    if (finished.length > 0) {
+      finished.sort((a, b) => a.finalMs! - b.finalMs!);
+      selected.push(finished[0]);
+    } else {
+      // If no finished runs, keep the latest DNF run if any
+      const dnfs = list.filter((r) => r.status === "dnf");
+      if (dnfs.length > 0) {
+        selected.push(dnfs[dnfs.length - 1]);
+      }
+    }
+
+    // Active runs (queued or onstage)
+    const active = list.filter((r) => r.status === "queued" || r.status === "onstage");
+    for (const a of active) {
+      selected.push(a);
+    }
+  }
+
+  const entryIndex = new Map(all.map((r, i) => [r.id, i]));
+  selected.sort((a, b) => {
     if (ORDER[a.status] !== ORDER[b.status]) return ORDER[a.status] - ORDER[b.status];
-    if (a.finalMs != null && b.finalMs != null) return a.finalMs - b.finalMs;
-    return 0;
+    if (a.status === "finished" && a.finalMs != null && b.finalMs != null) {
+      return a.finalMs - b.finalMs;
+    }
+    return (entryIndex.get(a.id) ?? 0) - (entryIndex.get(b.id) ?? 0);
   });
+
   let rank = 0;
-  for (const r of rows) if (r.finalMs != null) r.rank = ++rank;
-  return rows;
+  for (const r of selected) if (r.status === "finished" && r.finalMs != null) r.rank = ++rank;
+  return selected;
 }
 
 /** mm:ss.mmm */

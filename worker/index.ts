@@ -107,7 +107,7 @@ app.get("/api/sessions/:id/ws", async (c) => {
 });
 
 // Steward commands. The role check happens here; the Durable Object validates and applies.
-const RACE_TIMING_CMDS = ["go", "finish", "assign", "discard", "lap", "setTime", "unattribute", "reattribute", "dnf", "undnf", "setMode", "penalty", "teamGo", "teamFinish", "teamMove"];
+const RACE_TIMING_CMDS = ["go", "finish", "assign", "discard", "lap", "setTime", "unattribute", "reattribute", "dnf", "undnf", "setMode", "penalty", "teamGo", "teamFinish", "teamMove", "queueAgain"];
 
 app.post("/api/sessions/:id/cmd", async (c) => {
   const id = c.req.param("id");
@@ -121,7 +121,7 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
   // Team commands only come through the team routes; self-timed sessions have no steward Go or Stop.
   if (["teamGo", "teamFinish", "teamMove", "teamNote", "teamNoteDel", "syncReg", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
-  if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish")) return c.json({ error: "self_timed" }, 409);
+  if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish" || cmd.type === "queueAgain")) return c.json({ error: "self_timed" }, 409);
   // Races are run differently for now: no live timing.
   if (info.session.type === "race" && RACE_TIMING_CMDS.includes(cmd.type)) return c.json({ error: "race_timing_off" }, 409);
   if (cmd.type === "add" && !info.session.staging) return c.json({ error: "staging_off" }, 409);
@@ -234,7 +234,7 @@ app.post("/api/sessions/:id/driver/radio", async (c) => {
 });
 
 // Self-timed practice: a team fixes the times of its own cars (DNF, attribute or remove a time, enter a time).
-const TEAM_RUN_CMDS = ["cadence", "dnf", "undnf", "assign", "unattribute", "reattribute", "setTime", "setMode", "lap"];
+const TEAM_RUN_CMDS = ["cadence", "dnf", "undnf", "assign", "unattribute", "reattribute", "setTime", "setMode", "lap", "queueAgain"];
 app.post("/api/sessions/:id/team/:teamId/run", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;

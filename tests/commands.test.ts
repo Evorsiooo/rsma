@@ -375,3 +375,105 @@ test("a steward message to a team reaches that team's staged drivers, not other 
   assert.deepEqual(viewFor(s, { staff: false, teams: [], user: "bob" }).radio, []);
   assert.deepEqual(viewFor(s, { staff: false, teams: ["t1"], user: "x" }).radio.map((m) => m.text), ["box now"]);
 });
+
+test("queueAgain puts finished driver back in queue, driver is twice on table, and fastest time remains", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Ann", plate: "A1" }, 0);
+  s = run(s, { type: "add", name: "Bob", plate: "B1" }, 0);
+  const annId1 = s.runs[0].id;
+  const bobId = s.runs[1].id;
+
+  // Run 1: Ann 60s, Bob 55s
+  s = run(s, { type: "go" }, 1000); // Ann starts 4000
+  s = run(s, { type: "go" }, 2000); // Bob starts 5000
+  s = run(s, { type: "finish", runId: annId1 }, 64000); // Ann: 60s
+  s = run(s, { type: "finish", runId: bobId }, 60000); // Bob: 55s
+
+  assert.deepEqual(classify(s.runs).map((r) => [r.name, r.status, r.rank, r.finalMs]), [
+    ["Bob", "finished", 1, 55000],
+    ["Ann", "finished", 2, 60000],
+  ]);
+
+  // Queue Ann again
+  s = run(s, { type: "queueAgain", runId: annId1 }, 70000);
+  assert.equal(s.runs.length, 3);
+  const annId2 = s.runs[2].id;
+  assert.equal(s.runs[2].status, "queued");
+
+  // Ann is now twice on the table: finished at P2 (60s) and queued below in order
+  const rowsAfterRequeue = classify(s.runs);
+  assert.deepEqual(rowsAfterRequeue.map((r) => [r.name, r.status, r.rank, r.finalMs]), [
+    ["Bob", "finished", 1, 55000],
+    ["Ann", "finished", 2, 60000],
+    ["Ann", "queued", undefined, undefined],
+  ]);
+
+  // Cannot queue again while already queued
+  assert.equal(fails(s, { type: "queueAgain", runId: annId1 }, 71000), "already_queued");
+  assert.equal(fails(s, { type: "queueAgain", runId: annId2 }, 71000), "invalid"); // not finished or dnf
+
+  // Ann starts run 2
+  s = run(s, { type: "go" }, 72000); // starts 75000
+  assert.equal(fails(s, { type: "queueAgain", runId: annId1 }, 73000), "already_queued"); // onstage counts as active
+
+  // Ann finishes run 2 with 65s (slower than her 60s run 1)
+  s = run(s, { type: "finish", runId: annId2 }, 140000); // 140000 - 75000 = 65000 ms
+
+  // Fastest time (60s, P2) still remains!
+  const rowsAfterSlower = classify(s.runs);
+  assert.deepEqual(rowsAfterSlower.map((r) => [r.name, r.status, r.rank, r.finalMs]), [
+    ["Bob", "finished", 1, 55000],
+    ["Ann", "finished", 2, 60000],
+  ]);
+
+  // Queue Ann for run 3
+  s = run(s, { type: "queueAgain", runId: annId1 }, 150000);
+  const annId3 = s.runs[3].id;
+  s = run(s, { type: "go" }, 151000); // starts 154000
+  // Ann finishes run 3 with 50s (faster than 55s and 60s)
+  s = run(s, { type: "finish", runId: annId3 }, 204000); // 204000 - 154000 = 50000 ms
+
+  // Ann is now P1 with 50s!
+  const rowsAfterFaster = classify(s.runs);
+  assert.deepEqual(rowsAfterFaster.map((r) => [r.name, r.status, r.rank, r.finalMs]), [
+    ["Ann", "finished", 1, 50000],
+    ["Bob", "finished", 2, 55000],
+  ]);
+});
+
+test("queueAgain in team-timed session enforces team ownership and supports DNF", () => {
+  let s = emptyState();
+  const red = { id: "t1", name: "Red" };
+  const blue = { id: "t2", name: "Blue" };
+  s = run(s, { type: "add", name: "Ann", plate: "A1", team: red }, 0);
+  s = run(s, { type: "add", name: "Bob", plate: "B1", team: blue }, 0);
+
+  s = run(s, { type: "teamGo", team: "t1" }, 1000);
+  s = run(s, { type: "teamGo", team: "t2" }, 2000);
+  s = run(s, { type: "teamFinish", team: "t1" }, 30000); // Ann finished
+  s = run(s, { type: "dnf", runId: s.runs[1].id, team: "t2" }, 31000); // Bob DNF
+
+  const annId = s.runs[0].id;
+  const bobId = s.runs[1].id;
+
+  // Blue cannot queue Red's car
+  assert.equal(fails(s, { type: "queueAgain", runId: annId, team: "t2" }, 32000), "not_found");
+  // Red can queue Ann again
+  s = run(s, { type: "queueAgain", runId: annId, team: "t1" }, 33000);
+  assert.equal(s.runs[2].team, "t1");
+  assert.equal(s.runs[2].status, "queued");
+
+  // Blue can queue Bob again from DNF
+  s = run(s, { type: "queueAgain", runId: bobId, team: "t2" }, 34000);
+  assert.equal(s.runs[3].team, "t2");
+  assert.equal(s.runs[3].status, "queued");
+
+  // Bob is twice on table: once in queue, once in DNF
+  const rows = classify(s.runs);
+  assert.deepEqual(rows.map((r) => [r.name, r.status]), [
+    ["Ann", "finished"],
+    ["Ann", "queued"],
+    ["Bob", "queued"],
+    ["Bob", "dnf"],
+  ]);
+});

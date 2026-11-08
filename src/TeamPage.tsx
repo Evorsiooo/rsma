@@ -32,6 +32,7 @@ const ERRORS: Record<string, string> = {
   too_soon: "Lap just recorded.",
   has_laps: "Laps are recorded, so this car stays on long run.",
   unauthorized: "Sign in again.",
+  already_queued: "That driver is already in the queue or on stage.",
 };
 const mmss = (ms: number) => {
   const t = Math.max(0, Math.ceil(ms / 1000));
@@ -133,6 +134,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const modeText = (r: Run) => (r.team !== team.id ? "" : r.mode === "long" ? `Long run${r.laps?.length ? ` (${r.laps.length})` : ""}` : "Quali");
   const ownQueue = queued.filter((r) => r.team === team.id);
   const selOwnIdx = sel && sel.status === "queued" && sel.team === team.id ? ownQueue.indexOf(sel) : -1;
+  const hasActiveRun = sel ? state.runs.some((r) => r.name.toLowerCase() === sel.name.toLowerCase() && (r.status === "queued" || r.status === "onstage")) : false;
   const windows = state.pitWindows.filter((w) => w.team === team.id);
   const elapsed = now - session.startsAt;
   // Graduation under the timeline: about five labelled marks, on round minutes.
@@ -367,6 +369,11 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                     {sel.status === "dnf" && sel.startedAt != null && <button className="r-cell" onClick={() => send({ type: "undnf", runId: sel.id })}>Undo DNF</button>}
                     {sel.status === "finished" && sel.startedAt != null && (
                       <button className="r-cell" onClick={() => send({ type: "unattribute", runId: sel.id })}>Remove time</button>
+                    )}
+                    {(sel.status === "finished" || sel.status === "dnf") && (
+                      <button className="r-cell" disabled={hasActiveRun} onClick={() => send({ type: "queueAgain", runId: sel.id })}>
+                        Queue Again
+                      </button>
                     )}
                     {(sel.status === "queued" || sel.status === "onstage") && (
                       <button className="r-cell" aria-pressed={sel.mode === "long"} disabled={!!sel.laps?.length && sel.mode === "long"} onClick={() => send({ type: "setMode", runId: sel.id, mode: sel.mode === "long" ? "quali" : "long" })}>
