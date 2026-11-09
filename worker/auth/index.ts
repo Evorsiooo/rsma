@@ -66,7 +66,7 @@ auth.get("/roblox/login", async (c) => {
   const redirectUri = c.env.ROBLOX_REDIRECT_URI?.trim() || `${origin(c)}/api/auth/roblox/callback`;
   const isLocal = new URL(c.req.url).hostname === "localhost" || new URL(c.req.url).hostname === "127.0.0.1";
   const secure = !isLocal;
-  setCookie(c, STATE_COOKIE, `${state}.${verifier}.${encodeURIComponent(redirectUri)}`, { path: "/", httpOnly: true, sameSite: "Lax", secure, maxAge: 600 });
+  setCookie(c, STATE_COOKIE, `${state}.${verifier}`, { path: "/", httpOnly: true, sameSite: "Lax", secure, maxAge: 600 });
   // Where to land after sign-in: same-site paths only.
   const next = c.req.query("next") ?? "";
   if (/^\/[A-Za-z0-9/_-]*$/.test(next) && !next.startsWith("//")) {
@@ -91,11 +91,11 @@ auth.get("/roblox/callback", async (c) => {
   };
   const { code, state, error, error_description } = c.req.query();
   if (error) return fail("denied", error_description || error);
-  const [savedState, verifier, savedRedirect] = (getCookie(c, STATE_COOKIE) ?? "").split(".");
-  const redirectUri = savedRedirect ? decodeURIComponent(savedRedirect) : (c.env.ROBLOX_REDIRECT_URI?.trim() || `${origin(c)}/api/auth/roblox/callback`);
+  const [savedState, verifier] = (getCookie(c, STATE_COOKIE) ?? "").split(".");
+  const redirectUri = c.env.ROBLOX_REDIRECT_URI?.trim() || `${origin(c)}/api/auth/roblox/callback`;
   const clientId = c.env.ROBLOX_CLIENT_ID?.trim() ?? "";
   const clientSecret = c.env.ROBLOX_CLIENT_SECRET?.trim() ?? "";
-    if (!code || !state || !savedState || state !== savedState || !verifier) return fail("state");
+  if (!code || !state || !savedState || state !== savedState || !verifier) return fail("state");
 
   const tokenRes = await fetch(`${base(c.env)}/oauth/v1/token`, {
     method: "POST",
@@ -117,7 +117,7 @@ auth.get("/roblox/callback", async (c) => {
       const parsed = JSON.parse(errText);
       detail = parsed.error_description || parsed.error || `HTTP ${tokenRes.status}`;
     } catch {
-      if (errText.includes("1015")) detail = "Rate-limited by Roblox Cloudflare (Error 1015). Please wait 5-10 minutes."; else detail = errText.slice(0, 100) || `HTTP ${tokenRes.status}`;
+      detail = errText.slice(0, 100) || `HTTP ${tokenRes.status}`;
     }
     return fail("token", detail);
   }
