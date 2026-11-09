@@ -18,6 +18,8 @@ export interface AuthEnv {
 }
 
 const STATE_COOKIE = "flagman_oauth";
+const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
+
 const NEXT_COOKIE = "flagman_next";
 const base = (env: AuthEnv) => env.ROBLOX_OAUTH_BASE ?? "https://apis.roblox.com";
 
@@ -93,12 +95,11 @@ auth.get("/roblox/callback", async (c) => {
   const redirectUri = savedRedirect ? decodeURIComponent(savedRedirect) : (c.env.ROBLOX_REDIRECT_URI?.trim() || `${origin(c)}/api/auth/roblox/callback`);
   const clientId = c.env.ROBLOX_CLIENT_ID?.trim() ?? "";
   const clientSecret = c.env.ROBLOX_CLIENT_SECRET?.trim() ?? "";
-  const basicAuth = btoa(`${clientId}:${clientSecret}`);
-  if (!code || !state || !savedState || state !== savedState || !verifier) return fail("state");
+    if (!code || !state || !savedState || state !== savedState || !verifier) return fail("state");
 
   const tokenRes = await fetch(`${base(c.env)}/oauth/v1/token`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "Authorization": `Basic ${basicAuth}` },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": USER_AGENT },
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
@@ -116,14 +117,14 @@ auth.get("/roblox/callback", async (c) => {
       const parsed = JSON.parse(errText);
       detail = parsed.error_description || parsed.error || `HTTP ${tokenRes.status}`;
     } catch {
-      detail = errText.slice(0, 100) || `HTTP ${tokenRes.status}`;
+      if (errText.includes("1015")) detail = "Rate-limited by Roblox Cloudflare (Error 1015). Please wait 5-10 minutes."; else detail = errText.slice(0, 100) || `HTTP ${tokenRes.status}`;
     }
     return fail("token", detail);
   }
   const { access_token } = (await tokenRes.json()) as { access_token?: string };
   if (!access_token) return fail("token", "No access token in response");
 
-  const infoRes = await fetch(`${base(c.env)}/oauth/v1/userinfo`, { headers: { Authorization: `Bearer ${access_token}` } });
+  const infoRes = await fetch(`${base(c.env)}/oauth/v1/userinfo`, { headers: { Authorization: `Bearer ${access_token}`, "User-Agent": USER_AGENT } });
   if (!infoRes.ok) {
     const errText = await infoRes.text().catch(() => "");
     console.error("Roblox /oauth/v1/userinfo failed:", infoRes.status, errText);
