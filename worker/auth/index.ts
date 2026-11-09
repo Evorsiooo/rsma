@@ -10,6 +10,7 @@ export interface AuthEnv {
   ROBLOX_CLIENT_ID: string;
   ROBLOX_CLIENT_SECRET: string;
   SESSION_SECRET: string;
+  ROBLOX_REDIRECT_URI?: string;
   /** Optional: Roblox user id that becomes admin on first sign-in while no admin exists. */
   INITIAL_ADMIN_ROBLOX_ID?: string;
   /** Local development only: point OAuth at a mock server. */
@@ -23,7 +24,8 @@ const base = (env: AuthEnv) => env.ROBLOX_OAUTH_BASE ?? "https://apis.roblox.com
 function origin(c: { req: { url: string; header: (n: string) => string | undefined } }) {
   const url = new URL(c.req.url);
   const host = c.req.header("x-forwarded-host") ?? url.host;
-  const proto = c.req.header("x-forwarded-proto") ?? url.protocol.replace(":", "");
+  const isLocal = host.startsWith("localhost") || host.startsWith("127.0.0.1");
+  const proto = isLocal ? "http" : "https";
   return `${proto}://${host}`;
 }
 
@@ -59,17 +61,19 @@ export const auth = new Hono<{ Bindings: AuthEnv }>();
 auth.get("/roblox/login", async (c) => {
   const state = randomToken();
   const verifier = randomToken(48);
-  const secure = new URL(c.req.url).protocol === "https:" || c.req.header("x-forwarded-proto") === "https";
-  setCookie(c, STATE_COOKIE, `${state}.${verifier}`, { path: "/", httpOnly: true, sameSite: "Lax", secure, maxAge: 600 });
+  const redirectUri = c.env.ROBLOX_REDIRECT_URI?.trim() || `${origin(c)}/api/auth/roblox/callback`;
+  const isLocal = new URL(c.req.url).hostname === "localhost" || new URL(c.req.url).hostname === "127.0.0.1";
+  const secure = !isLocal;
+  setCookie(c, STATE_COOKIE, `${state}.${verifier}.${encodeURIComponent(redirectUri)}`, { path: "/", httpOnly: true, sameSite: "Lax", secure, maxAge: 600 });
   // Where to land after sign-in: same-site paths only.
   const next = c.req.query("next") ?? "";
   if (/^\/[A-Za-z0-9/_-]*$/.test(next) && !next.startsWith("//")) {
     setCookie(c, NEXT_COOKIE, next, { path: "/", httpOnly: true, sameSite: "Lax", secure, maxAge: 600 });
   }
   const q = new URLSearchParams({
-    client_id: c.env.ROBLOX_CLIENT_ID,
+    client_id: c.env.ROBLOX_CLIENT_ID?.trim() ?? "",
     response_type: "code",
-    redirect_uri: `${origin(c)}/api/auth/roblox/callback`,
+    redirect_uri: redirectUri,
     scope: "openid profile",
     state,
     code_challenge: await sha256b64url(verifier),
@@ -79,33 +83,59 @@ auth.get("/roblox/login", async (c) => {
 });
 
 auth.get("/roblox/callback", async (c) => {
-  const fail = (code: string) => {
+  const fail = (code: string, detail?: string) => {
     deleteCookie(c, STATE_COOKIE, { path: "/" });
-    return c.redirect(`/?auth_error=${code}`);
+    return c.redirect(`/?auth_error=${code}${detail ? `&detail=${encodeURIComponent(detail)}` : ""}`);
   };
-  const { code, state, error } = c.req.query();
-  if (error) return fail("denied");
-  const [savedState, verifier] = (getCookie(c, STATE_COOKIE) ?? "").split(".");
+  const { code, state, error, error_description } = c.req.query();
+  if (error) return fail("denied", error_description || error);
+  const [savedState, verifier, savedRedirect] = (getCookie(c, STATE_COOKIE) ?? "").split(".");
+  const redirectUri = savedRedirect ? decodeURIComponent(savedRedirect) : (c.env.ROBLOX_REDIRECT_URI?.trim() || `${origin(c)}/api/auth/roblox/callback`);
+  const clientId = c.env.ROBLOX_CLIENT_ID?.trim() ?? "";
+  const clientSecret = c.env.ROBLOX_CLIENT_SECRET?.trim() ?? "";
+  const basicAuth = btoa(`${clientId}:${clientSecret}`);
   if (!code || !state || !savedState || state !== savedState || !verifier) return fail("state");
 
   const tokenRes = await fetch(`${base(c.env)}/oauth/v1/token`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { "Content-Type": "application/x-www-form-urlencoded", "Authorization": `Basic ${basicAuth}` },
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
-      client_id: c.env.ROBLOX_CLIENT_ID,
-      client_secret: c.env.ROBLOX_CLIENT_SECRET,
-      redirect_uri: `${origin(c)}/api/auth/roblox/callback`,
+      client_id: clientId,
+      client_secret: clientSecret,
+      redirect_uri: redirectUri,
       code_verifier: verifier,
     }),
   });
-  if (!tokenRes.ok) return fail("token");
+  if (!tokenRes.ok) {
+    const errText = await tokenRes.text().catch(() => "");
+    console.error("Roblox /oauth/v1/token failed:", tokenRes.status, errText);
+    let detail = "";
+    try {
+      const parsed = JSON.parse(errText);
+      detail = parsed.error_description || parsed.error || `HTTP ${tokenRes.status}`;
+    } catch {
+      detail = errText.slice(0, 100) || `HTTP ${tokenRes.status}`;
+    }
+    return fail("token", detail);
+  }
   const { access_token } = (await tokenRes.json()) as { access_token?: string };
-  if (!access_token) return fail("token");
+  if (!access_token) return fail("token", "No access token in response");
 
   const infoRes = await fetch(`${base(c.env)}/oauth/v1/userinfo`, { headers: { Authorization: `Bearer ${access_token}` } });
-  if (!infoRes.ok) return fail("profile");
+  if (!infoRes.ok) {
+    const errText = await infoRes.text().catch(() => "");
+    console.error("Roblox /oauth/v1/userinfo failed:", infoRes.status, errText);
+    let detail = "";
+    try {
+      const parsed = JSON.parse(errText);
+      detail = parsed.error_description || parsed.error || `HTTP ${infoRes.status}`;
+    } catch {
+      detail = errText.slice(0, 100) || `HTTP ${infoRes.status}`;
+    }
+    return fail("profile", detail);
+  }
   const info = (await infoRes.json()) as { sub?: string; preferred_username?: string; name?: string; nickname?: string };
   if (!info.sub) return fail("profile");
   const username = info.preferred_username ?? info.name ?? info.sub;
@@ -128,7 +158,8 @@ auth.get("/roblox/callback", async (c) => {
       .run();
   }
 
-  const secure = new URL(c.req.url).protocol === "https:" || c.req.header("x-forwarded-proto") === "https";
+  const isLocal = new URL(c.req.url).hostname === "localhost" || new URL(c.req.url).hostname === "127.0.0.1";
+  const secure = !isLocal;
   deleteCookie(c, STATE_COOKIE, { path: "/" });
   setCookie(c, SESSION_COOKIE, await signSession(c.env.SESSION_SECRET, info.sub), {
     path: "/",
@@ -155,7 +186,8 @@ auth.post("/token", async (c) => {
     return c.json({ error: "invalid_code" }, 401);
   }
   await c.env.DB.prepare("UPDATE access_codes SET last_used = ? WHERE roblox_id = ?").bind(Date.now(), found.id).run();
-  const secure = new URL(c.req.url).protocol === "https:" || c.req.header("x-forwarded-proto") === "https";
+  const isLocal = new URL(c.req.url).hostname === "localhost" || new URL(c.req.url).hostname === "127.0.0.1";
+  const secure = !isLocal;
   setCookie(c, SESSION_COOKIE, await signSession(c.env.SESSION_SECRET, found.id, "token", found.at), {
     path: "/",
     httpOnly: true,

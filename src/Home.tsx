@@ -28,9 +28,13 @@ export function Home({ races }: { races: RaceSummary[] }) {
     api.pastRaces().then(setPast, () => {});
   }, []);
   const [authError] = useState(() => {
-    const code = new URLSearchParams(location.search).get("auth_error");
+    const params = new URLSearchParams(location.search);
+    const code = params.get("auth_error");
+    const detail = params.get("detail");
     if (code) history.replaceState(null, "", "/");
-    return code ? (AUTH_ERRORS[code] ?? "Sign-in failed.") : null;
+    if (!code) return null;
+    const base = AUTH_ERRORS[code] ?? "Sign-in failed.";
+    return detail ? `${base} (${detail})` : base;
   });
   return (
     <Shell>
