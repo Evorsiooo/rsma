@@ -25,7 +25,7 @@ export const audioStore = {
 export interface AudioSettingsDialogProps {
   onClose: () => void;
   audioOn: boolean;
-  onEnable: () => Promise<boolean> | void;
+  onEnable: () => Promise<unknown> | void;
   onDisable?: () => void;
   vol: number;
   setVol: (v: number) => void;

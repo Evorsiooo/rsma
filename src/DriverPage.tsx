@@ -145,7 +145,9 @@ export function DriverPage() {
       onClose={() => setSettings(false)}
       audioOn={audioOn}
       onEnable={async () => {
-        if (await enableAudio()) setAudioOn(true);
+        const ok = await enableAudio();
+        if (ok) setAudioOn(true);
+        return ok;
       }}
       onDisable={() => setAudioOn(false)}
       vol={vol}

@@ -553,7 +553,11 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
 }
 
 /** Tell drivers what changed for them: their finish, a new position, a DNF. */
-function announceResults(prev: RaceState, next: RaceState, auto: (to: string[], text: string, say?: string, tone?: Tone) => void) {
+function announceResults(
+  prev: RaceState,
+  next: RaceState,
+  auto: (to: string[], text: string, say?: string, tone?: Tone, team?: string, teamName?: string) => void,
+) {
   const beforeRanked = classify(prev.runs);
   const before = new Map(beforeRanked.map((r) => [r.id, r]));
   const afterRanked = classify(next.runs);
