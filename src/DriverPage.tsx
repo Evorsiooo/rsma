@@ -194,18 +194,17 @@ export function DriverPage() {
         <div className="r-panel r-fill" style={{ display: "flex", flexDirection: "column", justifyContent: "center", alignItems: "center", minHeight: 280 }}>
           <div className="r-header" style={{ width: "100%" }}>{user ? user.username : "Driver Radio"}</div>
           <div className="r-stack" style={{ padding: 24, gap: 14, alignItems: "center", width: "100%", maxWidth: 280, boxSizing: "border-box" }}>
-            <div className="r-lamp r-lamp--fixed r-lamp--yellow">AUDIO REQUIRED</div>
             <div className="r-text" style={{ textAlign: "center", lineHeight: "1.4" }}>
               Click Enable to activate radio audio and connect to race control.
             </div>
             <button
-              className="r-btn r-cell--wide is-green"
-              style={{ width: "100%", height: 38, fontSize: 13, fontWeight: "bold" }}
+              className="r-btn r-btn--advance"
+              style={{ width: "100%" }}
               onClick={async () => {
                 if (await enableAudio()) setAudioOn(true);
               }}
             >
-              Enable Radio
+              <span>Enable Radio</span>
             </button>
             {!user && (
               <button className="r-btn" style={{ width: "100%" }} onClick={() => startSignIn()}>

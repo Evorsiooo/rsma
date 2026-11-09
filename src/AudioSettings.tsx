@@ -69,8 +69,7 @@ export function AudioSettingsDialog({
           <div className="r-row" style={{ alignItems: "center", gap: 8 }}>
             {!audioOn ? (
               <button
-                className="r-btn is-green r-fill"
-                style={{ height: 32, fontWeight: "bold" }}
+                className="r-btn r-fill"
                 onClick={async () => {
                   await onEnable();
                 }}
@@ -79,11 +78,9 @@ export function AudioSettingsDialog({
               </button>
             ) : (
               <>
-                <div className="r-lamp r-lamp--fixed" style={{ height: 26, lineHeight: "26px", flex: 1, textAlign: "center" }}>
-                  AUDIO ACTIVE
-                </div>
+                <span className="r-text r-fill">Audio active</span>
                 {onDisable && (
-                  <button className="r-btn" style={{ height: 26 }} onClick={onDisable}>
+                  <button className="r-btn" style={{ width: 80 }} onClick={onDisable}>
                     Mute
                   </button>
                 )}
@@ -176,9 +173,12 @@ export function AudioSettingsDialog({
           )}
           <button
             className="r-btn"
-            onClick={async () => {
-              if (!audioOn) await onEnable();
-              say("Radio check.");
+            disabled={!audioOn}
+            onClick={() => {
+              enableAudio();
+              setTimeout(() => {
+                say("Radio check.");
+              }, 20);
             }}
           >
             Test voice

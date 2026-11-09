@@ -59,16 +59,8 @@ export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeL
               {r.name}
               {mine?.(r) && onRadio && (
                 <span
-                  className={`r-lamp r-lamp--fixed${onRadio.includes(r.name.toLowerCase()) ? "" : " is-off"}`}
-                  style={{
-                    marginLeft: 6,
-                    fontSize: 8,
-                    height: 14,
-                    lineHeight: "14px",
-                    padding: "0 3px",
-                    display: "inline-block",
-                    verticalAlign: "middle",
-                  }}
+                  className={`r-tag${onRadio.includes(r.name.toLowerCase()) ? " is-green" : ""}`}
+                  style={{ marginLeft: 6 }}
                   title={onRadio.includes(r.name.toLowerCase()) ? "Driver is on the radio" : "Driver is not on the radio"}
                 >
                   RD

@@ -252,20 +252,6 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
         <span className="r-text r-text--dim">{race.name}</span>
         <SessionSelect sessions={race.sessions} current={session.id} suffix={`/team/${team.id}`} width={180} />
         <button className="r-btn" onClick={() => nav(`/session/${sessionId}`)}>Timing</button>
-        {!audio.audioOn ? (
-          <button className="r-btn is-green" onClick={audio.enable} title="Enable radio audio">
-            Enable Audio
-          </button>
-        ) : (
-          <button className={`r-btn${audio.rx ? " is-on" : ""}`} onClick={() => audio.setSettingsOpen(true)} title="Audio settings">
-            🔊 Audio{audio.rx ? " (RX)" : ""}
-          </button>
-        )}
-        <button className="r-btn r-btn--icon" aria-label="Audio settings" title="Audio settings" style={{ width: 30, padding: 0 }} onClick={() => audio.setSettingsOpen(true)}>
-          <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" fill="currentColor" style={{ display: "block", margin: "auto" }}>
-            <path d="M6 0h4v2h2v1h1v2h2v4h-2v1h-1v2h-2v1h-2v2H6v-2H4v-1H3v-2H1V5h2V4h1V2h2zM8 5a3 3 0 1 0 0 6 3 3 0 0 0 0-6z" fillRule="evenodd" />
-          </svg>
-        </button>
       </Topbar>
       <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
         {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended.</div>}
@@ -380,7 +366,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
             </div>
             <div className="r-section"><span>Audio</span></div>
             <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
-              <button className={`r-btn${audio.audioOn ? " is-green" : ""}`} onClick={audio.audioOn ? audio.disable : audio.enable}>
+              <button className="r-btn" aria-pressed={audio.audioOn} onClick={audio.audioOn ? audio.disable : audio.enable}>
                 {audio.audioOn ? "Audio On" : "Enable"}
               </button>
               <button className="r-btn" onClick={() => audio.setSettingsOpen(true)}>Settings</button>

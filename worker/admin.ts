@@ -105,7 +105,7 @@ admin.post("/system/discord-webhook/test", guard("admin"), async (c) => {
   } catch {
     return c.json({ error: "invalid_url" }, 400);
   }
-  const ok = await sendDiscordWebhook(url, formatDiscordStewardMessage("Test message from Flagman system settings"));
+  const ok = await sendDiscordWebhook(url, formatDiscordStewardMessage("Test message"));
   if (!ok) return c.json({ error: "delivery_failed" }, 400);
   return c.json({ ok: true });
 });

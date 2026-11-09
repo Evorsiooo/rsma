@@ -7,10 +7,10 @@ export const audioReady = () => ctx?.state === "running";
 /** Call from a click handler. */
 export async function enableAudio(): Promise<boolean> {
   if (!ctx) ctx = new AudioContext();
-  await ctx.resume();
-  // Speaking once inside the gesture unlocks speech synthesis in Safari and Chrome.
-  const u = new SpeechSynthesisUtterance("");
-  speechSynthesis.speak(u);
+  if (ctx.state === "suspended") await ctx.resume();
+  try { speechSynthesis.cancel(); } catch {}
+
+
   return ctx.state === "running";
 }
 
@@ -48,11 +48,16 @@ export function speak(text: string, voiceURI: string, onEnd?: () => void) {
   u.onend = () => onEnd?.();
   u.onerror = () => onEnd?.();
   speechSynthesis.speak(u);
+
 }
 
 /** Play raw mono samples (neural voices) through the same context and volume as the beeps. */
 export function playSamples(samples: Float32Array, rate: number, onEnd: () => void) {
-  if (!ctx || ctx.state !== "running" || volume === 0) return onEnd();
+  if (!ctx) ctx = new AudioContext();
+  if (ctx.state === "suspended") {
+    ctx.resume().catch(() => {});
+  }
+  if (volume === 0) return onEnd();
   const buf = ctx.createBuffer(1, samples.length, rate);
   buf.getChannelData(0).set(samples);
   const src = ctx.createBufferSource();

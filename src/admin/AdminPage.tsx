@@ -755,6 +755,7 @@ function System() {
           <div style={{ padding: 4 }}>
             <div className="r-row" style={{ gap: 6 }}>
               <input
+                type="password"
                 className="r-field r-fill"
                 placeholder="https://discord.com/api/webhooks/..."
                 aria-label="Discord webhook URL"
@@ -791,9 +792,7 @@ function System() {
                 {testing ? "..." : "Test"}
               </button>
             </div>
-            <div className="r-log__line is-dim" style={{ fontSize: 11, marginTop: 4 }}>
-              All messages stewards send will be posted to this Discord webhook in format: ## &lt;:RSMA:1559243161744973966&gt; | [message]
-            </div>
+
           </div>
         </>
       )}
