@@ -18,8 +18,6 @@ export interface AuthEnv {
 }
 
 const STATE_COOKIE = "flagman_oauth";
-const USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36";
-
 const NEXT_COOKIE = "flagman_next";
 const base = (env: AuthEnv) => env.ROBLOX_OAUTH_BASE ?? "https://apis.roblox.com";
 
@@ -99,7 +97,7 @@ auth.get("/roblox/callback", async (c) => {
 
   const tokenRes = await fetch(`${base(c.env)}/oauth/v1/token`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded", "User-Agent": USER_AGENT },
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "authorization_code",
       code,
@@ -124,7 +122,7 @@ auth.get("/roblox/callback", async (c) => {
   const { access_token } = (await tokenRes.json()) as { access_token?: string };
   if (!access_token) return fail("token", "No access token in response");
 
-  const infoRes = await fetch(`${base(c.env)}/oauth/v1/userinfo`, { headers: { Authorization: `Bearer ${access_token}`, "User-Agent": USER_AGENT } });
+  const infoRes = await fetch(`${base(c.env)}/oauth/v1/userinfo`, { headers: { Authorization: `Bearer ${access_token}` } });
   if (!infoRes.ok) {
     const errText = await infoRes.text().catch(() => "");
     console.error("Roblox /oauth/v1/userinfo failed:", infoRes.status, errText);
