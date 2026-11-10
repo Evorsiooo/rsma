@@ -63,12 +63,15 @@ export function Home({ races }: { races: RaceSummary[] }) {
           </table>
         )}
       </div>
-      <div className="r-row">
+      <div className="r-row" style={{ flexWrap: "wrap" }}>
         <button className="r-btn" style={{ width: 200 }} onClick={() => nav("/team-registration")}>
           Team registration
         </button>
         <button className="r-btn" style={{ width: 240 }} onClick={() => nav("/driver-registration")}>
           Driver registration
+        </button>
+        <button className="r-btn" style={{ width: 220 }} onClick={() => nav("/work-at-rsma")}>
+          Work at the RSMA
         </button>
       </div>
       {past.length > 0 && (
