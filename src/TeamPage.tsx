@@ -251,7 +251,6 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
         <span className="r-text">{team.name}</span>
         <span className="r-text r-text--dim">{race.name}</span>
         <SessionSelect sessions={race.sessions} current={session.id} suffix={`/team/${team.id}`} width={180} />
-        <button className="r-btn" onClick={() => nav(`/session/${sessionId}`)}>Timing</button>
       </Topbar>
       <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
         {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended.</div>}

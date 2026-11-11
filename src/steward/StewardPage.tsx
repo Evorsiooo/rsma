@@ -243,7 +243,6 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
       <Topbar>
         <span className="r-text r-text--dim">{race.name}</span>
         <SessionSelect sessions={race.sessions} current={session.id} suffix="/steward" width={180} />
-        <button className="r-btn" onClick={() => nav(`/session/${raceId}`)}>Timing</button>
       </Topbar>
       <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
         {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended. Commands are disabled.</div>}

@@ -18,18 +18,11 @@ export function Topbar({ children }: { children?: ReactNode }) {
       </Link>
       {children}
       <div className="r-topbar__end">
+        <button className="r-btn" onClick={() => nav("/")}>
+          Back to RSMA Website
+        </button>
         {me ? (
           <>
-            {me.memberships.length > 0 && (
-              <button className="r-btn" onClick={() => nav("/my-team")}>
-                My Team
-              </button>
-            )}
-            {me.roles.some((r) => r !== "steward") && (
-              <button className="r-btn" onClick={() => nav("/admin")}>
-                Admin
-              </button>
-            )}
             <span className="r-user">
               <span className="r-avatar">{me.username[0].toUpperCase()}</span>
               {me.username}
