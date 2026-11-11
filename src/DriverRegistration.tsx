@@ -74,18 +74,17 @@ export function DriverRegistration() {
   );
   return (
     <>
-      <div className="box" style={{ borderColor: "var(--s-blue-d)" }}>
-        <div className="bh"><h3>Race for a Team</h3></div>
-        <div className="bd lead">
-          <p>
+      <Box title="Race for a Team">
+        <Bd>
+          <p style={{ marginBottom: 8 }}>
             Teams that are hiring post in #team-updates on the RSMA Discord. Team drivers are registered for sessions by their team and have reserved slots.
           </p>
           <div className="bar">
-            <a className="btn pri big" href={DISCORD_URL} target="_blank" rel="noreferrer">Find a Team on Discord</a>
-            <Link className="btn big" to="/team-registration">Register a Team</Link>
+            <a className="btn pri" href={DISCORD_URL} target="_blank" rel="noreferrer">Find a Team on Discord</a>
+            <Link className="btn" to="/team-registration">Register a Team</Link>
           </div>
-        </div>
-      </div>
+        </Bd>
+      </Box>
       <Box title="Independent Driver Registration">
         <Bd>
           <p style={{ marginBottom: 8 }}>
