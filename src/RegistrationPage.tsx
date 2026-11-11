@@ -5,7 +5,8 @@ import { PANEL_ROLES, hasAny } from "../shared/teams";
 import type { SessionInfo } from "../shared/types";
 import { api, registrationApi } from "./api";
 import { NotFound } from "./NotFound";
-import { Shell } from "./Shell";
+import { Bd, Box } from "./site/parts";
+import { StaffSection } from "./admin/RegistrationsTab";
 import { toast } from "./ui";
 
 const ERRORS: Record<string, string> = {
@@ -24,13 +25,11 @@ const ERRORS: Record<string, string> = {
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
 const fmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
-const dim = { color: "var(--r-text-dim)" } as const;
 const link = (href: string, text: string) => (
   <a href={href} target="_blank" rel="noreferrer">
     {text}
   </a>
 );
-const small = { width: "100%", height: 24, paddingTop: 2 } as const;
 const CUT_LABEL = { in: "In", waitlist: "Waiting", denied: "Denied" } as const;
 
 type Res = { ok: true } | { ok: false; error: string };
@@ -52,27 +51,37 @@ export function RegistrationPage() {
   };
 
   if (info === null || (view && !view.settings)) return <NotFound />;
-  if (!info || !view?.settings) return <Shell wide><div className="r-panel" /></Shell>;
+  if (!info || !view?.settings) return <Box title="Registration"><Bd><div className="note">Loading...</div></Bd></Box>;
   const s = view.settings;
   const open = view.phase === "open";
   const label = view.phase === "upcoming" ? `Opens ${fmt.format(s.opensAt)}` : open ? `Open until ${fmt.format(s.deadline)}` : "Closed";
 
   return (
-    <Shell wide>
-      <div className="r-row">
-        <div className={`r-banner r-fill${open ? " is-green" : ""}`}>
-          {info.race.name} · {info.session.name} · team registration · {label}
-        </div>
+    <>
+      <div style={{ fontSize: 12 }} className="note">
+        <b style={{ color: "var(--s-ink)" }}>{info.race.name} · {info.session.name} · team registration</b> · {label}
       </div>
+      <Box title="Spots">
+        <table className="kv">
+          <tbody>
+            {REG_KINDS.map((k) => (
+              <tr key={k}>
+                <td>{REG_KIND_LABEL[k]}s</td>
+                <td>{view.counts[k].taken} / {view.counts[k].spots}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </Box>
       {view.teams.length === 0 ? (
-        <div className="r-panel"><div className="r-empty">Only a Team Principal or Sporting Director can register a team.</div></div>
+        <Box title="Team Registration"><Bd><div className="note">Only a Team Principal or Sporting Director can register a team.</div></Bd></Box>
       ) : (
         view.teams.map((t) => <TeamSection key={t.id} team={t} view={view} open={open} sid={id} act={act} />)
       )}
-    </Shell>
+      {view.staff && <StaffSection view={view} sid={id} act={act} />}
+    </>
   );
 }
-
 
 function TeamSection({ team, view, open, sid, act }: { team: RegTeam; view: RegistrationView; open: boolean; sid: string; act: (p: Promise<Res>) => Promise<boolean> }) {
   const mine = view.registrations.filter((r) => r.teamId === team.id);
@@ -83,52 +92,48 @@ function TeamSection({ team, view, open, sid, act }: { team: RegTeam; view: Regi
   const username = kind === "spectator" ? name.trim() : pick || free[0]?.username || "";
   const hasDriver = mine.some((r) => r.kind === "driver");
   return (
-    <div className="r-panel">
-      <div className="r-header">{team.name}</div>
+    <Box title={team.name}>
       {hasDriver && (
-        <div className="r-banner is-teal">
-          <span>Ask your drivers to {link(GROUP_URL, "join the RSMA Roblox group")} (a pending request counts) before the deadline, or they cannot race.</span>
-        </div>
+        <Bd style={{ borderBottom: "1px dotted var(--s-line-l)" }}>
+          Ask your drivers to {link(GROUP_URL, "join the RSMA Roblox group")} (a pending request counts) before the deadline, or they cannot race.
+        </Bd>
       )}
       {mine.length === 0 ? (
-        <div className="r-empty">Nobody registered.</div>
+        <Bd><div className="note">Nobody registered.</div></Bd>
       ) : (
-        <table className="r-table">
-          <tbody>
-            {mine.map((r) => (
-              <tr key={r.userId}>
-                <td className="is-left">{r.username}</td>
-                <td style={{ width: 110, ...dim }}>{REG_KIND_LABEL[r.kind]}</td>
-                <td style={{ width: 90 }}>{CUT_LABEL[r.cut]}</td>
-                {open && (
-                  <td style={{ width: 100, padding: 2 }}>
-                    <button className="r-btn r-cell--red" style={small} onClick={() => act(registrationApi.teamRemove(sid, team.id, r.userId))}>Remove</button>
-                  </td>
-                )}
-              </tr>
-            ))}
-          </tbody>
-        </table>
+        <Bd flush>
+          <table className="t">
+            <tbody>
+              {mine.map((r) => (
+                <tr key={r.userId}>
+                  <td>{r.username}</td>
+                  <td className="mute">{REG_KIND_LABEL[r.kind]}</td>
+                  <td>{CUT_LABEL[r.cut]}</td>
+                  {open && (
+                    <td className="n">
+                      <button className="btn sm red" onClick={() => act(registrationApi.teamRemove(sid, team.id, r.userId))}>Remove</button>
+                    </td>
+                  )}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </Bd>
       )}
       {open && (
-        <div className="r-row" style={{ padding: 4 }}>
-          <div className="r-select" style={{ width: 160, flex: "none" }}>
-            <select aria-label="Kind" value={kind} onChange={(e) => { setKind(e.target.value as RegKind); setPick(""); }}>
-              {REG_KINDS.map((k) => <option key={k} value={k}>{REG_KIND_LABEL[k]}</option>)}
-            </select>
-          </div>
+        <Bd top bar>
+          <select aria-label="Kind" value={kind} onChange={(e) => { setKind(e.target.value as RegKind); setPick(""); }}>
+            {REG_KINDS.map((k) => <option key={k} value={k}>{REG_KIND_LABEL[k]}</option>)}
+          </select>
           {kind === "spectator" ? (
-            <input className="r-field r-fill" placeholder="Roblox username" aria-label="Spectator username" value={name} onChange={(e) => setName(e.target.value)} />
+            <input type="text" style={{ flex: 1, minWidth: 180 }} placeholder="Roblox username" aria-label="Spectator username" value={name} onChange={(e) => setName(e.target.value)} />
           ) : (
-            <div className="r-select r-fill">
-              <select aria-label="Person" value={pick || free[0]?.username || ""} onChange={(e) => setPick(e.target.value)}>
-                {free.map((m) => <option key={m.id} value={m.username}>{m.username}</option>)}
-              </select>
-            </div>
+            <select style={{ flex: 1, minWidth: 160 }} aria-label="Person" value={pick || free[0]?.username || ""} onChange={(e) => setPick(e.target.value)}>
+              {free.map((m) => <option key={m.id} value={m.username}>{m.username}</option>)}
+            </select>
           )}
           <button
-            className="r-btn"
-            style={{ width: 100 }}
+            className="btn pri"
             disabled={!username}
             onClick={async () => {
               if (await act(registrationApi.teamAdd(sid, team.id, username, kind))) { setName(""); setPick(""); }
@@ -136,8 +141,8 @@ function TeamSection({ team, view, open, sid, act }: { team: RegTeam; view: Regi
           >
             Register
           </button>
-        </div>
+        </Bd>
       )}
-    </div>
+    </Box>
   );
 }

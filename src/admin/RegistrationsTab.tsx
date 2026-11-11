@@ -70,7 +70,7 @@ export function RegistrationsTab({ races }: { races: AdminRace[] }) {
   );
 }
 
-function StaffSection({ view, sid, act }: { view: RegistrationView; sid: string; act: (p: Promise<Res>) => Promise<boolean> }) {
+export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: string; act: (p: Promise<Res>) => Promise<boolean> }) {
   const [edit, setEdit] = useState<Registration | null>(null);
   const [adding, setAdding] = useState(false);
   const tokens = useTokenMode();

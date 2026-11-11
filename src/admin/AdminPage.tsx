@@ -5,7 +5,7 @@ import type { AdminRace, AdminTeam, AdminUser, Role, SessionSummary, SessionType
 import { admin, registrationApi } from "../api";
 import type { RegSettings } from "../../shared/registration";
 import { useMe } from "../me";
-import { Topbar, VERSION } from "../Shell";
+import { VERSION } from "../Shell";
 import { Dialog, toast } from "../ui";
 import { NotFound } from "../NotFound";
 import { AddMember, MemberTable } from "../TeamMembers";
@@ -55,29 +55,30 @@ export function AdminPage() {
 
   if (!me || !tabs.length) return <NotFound />;
   return (
-    <div className="page">
-      <Topbar>
-        <div className="r-row" style={{ marginLeft: 12 }}>
-          {tabs.map((t) => (
-            <button key={t} className="r-btn" aria-pressed={active === t} onClick={() => setTab(t)}>
-              {t[0].toUpperCase() + t.slice(1)}
-            </button>
-          ))}
-        </div>
-      </Topbar>
-      <div className="page__body">
-        <div className="page__col page__col--wide">
-          {active === "users" && <Users isAdmin={isAdmin} myId={me.id} />}
-          {active === "races" && <Races />}
-          {active === "registrations" && <Registrations />}
-          {active === "teams" && <Teams />}
-          {active === "system" && <System />}
-        </div>
+    <>
+      <div className="sub" role="tablist" style={{ marginBottom: 0 }}>
+        {tabs.map((t) => (
+          <a
+            key={t}
+            href="/admin"
+            role="tab"
+            aria-selected={active === t}
+            className={active === t ? "on" : undefined}
+            onClick={(e) => {
+              e.preventDefault();
+              setTab(t);
+            }}
+          >
+            {t[0].toUpperCase() + t.slice(1)}
+          </a>
+        ))}
       </div>
-      <div className="r-statusbar">
-        <span className="r-statusbar__end">{VERSION}</span>
-      </div>
-    </div>
+      {active === "users" && <Users isAdmin={isAdmin} myId={me.id} />}
+      {active === "races" && <Races />}
+      {active === "registrations" && <Registrations />}
+      {active === "teams" && <Teams />}
+      {active === "system" && <System />}
+    </>
   );
 }
 
@@ -127,7 +128,7 @@ function Users({ isAdmin, myId }: { isAdmin: boolean; myId: string }) {
         <div className="r-header">Add user</div>
         <div className="r-row" style={{ padding: 4 }}>
           <input className="r-field r-fill" placeholder="Roblox username" aria-label="Roblox username" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-          <button className="r-btn" style={{ width: 120 }} disabled={!name.trim() || busy} onClick={add}>Add</button>
+          <button className="r-btn pri" style={{ width: 120 }} disabled={!name.trim() || busy} onClick={add}>Add</button>
         </div>
       </div>
       <div className="r-panel">
@@ -233,7 +234,7 @@ function Races() {
         <div className="r-row" style={{ padding: 4 }}>
           <input className="r-field r-fill" placeholder="Name" aria-label="Race name" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && create()} />
           <input className="r-field" style={{ width: 230, colorScheme: "dark" }} type="datetime-local" aria-label="Expires" value={expires} onChange={(e) => setExpires(e.target.value)} />
-          <button className="r-btn" style={{ width: 120 }} disabled={!valid} onClick={create}>Create</button>
+          <button className="r-btn pri" style={{ width: 120 }} disabled={!valid} onClick={create}>Create</button>
         </div>
       </div>
       <div className="r-panel">
@@ -385,7 +386,7 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
       foot={
         <>
           <button className="r-btn" onClick={onClose}>Cancel</button>
-          <button className="r-btn" disabled={!ok} onClick={save}>Save</button>
+          <button className="r-btn pri" disabled={!ok} onClick={save}>Save</button>
         </>
       }
     >
@@ -454,7 +455,7 @@ function StewardsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
       )}
       <div className="r-row">
         <input className="r-field r-fill" placeholder="Roblox username" aria-label="Steward username" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-        <button className="r-btn" style={{ width: 100 }} disabled={!name.trim()} onClick={add}>Add</button>
+        <button className="r-btn pri" style={{ width: 100 }} disabled={!name.trim()} onClick={add}>Add</button>
       </div>
     </Dialog>
   );
@@ -478,7 +479,7 @@ function ExpiryDialog({ race, onDone, onClose }: { race: AdminRace; onDone: () =
       foot={
         <>
           <button className="r-btn" onClick={onClose}>Cancel</button>
-          <button className="r-btn" disabled={!ok} onClick={save}>Save</button>
+          <button className="r-btn pri" disabled={!ok} onClick={save}>Save</button>
         </>
       }
     >
@@ -548,7 +549,7 @@ function Teams() {
         <div className="r-stack" style={{ padding: 4 }}>
           <input className="r-field" placeholder="Name" aria-label="Team name" maxLength={40} value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />
           <TeamKindFields draft={draft} setDraft={setDraft} factories={factories} />
-          <button className="r-btn" disabled={!draftOk(draft)} onClick={create}>Create</button>
+          <button className="r-btn pri" disabled={!draftOk(draft)} onClick={create}>Create</button>
         </div>
       </div>
       <div className="r-panel">
@@ -643,7 +644,7 @@ function EditTeamDialog({ team, factories, onDone, onClose }: { team: AdminTeam;
       foot={
         <>
           <button className="r-btn" onClick={onClose}>Cancel</button>
-          <button className="r-btn" disabled={!draftOk(draft)} onClick={save}>Save</button>
+          <button className="r-btn pri" disabled={!draftOk(draft)} onClick={save}>Save</button>
         </>
       }
     >
@@ -677,6 +678,7 @@ function MembersDialog({ team, onChange, onClose }: { team: AdminTeam; onChange:
           onChange();
         }}
       />
+      <div className="r-row">
       <AddMember
         canSetPrincipal
         onAdd={async (username, roles) => {
@@ -689,6 +691,7 @@ function MembersDialog({ team, onChange, onClose }: { team: AdminTeam; onChange:
           return true;
         }}
       />
+      </div>
     </Dialog>
       )}
     </>
@@ -749,7 +752,7 @@ function System() {
                 reload();
               }}
             />
-            <span>Access token sign-in (everything except this admin panel)</span>
+            <span>Access code sign-in (everything except this admin panel)</span>
           </label>
           <div className="r-header" style={{ marginTop: 12 }}>Discord Webhook</div>
           <div style={{ padding: 4 }}>
@@ -854,7 +857,7 @@ function RegistrationDialog({ session, onClose }: { session: SessionSummary; onC
       foot={
         <>
           <button className="r-btn" onClick={onClose}>Cancel</button>
-          <button className="r-btn" disabled={!loaded || (on && !valid)} onClick={save}>Save</button>
+          <button className="r-btn pri" disabled={!loaded || (on && !valid)} onClick={save}>Save</button>
         </>
       }
     >

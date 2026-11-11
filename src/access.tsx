@@ -49,7 +49,7 @@ export function SignInHost() {
       foot={
         <>
           <button className="r-btn" onClick={() => robloxLogin(next)}>Staff: Roblox</button>
-          <button className="r-btn" disabled={code.replace(/[^a-zA-Z0-9]/g, "").length !== 9} onClick={submit}>Sign in</button>
+          <button className="r-btn pri" disabled={code.replace(/[^a-zA-Z0-9]/g, "").length !== 9} onClick={submit}>Sign in</button>
         </>
       }
     >

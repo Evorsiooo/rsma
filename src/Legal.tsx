@@ -1,4 +1,4 @@
-import { Shell } from "./Shell";
+import { Bd, Box } from "./site/parts";
 
 interface Section {
   title: string;
@@ -206,7 +206,7 @@ function renderLine(text: string) {
             href={part}
             target="_blank"
             rel="noreferrer"
-            style={{ color: "var(--r-teal)", textDecoration: "underline" }}
+            style={{ wordBreak: "break-all" }}
           >
             {part}
           </a>
@@ -220,26 +220,22 @@ function renderLine(text: string) {
 
 function LegalPage({ title, sections }: { title: string; sections: Section[] }) {
   return (
-    <Shell>
-      <div className="r-panel">
-        <div className="r-header">{title}</div>
-        <div className="r-log r-log--wrap">
-          <div className="r-log__line is-dim">Last updated {UPDATED}</div>
-        </div>
-      </div>
+    <>
+      <Box title={title}>
+        <Bd><div className="note">Last updated {UPDATED}</div></Bd>
+      </Box>
       {sections.map((s) => (
-        <div className="r-panel" key={s.title}>
-          <div className="r-header">{s.title}</div>
-          <div className="r-log r-log--wrap">
+        <Box title={s.title} key={s.title}>
+          <Bd>
             {s.lines.map((l, i) => (
-              <div className="r-log__line" key={i}>
+              <p key={i} style={{ marginTop: i ? 6 : 0 }}>
                 {renderLine(l)}
-              </div>
+              </p>
             ))}
-          </div>
-        </div>
+          </Bd>
+        </Box>
       ))}
-    </Shell>
+    </>
   );
 }
 

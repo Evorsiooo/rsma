@@ -4,7 +4,7 @@ import { currentSession } from "../shared/sessions";
 import type { RaceSummary } from "../shared/types";
 import { api } from "./api";
 import { NotFound } from "./NotFound";
-import { Shell } from "./Shell";
+import { Bd, Box } from "./site/parts";
 
 /** An event link opens its current session: the one running, else the next, else the last. */
 export function RaceRedirect() {
@@ -18,11 +18,8 @@ export function RaceRedirect() {
   const s = currentSession(race.sessions, Date.now());
   if (s) return <Navigate to={`/session/${s.id}`} replace />;
   return (
-    <Shell>
-      <div className="r-panel">
-        <div className="r-header">{race.name}</div>
-        <div className="r-empty">No sessions.</div>
-      </div>
-    </Shell>
+    <Box title={race.name}>
+      <Bd><div className="note">No sessions.</div></Bd>
+    </Box>
   );
 }

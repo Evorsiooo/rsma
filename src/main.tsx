@@ -9,6 +9,7 @@ import "./kit/motion.css";
 import "./kit/rsma-ui.js";
 import "./kit/parts.js";
 import "./app.css";
+import "./site/site.css";
 import { App } from "./App";
 
 createRoot(document.getElementById("root")!).render(
