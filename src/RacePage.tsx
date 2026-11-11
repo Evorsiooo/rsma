@@ -1,20 +1,13 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { classify, type Flag } from "../shared/race";
-import { ClassificationTable } from "./ClassificationTable";
+import { classify } from "../shared/race";
 import type { SessionInfo } from "../shared/types";
 import { api } from "./api";
 import { NotFound } from "./NotFound";
-import { Shell } from "./Shell";
+import { Bd, Box, FlagBar, ResultsTable } from "./site/parts";
 import { SessionSelect } from "./SessionSelect";
 import { sessionCountdown, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
-
-const FLAG: Record<Flag, { label: string; tone: string }> = {
-  green: { label: "Green flag", tone: " is-green" },
-  yellow: { label: "Yellow flag", tone: "" },
-  red: { label: "Red flag", tone: " is-red" },
-};
 
 export function RacePage() {
   const { id = "" } = useParams();
@@ -32,44 +25,33 @@ export function RacePage() {
   const cd = info ? sessionCountdown(info.session, now) : null;
   const rows = state ? classify(state.runs) : [];
 
+  const finished = rows.filter((r) => r.status === "finished").length;
   return (
-    <Shell wide>
-      <div className="r-row" style={{ alignItems: "center" }}>
-        {race?.ended ? (
-          <div className="r-banner r-fill">Race ended</div>
-        ) : (
-          <div className={`r-banner r-fill${state ? FLAG[state.flag].tone : ""}`} style={{ visibility: state ? "visible" : "hidden" }}>
-            {state ? FLAG[state.flag].label : " "}
-          </div>
-        )}
-        {cd && !race?.ended && (
-          <div className="r-banner" style={{ flex: "none", whiteSpace: "nowrap" }}>
-            {cd.phase === "ended" ? "Session ended" : `${cd.label} ${cd.value}`}
-          </div>
-        )}
-        {info && <SessionSelect sessions={info.race.sessions} current={info.session.id} bar />}
-        {!race?.ended && <button
-          className="r-btn"
-          onClick={() => window.open(`/session/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}
-        >
-          Radio
-        </button>}
-        {race?.ended ? null : live ? (
-          <div className="r-lamp r-lamp--fixed">LIVE</div>
-        ) : (
-          <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>
-        )}
-      </div>
-      {info?.session.type === "race" && !race?.ended && <div className="r-banner is-teal">Live timing is not available for races.</div>}
-      {info?.session.selfTimed && !race?.ended && <div className="r-banner is-teal">Self-timed session. Times are recorded by the teams.</div>}
-      <div className="r-panel">
-        <div className="r-header">{race?.name ?? " "}</div>
-        {rows.length === 0 ? (
-          <div className="r-empty">{state ? "No runs recorded." : "Loading timing data..."}</div>
-        ) : (
-          <ClassificationTable rows={rows} />
-        )}
-      </div>
-    </Shell>
+    <>
+      {(info || !race?.ended) && (
+        <div className="bar between">
+          <span className="bar">
+            {info && <SessionSelect sessions={info.race.sessions} current={info.session.id} />}
+            {cd && !race?.ended && <b>{cd.phase === "ended" ? "Session ended" : `${cd.label} ${cd.value}`}</b>}
+          </span>
+          {!race?.ended && (
+            <button
+              className="btn"
+              onClick={() => window.open(`/session/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}
+            >
+              Radio
+            </button>
+          )}
+        </div>
+      )}
+      <FlagBar flag={state?.flag} ended={race?.ended} live={live} />
+      {info?.session.type === "race" && !race?.ended && <div className="notice">Live timing is not available for races.</div>}
+      {info?.session.selfTimed && !race?.ended && <div className="notice">Self-timed session. Times are recorded by the teams.</div>}
+      <Box title={race?.name ?? "\u00A0"} right={rows.length ? `${finished} finished` : undefined}>
+        <Bd flush>
+          {rows.length === 0 ? <div className="bd note">{state ? "No runs recorded." : "Loading timing data..."}</div> : <ResultsTable rows={rows} />}
+        </Bd>
+      </Box>
+    </>
   );
 }

@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import type { RaceSummary } from "../shared/types";
-import { useMe } from "./me";
 import { api } from "./api";
-import { Shell } from "./Shell";
+import { useBootData } from "./Layouts";
+import { Bd, Box } from "./site/parts";
 
 const AUTH_ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled.",
@@ -20,9 +20,24 @@ const fmt = new Intl.DateTimeFormat("en-GB", {
   minute: "2-digit",
 });
 
-export function Home({ races }: { races: RaceSummary[] }) {
-  const nav = useNavigate();
-  const { me } = useMe();
+function EventRows({ races, label, primary, until }: { races: RaceSummary[]; label: string; primary?: boolean; until?: boolean }) {
+  return (
+    <table className="t">
+      <tbody>
+        {races.map((r) => (
+          <tr key={r.id}>
+            <td><b>{r.name}</b></td>
+            <td style={{ width: 230 }}>{until ? "Until " : ""}{fmt.format(r.expiresAt)}</td>
+            <td className="n"><Link className={`btn sm${primary ? " pri" : ""}`} to={`/race/${r.id}`}>{label}</Link></td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+export function Home() {
+  const races = useBootData()?.races ?? [];
   const [past, setPast] = useState<RaceSummary[]>([]);
   useEffect(() => {
     api.pastRaces().then(setPast, () => {});
@@ -37,63 +52,16 @@ export function Home({ races }: { races: RaceSummary[] }) {
     return detail ? `${base} (${detail})` : base;
   });
   return (
-    <Shell>
-      {authError && <div className="r-banner is-red">{authError}</div>}
-      <div className="r-panel">
-        <div className="r-header">Events</div>
-        {races.length === 0 ? (
-          <div className="r-empty">No active events.</div>
-        ) : (
-          <table className="r-table">
-            <tbody>
-              {races.map((r) => (
-                <tr key={r.id}>
-                  <td className="is-left">{r.name}</td>
-                  <td style={{ width: 240, color: "var(--r-text-dim)" }}>
-                    Until {fmt.format(r.expiresAt)}
-                  </td>
-                  <td style={{ width: 130, padding: 2 }}>
-                    <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/race/${r.id}`)}>
-                      Timing
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </div>
-      <div className="r-row" style={{ flexWrap: "wrap" }}>
-        <button className="r-btn" style={{ width: 200 }} onClick={() => nav("/team-registration")}>
-          Team registration
-        </button>
-        <button className="r-btn" style={{ width: 240 }} onClick={() => nav("/driver-registration")}>
-          Driver registration
-        </button>
-        <button className="r-btn" style={{ width: 220 }} onClick={() => nav("/work-at-rsma")}>
-          Work at the RSMA
-        </button>
-      </div>
+    <>
+      {authError && <div className="err">{authError}</div>}
+      <Box title="Events">
+        <Bd flush>{races.length === 0 ? <div className="bd note">No active events.</div> : <EventRows races={races} label="Timing" primary until />}</Bd>
+      </Box>
       {past.length > 0 && (
-        <div className="r-panel">
-          <div className="r-header">Past events</div>
-          <table className="r-table">
-            <tbody>
-              {past.map((r) => (
-                <tr key={r.id}>
-                  <td className="is-left">{r.name}</td>
-                  <td style={{ width: 240, color: "var(--r-text-dim)" }}>{fmt.format(r.expiresAt)}</td>
-                  <td style={{ width: 130, padding: 2 }}>
-                    <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/race/${r.id}`)}>
-                      Results
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <Box title="Past Events">
+          <Bd flush><EventRows races={past} label="Results" /></Bd>
+        </Box>
       )}
-    </Shell>
+    </>
   );
 }

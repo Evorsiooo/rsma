@@ -5,7 +5,9 @@ import type { RaceSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
 import { useMe } from "./me";
 import { fmtWhen, regStatus, upcomingSessions } from "./regUi";
-import { DISCORD_URL, Shell } from "./Shell";
+import { Link } from "react-router-dom";
+import { DISCORD_URL } from "./Shell";
+import { Bd, Box } from "./site/parts";
 import { toast } from "./ui";
 
 const ERRORS: Record<string, string> = {
@@ -65,106 +67,118 @@ export function DriverRegistration() {
   const open = status?.phase === "open";
   const self = view?.self ?? null;
 
+  const groupCheck = (
+    <label className="plain">
+      <input type="checkbox" checked={joined} onChange={(e) => setJoined(e.target.checked)} /> I have joined the RSMA Roblox group or my request is pending
+    </label>
+  );
   return (
-    <Shell>
-      <div className="r-panel">
-        <div className="r-header">Driver registration</div>
-        <div style={{ padding: 4, display: "grid", gap: 8 }}>
-          <div>
-            Independent drivers race without a team. To race you must be in the {link(GROUP_URL, "RSMA Roblox group")}. Make sure you are in the group or that you have sent a join request, before the deadline. Staff use your Discord username to contact you.
+    <>
+      <div className="box" style={{ borderColor: "var(--s-blue-d)" }}>
+        <div className="bh"><h3>Race for a Team</h3></div>
+        <div className="bd lead">
+          <p>
+            Teams that are hiring post in #team-updates on the RSMA Discord. Team drivers are registered for sessions by their team and have reserved slots.
+          </p>
+          <div className="bar">
+            <a className="btn pri big" href={DISCORD_URL} target="_blank" rel="noreferrer">Find a Team on Discord</a>
+            <Link className="btn big" to="/team-registration">Register a Team</Link>
           </div>
-          <div>Looking for a team? Teams that are hiring post in #team-updates on the {link(DISCORD_URL, "RSMA Discord")}.</div>
-          {regs && options.length === 0 && <div style={{ color: "var(--r-text-dim)" }}>No session is open for driver registration.</div>}
-          {chosen && status && (
-            <div className="r-row" style={{ alignItems: "center" }}>
-              <div className="r-select r-fill">
-                <select aria-label="Session" value={sid} onChange={(e) => setPick(e.target.value)}>
-                  {options.map((u) => (
-                    <option key={u.session.id} value={u.session.id}>
-                      {u.race.name} · {u.session.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <span style={{ width: 210, flex: "none", color: "var(--r-text-dim)" }}>{status.text}</span>
-            </div>
-          )}
         </div>
       </div>
+      <Box title="Independent Driver Registration">
+        <Bd>
+          <p style={{ marginBottom: 8 }}>
+            Independent drivers race without a team. To race you must be in the {link(GROUP_URL, "RSMA Roblox group")}. Make sure you are in the group or that you have sent a join request, before the deadline. Staff use your Discord username to contact you.
+          </p>
+          {regs && options.length === 0 && <div className="mute">No session is open for driver registration.</div>}
+          {chosen && status && (
+            <div className="bar">
+              <select aria-label="Session" style={{ width: 300 }} value={sid} onChange={(e) => setPick(e.target.value)}>
+                {options.map((u) => (
+                  <option key={u.session.id} value={u.session.id}>
+                    {u.race.name} · {u.session.name}
+                  </option>
+                ))}
+              </select>
+              <span className="mute">{status.text}</span>
+            </div>
+          )}
+        </Bd>
+      </Box>
       {chosen && self && (
-        <div className="r-panel">
-          <div className="r-header">Your registration</div>
-          <table className="r-table">
-            <tbody>
-              <tr>
-                <td className="is-left">{REG_KIND_LABEL[self.kind]}{self.teamName ? ` · ${self.teamName}` : " · Independent"}</td>
-                <td style={{ width: 90 }}>{CUT_LABEL[self.cut]}</td>
-              </tr>
-            </tbody>
-          </table>
+        <Box title="Your Registration">
+          <Bd flush>
+            <table className="t">
+              <tbody>
+                <tr>
+                  <td><b>{REG_KIND_LABEL[self.kind]}{self.teamName ? ` · ${self.teamName}` : " · Independent"}</b></td>
+                  <td style={{ width: 90 }}>{CUT_LABEL[self.cut]}</td>
+                </tr>
+              </tbody>
+            </table>
+          </Bd>
           {self.kind === "driver" && (
-            <div className="r-row" style={{ padding: 4, alignItems: "center" }}>
-              <label className="r-check r-fill">
-                <input type="checkbox" checked={inGroup(self.group)} disabled={!open} onChange={(e) => act(registrationApi.selfGroup(sid, e.target.checked ? "pending" : "unverified"))} />
-                <span>I have joined the RSMA Roblox group or my request is pending</span>
+            <Bd top bar style={{ justifyContent: "space-between" }}>
+              <label>
+                <input type="checkbox" checked={inGroup(self.group)} disabled={!open} onChange={(e) => act(registrationApi.selfGroup(sid, e.target.checked ? "pending" : "unverified"))} /> I have joined the RSMA Roblox group or my request is pending
               </label>
               {open && !self.teamId && (
-                <button className="r-btn r-cell--red" style={{ width: 120 }} onClick={() => act(registrationApi.withdraw(sid))}>Withdraw</button>
+                <button className="btn red" onClick={() => act(registrationApi.withdraw(sid))}>Withdraw</button>
               )}
-            </div>
+            </Bd>
           )}
-        </div>
+        </Box>
       )}
       {chosen && view && !self && open && (
-        <div className="r-panel">
-          <div className="r-header">{chosen.race.name} · {chosen.session.name} · starts {fmtWhen(chosen.session.startsAt)}</div>
-          {!me && tokens ? (
-            <div style={{ padding: 4, display: "grid", gap: 8 }}>
-              {sent ? (
-                <div>Registered. Staff will contact you on Discord with an access code to sign in.</div>
+        <Box title={`${chosen.race.name} · ${chosen.session.name} · starts ${fmtWhen(chosen.session.startsAt)}`}>
+          <Bd>
+            {!me && tokens ? (
+              sent ? (
+                <p>Registered. Staff will contact you on Discord with an access code to sign in.</p>
               ) : (
-                <>
-                  <input className="r-field" placeholder="Roblox username" aria-label="Roblox username" maxLength={20} value={username} onChange={(e) => setUsername(e.target.value)} />
-                  <input className="r-field" placeholder="Discord username" aria-label="Discord username" maxLength={32} value={discord} onChange={(e) => setDiscord(e.target.value)} />
-                  <label className="r-check">
-                    <input type="checkbox" checked={joined} onChange={(e) => setJoined(e.target.checked)} />
-                    <span>I have joined the RSMA Roblox group or my request is pending</span>
-                  </label>
-                  <button
-                    className="r-btn"
-                    disabled={!username.trim() || !discord.trim() || !joined}
-                    onClick={async () => {
-                      if (await act(registrationApi.independentRequest(sid, username.trim(), discord.trim()))) setSent(true);
-                    }}
-                  >
-                    Register
-                  </button>
-                </>
-              )}
-              <button className="r-btn" onClick={() => startSignIn("/driver-registration")}>
-                I have an access code
-              </button>
-            </div>
-          ) : !me ? (
-            <div style={{ padding: 4 }}>
-              <button className="r-btn" style={{ width: "100%" }} onClick={() => startSignIn("/driver-registration")}>
-                Sign in to register
-              </button>
-            </div>
-          ) : (
-            <div style={{ padding: 4, display: "grid", gap: 8 }}>
-              <input className="r-field" placeholder="Discord username" aria-label="Discord username" maxLength={32} value={discord} onChange={(e) => setDiscord(e.target.value)} />
-              <label className="r-check">
-                <input type="checkbox" checked={joined} onChange={(e) => setJoined(e.target.checked)} />
-                <span>I have joined the RSMA Roblox group or my request is pending</span>
-              </label>
-              <button className="r-btn" disabled={!discord.trim() || !joined} onClick={() => act(registrationApi.independent(sid, discord.trim()))}>
-                Register
-              </button>
-            </div>
+                <div className="frm">
+                  <label htmlFor="rn">Roblox username</label>
+                  <input id="rn" type="text" style={{ maxWidth: 260 }} maxLength={20} value={username} onChange={(e) => setUsername(e.target.value)} />
+                  <label htmlFor="dn">Discord username</label>
+                  <input id="dn" type="text" style={{ maxWidth: 260 }} maxLength={32} value={discord} onChange={(e) => setDiscord(e.target.value)} />
+                  <span />
+                  {groupCheck}
+                  <span />
+                  <div className="bar">
+                    <button
+                      className="btn pri"
+                      disabled={!username.trim() || !discord.trim() || !joined}
+                      onClick={async () => {
+                        if (await act(registrationApi.independentRequest(sid, username.trim(), discord.trim()))) setSent(true);
+                      }}
+                    >
+                      Register
+                    </button>
+                    <button className="btn" onClick={() => startSignIn("/driver-registration")}>I have an access code</button>
+                  </div>
+                </div>
+              )
+            ) : !me ? (
+              <button className="btn pri" onClick={() => startSignIn("/driver-registration")}>Sign in to register</button>
+            ) : (
+              <div className="frm">
+                <label htmlFor="dn">Discord username</label>
+                <input id="dn" type="text" style={{ maxWidth: 260 }} maxLength={32} value={discord} onChange={(e) => setDiscord(e.target.value)} />
+                <span />
+                {groupCheck}
+                <span />
+                <button className="btn pri" style={{ justifySelf: "start" }} disabled={!discord.trim() || !joined} onClick={() => act(registrationApi.independent(sid, discord.trim()))}>
+                  Register
+                </button>
+              </div>
+            )}
+          </Bd>
+          {!me && tokens && sent && (
+            <Bd top bar><button className="btn" onClick={() => startSignIn("/driver-registration")}>I have an access code</button></Bd>
           )}
-        </div>
+        </Box>
       )}
-    </Shell>
+    </>
   );
 }

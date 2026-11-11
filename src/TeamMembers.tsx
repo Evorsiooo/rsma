@@ -16,6 +16,7 @@ export function MemberTable({
   onRoles,
   onRemove,
   onCode,
+  meId,
 }: {
   members: Member[];
   canEdit: boolean;
@@ -26,55 +27,50 @@ export function MemberTable({
   onRemove: (m: Member) => void;
   /** Hand out an access code; shown only when given. */
   onCode?: (m: Member) => void;
+  /** Highlights the signed-in user's row. */
+  meId?: string;
 }) {
-  if (members.length === 0) return <div className="r-empty">No members.</div>;
+  if (members.length === 0) return <div className="bd note">No members.</div>;
   return (
-    <table className="r-table">
+    <table className="t">
       <thead>
         <tr>
-          <th className="is-left">Username</th>
+          <th>Username</th>
           {TEAM_ROLES.map((r) => (
-            <th key={r} style={{ width: compact ? 94 : 160, whiteSpace: "normal", verticalAlign: "bottom" }}>{TEAM_ROLE_LABEL[r]}</th>
+            <th key={r} className="c" style={{ whiteSpace: compact ? "normal" : undefined, verticalAlign: "bottom" }}>{TEAM_ROLE_LABEL[r]}</th>
           ))}
-          {canEdit && onCode && <th style={{ width: compact ? 64 : 80 }} />}
-          {canEdit && <th style={{ width: compact ? 80 : 100 }} />}
+          {canEdit && <th />}
         </tr>
       </thead>
       <tbody>
         {members.map((m) => {
           const fixed = !canSetPrincipal && m.roles.includes("principal");
           return (
-            <tr key={m.id}>
-              <td className="is-left">{m.username}</td>
+            <tr key={m.id} className={m.id === meId ? "mine" : undefined}>
+              <td>{m.id === meId ? <b>{m.username}</b> : m.username}</td>
               {TEAM_ROLES.map((r) => (
-                <td key={r}>
-                  <label className="r-check" style={{ justifyContent: "center" }}>
-                    <input
-                      type="checkbox"
-                      aria-label={`${m.username} ${TEAM_ROLE_LABEL[r]}`}
-                      checked={m.roles.includes(r)}
-                      disabled={!canEdit || fixed || (r === "principal" && !canSetPrincipal)}
-                      onChange={(e) => {
-                        const next = TEAM_ROLES.filter((x) => (x === r ? e.target.checked : m.roles.includes(x)));
-                        if (next.length) onRoles(m, next);
-                      }}
-                    />
-                  </label>
+                <td key={r} className="c">
+                  <input
+                    type="checkbox"
+                    aria-label={`${m.username} ${TEAM_ROLE_LABEL[r]}`}
+                    checked={m.roles.includes(r)}
+                    disabled={!canEdit || fixed || (r === "principal" && !canSetPrincipal)}
+                    onChange={(e) => {
+                      const next = TEAM_ROLES.filter((x) => (x === r ? e.target.checked : m.roles.includes(x)));
+                      if (next.length) onRoles(m, next);
+                    }}
+                  />
                 </td>
               ))}
-              {canEdit && onCode && (
-                <td style={{ padding: 2 }}>
-                  {!fixed && (
-                    <button className="r-btn" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => onCode(m)}>
+              {canEdit && (
+                <td className="n">
+                  {!fixed && onCode && (
+                    <button className="btn sm" onClick={() => onCode(m)}>
                       Code
                     </button>
-                  )}
-                </td>
-              )}
-              {canEdit && (
-                <td style={{ padding: 2 }}>
+                  )}{" "}
                   {!fixed && (
-                    <button className="r-btn r-cell--red" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => onRemove(m)}>
+                    <button className="btn sm red" onClick={() => onRemove(m)}>
                       Remove
                     </button>
                   )}
@@ -98,22 +94,18 @@ export function AddMember({ canSetPrincipal, onAdd }: { canSetPrincipal?: boolea
   };
   return (
     <>
-      <div className="r-row">
-        {TEAM_ROLES.filter((r) => canSetPrincipal || r !== "principal").map((r) => (
-          <label key={r} className="r-check">
-            <input
-              type="checkbox"
-              checked={roles.includes(r)}
-              onChange={(e) => setRoles(TEAM_ROLES.filter((x) => (x === r ? e.target.checked : roles.includes(x))))}
-            />
-            <span>{TEAM_ROLE_LABEL[r]}</span>
-          </label>
-        ))}
-      </div>
-      <div className="r-row">
-        <input className="r-field r-fill" placeholder="Roblox username" aria-label="Member username" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
-        <button className="r-btn" style={{ width: 100 }} disabled={!name.trim() || !roles.length} onClick={add}>Add</button>
-      </div>
+      {TEAM_ROLES.filter((r) => canSetPrincipal || r !== "principal").map((r) => (
+        <label key={r}>
+          <input
+            type="checkbox"
+            checked={roles.includes(r)}
+            onChange={(e) => setRoles(TEAM_ROLES.filter((x) => (x === r ? e.target.checked : roles.includes(x))))}
+          />{" "}
+          {TEAM_ROLE_LABEL[r]}
+        </label>
+      ))}
+      <input type="text" style={{ flex: 1, minWidth: 180 }} placeholder="Roblox username" aria-label="Member username" value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} />
+      <button className="btn pri" disabled={!name.trim() || !roles.length} onClick={add}>Add</button>
     </>
   );
 }

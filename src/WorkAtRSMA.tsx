@@ -1,4 +1,5 @@
-import { DISCORD_URL, Shell } from "./Shell";
+import { DISCORD_URL } from "./Shell";
+import { Bd, Box } from "./site/parts";
 
 interface Position {
   title: string;
@@ -88,48 +89,47 @@ const DEPARTMENTS: Department[] = [
   },
 ];
 
+const splitHead = (t: string) => {
+  const m = t.match(/^(.*) \(Department Head\)$/);
+  return m ? { name: m[1], head: true } : { name: t, head: false };
+};
+
 export function WorkAtRSMA() {
   return (
-    <Shell>
-      <div className="r-panel">
-        <div className="r-header">Work at the RSMA</div>
-        <div style={{ padding: 8, display: "grid", gap: 8 }}>
-          <div>
-            To apply for a position at the RSMA, open a ticket in #contact-us on the RSMA Discord.
-          </div>
-          <div>
+    <>
+      <Box title="Work at the RSMA">
+        <Bd>
+          <p style={{ marginBottom: 6 }}>To apply for a position at the RSMA, open a ticket in #contact-us on the RSMA Discord.</p>
+          <p style={{ marginBottom: 6 }}>
             Include your Roblox username, Discord username, the position(s) that interest you, your past experience, and whether you currently work in a racing team.
-          </div>
-          <div style={{ color: "var(--r-text-dim)" }}>
-            Some positions will be merged together depending on the amount of applicants.
-          </div>
-          <button
-            className="r-btn"
-            style={{ width: 160 }}
-            onClick={() => window.open(DISCORD_URL, "_blank", "noopener")}
-          >
-            RSMA Discord
-          </button>
-        </div>
-      </div>
+          </p>
+          <p className="mute" style={{ marginBottom: 8 }}>Some positions will be merged together depending on the amount of applicants.</p>
+          <a className="btn pri" href={DISCORD_URL} target="_blank" rel="noreferrer">RSMA Discord</a>
+        </Bd>
+      </Box>
       {DEPARTMENTS.map((dept) => (
-        <div className="r-panel" key={dept.name}>
-          <div className="r-header">{dept.name}</div>
-          <div style={{ padding: 8, display: "grid", gap: 12 }}>
-            {dept.positions.map((pos) => (
-              <div key={pos.title} style={{ display: "grid", gap: 2 }}>
-                <div style={{ color: "var(--r-text)" }}>{pos.title}</div>
-                <div style={{ color: "var(--r-text-dim)" }}>
-                  Responsibilities: {pos.responsibilities}
-                </div>
-                <div style={{ color: "var(--r-text-dim)" }}>
-                  Reports To: {pos.reportsTo}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
+        <Box title={dept.name} key={dept.name}>
+          <Bd flush>
+            <table className="t top stackable">
+              <thead>
+                <tr><th>Position</th><th>Responsibilities</th><th>Reports to</th></tr>
+              </thead>
+              <tbody>
+                {dept.positions.map((pos) => {
+                  const p = splitHead(pos.title);
+                  return (
+                    <tr key={pos.title}>
+                      <td style={{ minWidth: 150 }}><b>{p.name}</b>{p.head && <><br /><span className="mute">Department Head</span></>}</td>
+                      <td style={{ minWidth: 240 }}>{pos.responsibilities}</td>
+                      <td data-l="Reports to: " style={{ minWidth: 120 }}>{pos.reportsTo}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Bd>
+        </Box>
       ))}
-    </Shell>
+    </>
   );
 }

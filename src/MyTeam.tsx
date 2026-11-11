@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Navigate, useNavigate, useParams } from "react-router-dom";
+import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import type { RegSummary } from "../shared/registration";
 import type { MyTeam as MyTeamData, RaceSummary } from "../shared/types";
 import { hasAny, MANAGER_ROLES, TEAM_ROLE_LABEL } from "../shared/teams";
@@ -7,7 +7,7 @@ import { api, myTeam, registrationApi } from "./api";
 import { fmtWhen, regStatus, upcomingSessions } from "./regUi";
 import { useMe } from "./me";
 import { CodeDialog, useTokenMode } from "./access";
-import { Shell } from "./Shell";
+import { Bd, Box } from "./site/parts";
 import { AddMember, MemberTable } from "./TeamMembers";
 import { Dialog, toast } from "./ui";
 import { NotFound } from "./NotFound";
@@ -31,26 +31,21 @@ export function MyTeamPicker() {
   if (me.memberships.length === 0) return <NotFound />;
   if (me.memberships.length === 1) return <Navigate to={`/my-team/${me.memberships[0].id}`} replace />;
   return (
-    <Shell>
-      <div className="r-panel">
-        <div className="r-header">My Team</div>
-        <table className="r-table">
+    <Box title="My Team">
+      <Bd flush>
+        <table className="t">
           <tbody>
             {me.memberships.map((t) => (
               <tr key={t.id}>
-                <td className="is-left">{t.name}</td>
-                <td className="is-left" style={{ color: "var(--r-text-dim)" }}>{t.roles.map((r) => TEAM_ROLE_LABEL[r]).join(", ")}</td>
-                <td style={{ width: 130, padding: 2 }}>
-                  <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/my-team/${t.id}`)}>
-                    Open
-                  </button>
-                </td>
+                <td><b>{t.name}</b></td>
+                <td className="mute">{t.roles.map((r) => TEAM_ROLE_LABEL[r]).join(", ")}</td>
+                <td className="n"><Link className="btn pri sm" to={`/my-team/${t.id}`}>Open</Link></td>
               </tr>
             ))}
           </tbody>
         </table>
-      </div>
-    </Shell>
+      </Bd>
+    </Box>
   );
 }
 
@@ -75,7 +70,7 @@ export function MyTeamPage() {
   }, [load]);
 
   if (!me || missing) return <NotFound />;
-  if (!team) return <Shell><div className="r-panel" /></Shell>;
+  if (!team) return <Box title="My Team"><Bd><div className="note">Loading...</div></Bd></Box>;
   const canEdit = hasAny(team.roles, MANAGER_ROLES);
   const sub = team.kind === "factory" ? team.car : team.factoryName ? `Runs the ${team.factoryName} car` : null;
   const act = async (p: Promise<{ ok: true } | { ok: false; error: string }>) => {
@@ -88,54 +83,51 @@ export function MyTeamPage() {
   const sessions = upcomingSessions(races, regs, now);
   const panel = me.teams.some((t) => t.id === team.id);
   return (
-    <Shell wide>
+    <>
       {sessions.length > 0 && (
-        <div className="r-panel">
-          <div className="r-header">Upcoming sessions</div>
-          <table className="r-table">
-            <tbody>
-              {sessions.map(({ race, session, reg }) => {
-                const st = reg ? regStatus(reg, now) : null;
-                return (
-                  <tr key={session.id}>
-                    <td className="is-left">{race.name} · {session.name}</td>
-                    <td className="is-left" style={{ width: 150, color: "var(--r-text-dim)" }}>{fmtWhen(session.startsAt)}</td>
-                    <td className="is-left" style={{ width: 190, color: "var(--r-text-dim)" }}>{st?.text ?? ""}</td>
-                    <td style={{ width: 260, padding: 2 }}>
-                      <div className="r-row">
-                        {canEdit && st?.phase === "open" && (
-                          <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/session/${session.id}/register`)}>Register</button>
-                        )}
-                        {panel && (
-                          <button className="r-btn r-fill" style={{ width: "100%", height: 24, paddingTop: 2 }} onClick={() => nav(`/session/${session.id}/team/${team.id}`)}>Team panel</button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <Box title="Upcoming Sessions">
+          <Bd flush>
+            <table className="t">
+              <tbody>
+                {sessions.map(({ race, session, reg }) => {
+                  const st = reg ? regStatus(reg, now) : null;
+                  return (
+                    <tr key={session.id}>
+                      <td>{race.name} · {session.name}</td>
+                      <td>{fmtWhen(session.startsAt)}</td>
+                      <td className="mute">{st?.text ?? ""}</td>
+                      <td className="n">
+                        {canEdit && st?.phase === "open" && <Link className="btn pri sm" to={`/session/${session.id}/register`}>Register</Link>}{" "}
+                        {panel && <Link className="btn sm" to={`/session/${session.id}/team/${team.id}`}>Team panel</Link>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </Bd>
+        </Box>
       )}
-      <div className="r-panel">
-        <div className="r-header">{team.name}{sub ? ` · ${sub}` : ""}</div>
-        <MemberTable
-          members={team.members}
-          canEdit={canEdit}
-          onCode={tokens ? setCodeFor : undefined}
-          onRoles={(m, roles) => act(myTeam.setRoles(team.id, m.id, roles))}
-          onRemove={(m) => act(myTeam.remove(team.id, m.id))}
-        />
+      <Box title={`${team.name}${sub ? ` · ${sub}` : ""}`}>
+        <Bd flush>
+          <MemberTable
+            members={team.members}
+            meId={me.id}
+            canEdit={canEdit}
+            onCode={tokens ? setCodeFor : undefined}
+            onRoles={(m, roles) => act(myTeam.setRoles(team.id, m.id, roles))}
+            onRemove={(m) => act(myTeam.remove(team.id, m.id))}
+          />
+        </Bd>
         {canEdit && (
-          <div style={{ padding: 4, display: "grid", gap: 4 }}>
+          <Bd top bar>
             <AddMember onAdd={(username, roles) => act(myTeam.add(team.id, username, roles))} />
-          </div>
+          </Bd>
         )}
-      </div>
+      </Box>
       {!team.roles.includes("principal") && (
-        <div className="r-row">
-          <button className="r-btn r-cell--red" style={{ width: 160 }} onClick={() => setLeaving(true)}>
+        <div>
+          <button className="btn red" onClick={() => setLeaving(true)}>
             Leave team
           </button>
         </div>
@@ -166,6 +158,6 @@ export function MyTeamPage() {
           <div>You leave {team.name} and lose its panel access.</div>
         </Dialog>
       )}
-    </Shell>
+    </>
   );
 }

@@ -53,23 +53,3 @@ export function Topbar({ children }: { children?: ReactNode }) {
     </div>
   );
 }
-
-/** Page shell for public pages: top bar, scrolling body, footer status line. */
-export function Shell({ children, wide }: { children: ReactNode; wide?: boolean }) {
-  return (
-    <div className="page">
-      <Topbar />
-      <div className="page__body">
-        <div className={`page__col${wide ? " page__col--wide" : ""}`}>{children}</div>
-      </div>
-      <div className="r-statusbar">
-        <a href={DISCORD_URL} target="_blank" rel="noreferrer">
-          Discord
-        </a>
-        <Link to="/terms">Terms</Link>
-        <Link to="/privacy">Privacy</Link>
-        <span className="r-statusbar__end">{VERSION}</span>
-      </div>
-    </div>
-  );
-}
