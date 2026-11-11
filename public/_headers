@@ -4,3 +4,5 @@
   Cache-Control: no-cache
 /index.html
   Cache-Control: no-cache
+/brand/embed/*
+  Cache-Control: public, max-age=86400

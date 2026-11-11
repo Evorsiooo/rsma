@@ -10,11 +10,13 @@ import { registration } from "./registration";
 import { syncRegistered, teamWithCar } from "./stage";
 import { loadRaces, loadSession } from "./sessions";
 import { notifyStewardMessage } from "./discord";
+import { DEFAULT_EMBED, embedTags, raceEmbed, routeOf, sessionEmbed, type Embed } from "../shared/embed";
 
 export { RaceDO } from "./race-do";
 
 interface Env extends AuthEnv {
   RACE: DurableObjectNamespace;
+  ASSETS: Fetcher;
 }
 
 const app = new Hono<{ Bindings: Env }>();
@@ -329,5 +331,38 @@ app.get("/api/sessions/:id/access", async (c) => {
 });
 
 app.all("/api/*", (c) => c.json({ error: "not_found" }, 404));
+
+// Page routes: the single-page app's index.html with the link preview tags for this page in its head.
+// Discord and Twitter/X read these tags and do not run the app. Pages behind sign-in, and unknown races, get the site-wide card.
+app.get("*", async (c) => {
+  const url = new URL(c.req.url);
+  // Files (anything with an extension) are not pages.
+  if (/\.[a-z0-9]+$/i.test(url.pathname)) return c.env.ASSETS.fetch(c.req.raw);
+  const page = await c.env.ASSETS.fetch(new Request(new URL("/", url), { headers: c.req.raw.headers }));
+  if (!page.ok || !(page.headers.get("content-type") ?? "").includes("text/html")) return page;
+  const route = routeOf(url.pathname);
+  let embed: Embed | null = null;
+  if (route.kind === "static") {
+    embed = route.embed;
+  } else {
+    try {
+      if (route.kind === "session") {
+        const info = await loadSession(c.env.DB, route.id);
+        if (info) embed = sessionEmbed(info);
+      } else {
+        const [race] = await loadRaces(c.env.DB, "WHERE id = ?2", route.id);
+        if (race) embed = raceEmbed(race);
+      }
+    } catch {
+      // The preview is optional: serve the page without it.
+    }
+    embed ??= DEFAULT_EMBED;
+  }
+  const tags = embedTags(embed ?? DEFAULT_EMBED, url.origin, url.pathname);
+  const res = new HTMLRewriter().on("head", { element: (el) => void el.append(`\n    ${tags}\n  `, { html: true }) }).transform(page);
+  const out = new Response(res.body, page);
+  out.headers.set("Cache-Control", "no-cache");
+  return out;
+});
 
 export default app;
