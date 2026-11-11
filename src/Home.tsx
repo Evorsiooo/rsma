@@ -47,14 +47,15 @@ function About() {
           The Ro-State Motorsport Association runs rally and time-trial events in Roblox. Teams register their drivers for each session and have reserved slots, and independent drivers can register too.
         </p>
         <div className="bar">
-          <Link className="btn pri sm" to="/team-registration">Register a Team</Link>
-          <Link className="btn sm" to="/driver-registration">Driver Registration</Link>
+          <Link className="btn pri" to="/team-registration">Register a Team</Link>
+          <Link className="btn" to="/driver-registration">Driver Registration</Link>
         </div>
       </Bd>
     </Box>
   );
 }
 
+const dateOnly = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" });
 const when = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
 
 /** The next session that has not started, with a Register button while its registration is open. */
@@ -67,12 +68,11 @@ function NextEvent({ races, regs }: { races: RaceSummary[]; regs: RegSummary[] }
   const reg = regs.find((r) => r.sessionId === next.session.id);
   const open = !!reg && regPhase(reg, now) === "open";
   return (
-    <div className="box" style={{ borderColor: "var(--s-blue-d)" }}>
-      <div className="bh"><h3>Next Event</h3></div>
-      <div className="bd lead">
+    <Box title="Next Event">
+      <Bd>
         <div className="bar between">
           <span>
-            <b style={{ fontSize: 14 }}>{next.race.name} &middot; {next.session.name}</b>
+            <b>{next.race.name} &middot; {next.session.name}</b>
             <br />
             <span className="mute">{when.format(next.session.startsAt)}</span>
           </span>
@@ -81,8 +81,8 @@ function NextEvent({ races, regs }: { races: RaceSummary[]; regs: RegSummary[] }
             <Link className="btn" to={`/session/${next.session.id}`}>Timing</Link>
           </span>
         </div>
-      </div>
-    </div>
+      </Bd>
+    </Box>
   );
 }
 
@@ -98,7 +98,14 @@ function LatestResults({ race }: { race: RaceSummary }) {
     );
   }, [session?.id]);
   return (
-    <Box title="Latest Results" right={race.name}>
+    <Box title="Latest Results">
+      {session && (
+        <Bd>
+          <b>{race.name} &middot; {session.name}</b>
+          <br />
+          <span className="mute">{dateOnly.format(session.startsAt)}</span>
+        </Bd>
+      )}
       <Bd flush>
         {rows && rows.length > 0 ? (
           <table className="t">
@@ -116,7 +123,7 @@ function LatestResults({ race }: { race: RaceSummary }) {
           <div className="bd note">{rows ? "No results recorded." : "Loading..."}</div>
         )}
       </Bd>
-      <Bd top><Link className="btn sm" to={`/race/${race.id}`}>Full results</Link></Bd>
+      <Bd top><Link className="btn" to={`/race/${race.id}`}>Full results</Link></Bd>
     </Box>
   );
 }
