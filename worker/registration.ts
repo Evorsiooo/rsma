@@ -41,6 +41,7 @@ interface SettingsRow {
   spectators: number;
   factoryReserved: number;
   independents: number;
+  teamCap: number | null;
   follows: string | null;
 }
 
@@ -57,7 +58,7 @@ export async function rootOf(env: AdminEnv, sid: string): Promise<string> {
 
 export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSettings | null> {
   const r = await env.DB.prepare(
-    `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, follows
+    `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, follows
      FROM session_registration WHERE session_id = ?`,
   )
     .bind(sid)

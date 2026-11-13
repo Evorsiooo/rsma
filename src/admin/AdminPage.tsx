@@ -24,6 +24,8 @@ const ERRORS: Record<string, string> = {
   not_found: "Not found.",
   name_taken: "That name is already used.",
   invalid_times: "The end must be after the start.",
+  invalid_link: "That session cannot be linked: it must be in this event and not follow this session.",
+  has_registrations: "This session has registrations of its own. Remove them before linking it.",
   has_principal: "This team already has a Team Principal.",
   invalid_roles: "Pick at least one role.",
   has_customers: "Customer teams still run this factory team's car.",
@@ -811,19 +813,22 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
   const [n, setN] = useState({ drivers: "20", employees: "10", spectators: "10", factoryReserved: "1" });
   const [independents, setIndependents] = useState(false);
   const [staging, setStaging] = useState(session.staging);
-  // Back-to-back sessions share one registration: this session follows the one before it.
-  const previous = [...sessions].filter((o) => o.startsAt < session.startsAt).sort((a, b) => b.startsAt - a.startsAt)[0];
-  const [prevHasReg, setPrevHasReg] = useState(false);
+  // Back-to-back sessions share one registration: any other session of the event that has registration can be followed.
+  const [withReg, setWithReg] = useState<SessionSummary[]>([]);
   const [follows, setFollows] = useState<string | null>(null);
-  const followed = sessions.find((o) => o.id === follows) ?? previous;
+  const [teamCap, setTeamCap] = useState("");
   useEffect(() => {
-    if (previous) registrationApi.get(previous.id).then((v) => setPrevHasReg(!!v.settings), () => {});
-  }, [previous?.id]);
+    const others = sessions.filter((o) => o.id !== session.id);
+    Promise.all(others.map((o) => registrationApi.get(o.id).then((v) => (v.settings ? o : null), () => null))).then((l) =>
+      setWithReg(l.filter((o): o is SessionSummary => !!o).sort((a, b) => Math.abs(a.startsAt - session.startsAt) - Math.abs(b.startsAt - session.startsAt))),
+    );
+  }, [session.id]);
   useEffect(() => {
     registrationApi.get(session.id).then(({ settings: s }) => {
       if (s) {
         setOn(true);
         setFollows(s.follows);
+        setTeamCap(s.teamCap === null ? "" : String(s.teamCap));
         setOpens(toLocalInput(s.opensAt));
         setDeadline(toLocalInput(s.deadline));
         setN({ drivers: String(s.drivers), employees: String(s.employees), spectators: String(s.spectators), factoryReserved: String(s.factoryReserved) });
@@ -841,9 +846,10 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
     spectators: num(n.spectators),
     factoryReserved: num(n.factoryReserved),
     independents,
+    teamCap: teamCap.trim() === "" ? null : num(teamCap),
     follows,
   };
-  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (follows !== null || settings.deadline > settings.opensAt);
+  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (follows !== null || settings.deadline > settings.opensAt);
   const save = async () => {
     const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
     if (!r.ok) return say(r.error);
@@ -875,13 +881,25 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
         <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />
         <span>Registration open for this session</span>
       </label>
-      {on && (follows !== null || (previous && prevHasReg)) && (
-        <label className="r-check">
-          <input type="checkbox" checked={follows !== null} onChange={(e) => setFollows(e.target.checked ? previous.id : null)} />
-          <span>Same registration as {followed?.name}</span>
-        </label>
+      {on && (follows !== null || withReg.length > 0) && (
+        <>
+          <label className="r-check">
+            <input type="checkbox" checked={follows !== null} onChange={(e) => setFollows(e.target.checked ? withReg[0].id : null)} />
+            <span>Same registration as another session</span>
+          </label>
+          {follows !== null && (
+            <>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Registered together with</span>
+                <select className="r-field r-fill" aria-label="Linked session" value={follows} onChange={(e) => setFollows(e.target.value)}>
+                  {[...withReg, ...sessions.filter((o) => o.id === follows && !withReg.some((w) => w.id === o.id))].map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+                </select>
+              </label>
+              <div style={{ color: "var(--r-text-dim)" }}>People register once for both. Opens and closes with the linked session. Spots and independents below apply to this session only.</div>
+            </>
+          )}
+        </>
       )}
-      {on && follows !== null && <div style={{ color: "var(--r-text-dim)" }}>People register once for both. Opens and closes with {followed?.name}. Spots and independents below apply to this session only.</div>}
       {on && (
         <>
           {follows === null && <><label className="r-row" style={{ alignItems: "center" }}>
@@ -894,6 +912,10 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
           </label></>}
           {field("Driver spots", "drivers")}
           {field("Reserved per factory team", "factoryReserved")}
+          <label className="r-row" style={{ alignItems: "center" }}>
+            <span style={{ width: 240, flex: "none" }}>Team driver cap (blank for none)</span>
+            <input className="r-field r-fill" inputMode="numeric" aria-label="Team driver cap" value={teamCap} onChange={(e) => setTeamCap(e.target.value)} />
+          </label>
           {field("Employee spots", "employees")}
           {field("Spectator spots", "spectators")}
           <label className="r-check">
