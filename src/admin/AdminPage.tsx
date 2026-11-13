@@ -895,7 +895,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
                   {[...withReg, ...sessions.filter((o) => o.id === follows && !withReg.some((w) => w.id === o.id))].map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
                 </select>
               </label>
-              <div style={{ color: "var(--r-text-dim)" }}>People register once for both. Opens and closes with the linked session. Spots and independents below apply to this session only.</div>
+              <div style={{ color: "var(--r-text-dim)" }}>People register once for both. The window and all spot numbers are the linked session's. Only whether independents can take part is set here.</div>
             </>
           )}
         </>
@@ -910,6 +910,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
             <span style={{ width: 240, flex: "none" }}>Deadline</span>
             <input className="r-field r-fill" type="datetime-local" aria-label="Registration deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
           </label></>}
+          {follows === null && <>
           {field("Driver spots", "drivers")}
           {field("Reserved per factory team", "factoryReserved")}
           <label className="r-row" style={{ alignItems: "center" }}>
@@ -918,6 +919,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
           </label>
           {field("Employee spots", "employees")}
           {field("Spectator spots", "spectators")}
+          </>}
           <label className="r-check">
             <input type="checkbox" checked={independents} onChange={(e) => setIndependents(e.target.checked)} />
             <span>{follows !== null ? "Independent drivers can take part in this session" : "Independent drivers can register"}</span>

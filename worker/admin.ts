@@ -299,8 +299,10 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
   const follows = typeof b.follows === "string" && b.follows ? b.follows : null;
   let opensAt = Number(b.opensAt);
   let deadline = Number(b.deadline);
+  let [drivers, employees, spectators, reserved] = [num(b.drivers), num(b.employees), num(b.spectators), num(b.factoryReserved)];
+  let capIn: unknown = b.teamCap;
   if (follows) {
-    // Linked: the first session of the group sets the window, and the group must be in the same race with no loop.
+    // Linked: the first session of the group sets the window and the numbers, and the group must be in the same race with no loop.
     const same = await c.env.DB.prepare("SELECT 1 FROM sessions a JOIN sessions b ON a.race_id = b.race_id WHERE a.id = ? AND b.id = ?").bind(id, follows).first();
     const head = await rootOf(c.env, follows);
     let loop = follows === id;
@@ -308,15 +310,20 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
       cur = (await c.env.DB.prepare("SELECT follows FROM session_registration WHERE session_id = ?").bind(cur).first<{ follows: string | null }>())?.follows;
       loop = cur === id;
     }
-    const w = await c.env.DB.prepare("SELECT opens_at AS opensAt, deadline FROM session_registration WHERE session_id = ?").bind(head).first<{ opensAt: number; deadline: number }>();
+    const w = await c.env.DB.prepare(
+      "SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, team_cap AS teamCap FROM session_registration WHERE session_id = ?",
+    )
+      .bind(head)
+      .first<{ opensAt: number; deadline: number; drivers: number; employees: number; spectators: number; factoryReserved: number; teamCap: number | null }>();
     if (!same || !w || loop) return c.json({ error: "invalid_link" }, 400);
     if (await c.env.DB.prepare("SELECT 1 FROM registrations WHERE session_id = ?").bind(id).first()) return c.json({ error: "has_registrations" }, 409);
-    ({ opensAt, deadline } = w);
+    ({ opensAt, deadline, drivers, employees, spectators } = w);
+    reserved = w.factoryReserved;
+    capIn = w.teamCap;
   }
-  const [drivers, employees, spectators, reserved] = [num(b.drivers), num(b.employees), num(b.spectators), num(b.factoryReserved)];
   if (!Number.isFinite(opensAt) || !Number.isFinite(deadline) || deadline <= opensAt) return c.json({ error: "invalid_times" }, 400);
-  const teamCap = b.teamCap === null || b.teamCap === undefined ? null : num(b.teamCap);
-  if (drivers === null || employees === null || spectators === null || reserved === null || (b.teamCap != null && teamCap === null)) return c.json({ error: "invalid" }, 400);
+  const teamCap = capIn === null || capIn === undefined ? null : num(capIn);
+  if (drivers === null || employees === null || spectators === null || reserved === null || (capIn != null && teamCap === null)) return c.json({ error: "invalid" }, 400);
   await c.env.DB.prepare(
     `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows, team_cap)
      VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
