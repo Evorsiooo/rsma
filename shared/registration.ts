@@ -190,3 +190,9 @@ export function applyTeamLimit<T extends { userId: string; kind: RegKind; teamId
   }
   return regs.map((r) => (out.has(r.userId) ? { ...r, cut: out.get(r.userId)! } : r));
 }
+
+/** What the event registration page shows: the race, and for each session with a registration its group's first session and view. */
+export interface EventView {
+  race: import("./types").RaceSummary;
+  sessions: Record<string, { root: string; view: RegistrationView }>;
+}

@@ -25,19 +25,17 @@ export function useBootSteps(onReady: (data: BootData) => void, minMs = 0) {
     setServer("wait");
     setSession(null);
     setEvents(null);
-    api
-      .health()
-      .then(async () => {
+    // The three checks do not depend on each other, so they go out together; each line turns green as its answer arrives.
+    setSession("wait");
+    setEvents("wait");
+    const step = <T,>(p: Promise<T>, set: (s: Step) => void) =>
+      p.then((v) => {
+        if (live) set("ok");
+        return v;
+      });
+    Promise.all([step(api.health(), setServer), step(api.me(), setSession), step(api.races(), setEvents)])
+      .then(async ([, me, races]) => {
         if (!live) return;
-        setServer("ok");
-        setSession("wait");
-        const me = await api.me();
-        if (!live) return;
-        setSession("ok");
-        setEvents("wait");
-        const races = await api.races();
-        if (!live) return;
-        setEvents("ok");
         const rest = minMs - (Date.now() - t0);
         if (rest > 0) await new Promise((r) => setTimeout(r, rest));
         if (!live) return;

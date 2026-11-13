@@ -6,7 +6,25 @@
     <title>Flagman</title>
     <link rel="icon" id="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@1,125,800&display=swap" rel="stylesheet" />
+    <!-- The display font loads without holding up the first paint; text uses the fallback until it arrives. -->
+    <link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@1,125,800&display=swap" rel="stylesheet" media="print" onload="this.media='all'" />
+    <noscript><link href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@1,125,800&display=swap" rel="stylesheet" /></noscript>
+    <script>
+      // The start-up requests leave now, while the app's code is still downloading; src/api.ts picks the answers up.
+      (function () {
+        var path = location.pathname;
+        if (path === "/terms" || path === "/privacy") return;
+        var urls = ["/api/health", "/api/me", "/api/races"];
+        var m = path.match(/^\/race\/([^/]+)\/register$/);
+        if (m) urls.push("/api/registration/event/" + m[1]);
+        var early = {};
+        urls.forEach(function (u) {
+          early[u] = fetch(u, { cache: "no-store" });
+          early[u].catch(function () {});
+        });
+        window.__early = early;
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

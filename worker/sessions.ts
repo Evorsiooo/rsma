@@ -19,20 +19,20 @@ export async function sessionsOf(db: D1Database, raceIds: string[]): Promise<Map
   return map;
 }
 
-/** Races matching a WHERE/ORDER clause that uses ?1 for "now", each with its ordered sessions. */
+/** Races matching a WHERE/ORDER clause that uses ?1 for "now", each with its ordered sessions. One round trip to the database. */
 export async function loadRaces(db: D1Database, clause: string, ...extra: unknown[]): Promise<RaceSummary[]> {
-  const { results } = await db
-    .prepare(`SELECT ${RACE_COLS} FROM races ${clause}`)
-    .bind(Date.now(), ...extra)
-    .all<RaceRow>();
-  const sessions = await sessionsOf(db, results.map((r) => r.id));
-  return results.map((r) => ({ ...r, ended: !!r.ended, sessions: sessions.get(r.id) ?? [] }));
+  const args = [Date.now(), ...extra];
+  const [races, sessions] = await db.batch([
+    db.prepare(`SELECT ${RACE_COLS} FROM races ${clause}`).bind(...args),
+    db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE race_id IN (SELECT id FROM races ${clause}) ORDER BY starts_at, position`).bind(...args),
+  ]);
+  const by = new Map<string, SessionSummary[]>();
+  for (const r of sessions.results as SessionRow[]) by.set(r.raceId, [...(by.get(r.raceId) ?? []), toSession(r)]);
+  return (races.results as RaceRow[]).map((r) => ({ ...r, ended: !!r.ended, sessions: by.get(r.id) ?? [] }));
 }
 
 export async function loadSession(db: D1Database, id: string): Promise<SessionInfo | null> {
-  const row = await db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE id = ?`).bind(id).first<SessionRow>();
-  if (!row) return null;
-  const session = toSession(row);
-  const [race] = await loadRaces(db, "WHERE id = ?2", session.raceId);
-  return race ? { session, race } : null;
+  const [race] = await loadRaces(db, "WHERE id = (SELECT race_id FROM sessions WHERE id = ?2)", id);
+  const session = race?.sessions.find((x) => x.id === id);
+  return race && session ? { session, race } : null;
 }

@@ -1,11 +1,16 @@
-import type { GroupStatus, RegKind, RegSettings, RegSummary, RegistrationView } from "../shared/registration";
+import type { EventView, GroupStatus, RegKind, RegSettings, RegSummary, RegistrationView } from "../shared/registration";
 import type { TeamRole } from "../shared/teams";
 import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
 import type { Command } from "../shared/commands";
 import type { RaceState } from "../shared/race";
 
+/** Requests index.html already sent; each answer is used once, by the first caller that asks for that path. */
+const early = (window as unknown as { __early?: Record<string, Promise<Response> | undefined> }).__early ?? {};
+
 async function get<T>(path: string): Promise<T> {
-  const res = await fetch(path, { cache: "no-store" });
+  const sent = early[path];
+  delete early[path];
+  const res = await (sent ?? fetch(path, { cache: "no-store" }));
   if (!res.ok) throw new Error(`${path} ${res.status}`);
   return res.json() as Promise<T>;
 }
@@ -46,11 +51,16 @@ export async function sendTeamRadio(raceId: string, teamId: string, text: string
 export const raceAccess = (id: string) => get<{ steward: boolean }>(`/api/sessions/${id}/access`);
 
 async function send(method: string, path: string, body?: unknown): Promise<{ ok: true; data: unknown } | { ok: false; error: string }> {
-  const res = await fetch(path, {
-    method,
-    headers: body === undefined ? undefined : { "Content-Type": "application/json" },
-    body: body === undefined ? undefined : JSON.stringify(body),
-  });
+  let res: Response;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: body === undefined ? undefined : { "Content-Type": "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    return { ok: false, error: "network" };
+  }
   const data = await res.json().catch(() => ({}));
   return res.ok ? { ok: true, data } : { ok: false, error: (data as { error?: string }).error ?? "failed" };
 }
@@ -139,6 +149,7 @@ const reg = (sid: string, path = "") => `/api/registration/${sid}${path}`;
 export const registrationApi = {
   list: () => get<RegSummary[]>("/api/registration"),
   get: (sid: string) => get<RegistrationView>(reg(sid)),
+  event: (raceId: string) => get<EventView>(`/api/registration/event/${raceId}`),
   teamAdd: (sid: string, teamId: string, username: string, kind: RegKind) => send("POST", reg(sid, `/team/${teamId}`), { username, kind }),
   teamRemove: (sid: string, teamId: string, userId: string) => send("DELETE", reg(sid, `/team/${teamId}/${userId}`)),
   setPicks: (sid: string, teamId: string, userIds: string[]) => send("PUT", reg(sid, `/team/${teamId}/picks`), { userIds }),

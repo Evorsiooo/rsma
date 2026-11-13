@@ -1,3 +1,4 @@
+import { useBootData } from "./Layouts";
 import { useCallback, useEffect, useState } from "react";
 import { startSignIn, useTokenMode } from "./access";
 import { CUT_LABEL, GROUP_URL, groupSummary, inGroup, REG_KIND_LABEL, type RegSummary, type RegistrationView } from "../shared/registration";
@@ -34,7 +35,7 @@ const link = (href: string, text: string) => (
 /** Driver registration: independent drivers sign up for a session; drivers registered by a team confirm the group. */
 export function DriverRegistration() {
   const { me } = useMe();
-  const [races, setRaces] = useState<RaceSummary[]>([]);
+  const [races, setRaces] = useState<RaceSummary[]>(useBootData()?.races ?? []);
   const [regs, setRegs] = useState<RegSummary[] | null>(null);
   const [pick, setPick] = useState("");
   const [view, setView] = useState<RegistrationView | null>(null);

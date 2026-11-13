@@ -24,14 +24,17 @@ import { getMe, hasRole } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { syncRegistered } from "./stage";
 import { cleanUsername, resolveUser, type AdminEnv } from "./admin";
+import { eventIn, loadEventData, managedTeams, pickUntilIn, rootIn, settingsIn, viewIn, type EventData } from "./reg-data";
 
 type E = { Bindings: AdminEnv; Variables: { me: Me | null } };
 type C = Context<E>;
 
 export const registration = new Hono<E>();
 
+// These routes read the signed-in user in the same database batch as their data (see reg-data.ts); the list needs no user.
+const loadsOwnUser = (c: C) => c.req.path === "/api/registration" || /\/team\/|\/event\/|^\/api\/registration\/[^/]+$/.test(c.req.path);
 registration.use("*", async (c, next) => {
-  c.set("me", await getMe(c.env, getCookie(c, SESSION_COOKIE)));
+  if (!loadsOwnUser(c)) c.set("me", await getMe(c.env, getCookie(c, SESSION_COOKIE)));
   await next();
 });
 
@@ -116,8 +119,6 @@ export async function independentsOpen(env: AdminEnv, sid: string): Promise<bool
   return (await loadGroup(env, sid)).members.some((m) => m.independents);
 }
 
-const isStaff = (me: Me | null) => hasRole(me, "races", "steward");
-const managedTeams = (me: Me | null) => (me?.memberships ?? []).filter((t) => hasAny(t.roles, MANAGER_ROLES));
 
 /** Everyone registered for the group `sid` belongs to, with the cut worked out for `sid` itself. */
 export async function loadRegs(env: AdminEnv, sid: string, s: RegSettings, known?: Awaited<ReturnType<typeof loadGroup>>): Promise<Registration[]> {
@@ -187,55 +188,16 @@ registration.get("/", async (c) => {
   );
 });
 
+/** One session's registration, as the staff and driver pages read it. */
 registration.get("/:sid", async (c) => {
   const sid = c.req.param("sid");
-  const me = c.get("me");
-  const settings = await loadSettings(c.env, sid);
-  const empty = { taken: 0, spots: 0 };
-  const view: RegistrationView = {
-    settings,
-    group: [],
-    pickUntil: null,
-    phase: settings ? regPhase(settings, Date.now()) : null,
-    counts: { driver: { ...empty }, employee: { ...empty }, spectator: { ...empty } },
-    staff: isStaff(me),
-    teams: [],
-    registrations: [],
-    self: null,
-  };
-  if (!settings) return c.json(view);
-  const managed = managedTeams(me);
-  const ids = managed.map((t) => t.id);
-  // Everything that does not depend on something else is asked at once.
-  const [until, group] = await Promise.all([pickUntil(c.env, sid, settings), loadGroup(c.env, sid)]);
-  const [all, members] = await Promise.all([
-    loadRegs(c.env, sid, settings, group),
-    ids.length
-      ? c.env.DB.prepare(
-          `SELECT m.team_id AS teamId, u.roblox_id AS id, u.username, m.roles FROM team_members m JOIN users u ON u.roblox_id = m.roblox_id
-           WHERE m.team_id IN (${ids.map(() => "?").join(",")}) ORDER BY lower(u.username)`,
-        )
-          .bind(...ids)
-          .all<{ teamId: string; id: string; username: string; roles: string }>()
-      : Promise.resolve({ results: [] as { teamId: string; id: string; username: string; roles: string }[] }),
-  ]);
-  view.pickUntil = until;
-  view.group = group.members.map(({ id, name, teamsOnly }) => ({ id, name, teamsOnly }));
-  const spots = { driver: settings.drivers, employee: settings.employees, spectator: settings.spectators };
-  if (view.staff) for (const k of REG_KINDS) view.counts[k] = { taken: all.filter((r) => r.kind === k && !r.denied).length, spots: spots[k] };
-  view.self = all.find((r) => r.userId === me?.id) ?? null;
-  const { results } = members;
-  if (managed.length) {
-    view.teams = managed.map<RegTeam>((t) => ({
-      id: t.id,
-      name: t.name,
-      members: results.filter((m) => m.teamId === t.id).map((m) => ({ id: m.id, username: m.username, roles: parseRoles(m.roles) })),
-    }));
-  }
-  view.registrations = view.staff
-    ? all
-    : all.filter((r) => r.userId === me?.id || (r.teamId && managed.some((t) => t.id === r.teamId)));
-  return c.json(view);
+  return c.json(viewIn(await loadEventData(c.env, c, { sessionId: sid }), sid));
+});
+
+/** Everything the event registration page shows, in one request. */
+registration.get("/event/:raceId", async (c) => {
+  const ev = eventIn(await loadEventData(c.env, c, { raceId: c.req.param("raceId") }));
+  return ev ? c.json(ev) : c.json({ error: "not_found" }, 404);
 });
 
 /** Staging the queue is not needed for the answer: answer now, finish it right after. */
@@ -276,80 +238,110 @@ const cleanDiscord = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_.]{2
 
 // ---- Teams -------------------------------------------------------------------
 
-async function teamManager(c: C) {
-  const me = needMe(c);
-  if (me instanceof Response) return me;
-  const team = managedTeams(me).find((t) => t.id === c.req.param("teamId"));
-  return team ?? c.json({ error: "forbidden" }, 403);
+/**
+ * The routes below answer with the whole event as it is after the change, so the page needs no second request.
+ * Adding someone who is already registered by this team, or removing someone who is not, is fine: the answer is the same.
+ */
+const done = (c: C, d: EventData, extra: object = {}) => c.json({ ok: true, ...extra, event: eventIn(d) });
+
+type Gate = { d: EventData; team: { id: string; name: string }; sid: string } | Response;
+
+/** Loads the event and checks the caller manages the team, in one round trip. */
+async function teamGate(c: C): Promise<Gate> {
+  const sid = c.req.param("sid") ?? "";
+  const d = await loadEventData(c.env, c, { sessionId: sid });
+  if (!d.me) return c.json({ error: "unauthorized" }, 401);
+  const team = managedTeams(d.me).find((t) => t.id === c.req.param("teamId"));
+  return team ? { d, team, sid } : c.json({ error: "forbidden" }, 403);
+}
+
+function openSettings(c: C, d: EventData, sid: string): RegSettings | Response {
+  const s = settingsIn(d, sid);
+  if (!s) return c.json({ error: "no_registration" }, 404);
+  return regPhase(s, Date.now()) === "open" ? s : c.json({ error: "not_open" }, 409);
 }
 
 registration.post("/:sid/team/:teamId", async (c) => {
-  const team = await teamManager(c);
-  if (team instanceof Response) return team;
-  const s = await requireOpen(c);
+  const gate = await teamGate(c);
+  if (gate instanceof Response) return gate;
+  const { d, team, sid } = gate;
+  const s = openSettings(c, d, sid);
   if (s instanceof Response) return s;
   const body = (await c.req.json().catch(() => ({}))) as { username?: unknown; kind?: unknown };
   const kind = cleanKind(body.kind);
   const username = cleanUsername(body.username);
   if (!kind || !username) return c.json({ error: "invalid" }, 400);
-  let user: { id: string; username: string } | null;
+  let user: { id: string; username: string };
   if (kind === "spectator") {
     const found = await resolveUser(c, username);
     if (found instanceof Response) return found;
     user = found;
   } else {
-    const m = await c.env.DB.prepare(
-      "SELECT u.roblox_id AS id, u.username, m.roles FROM team_members m JOIN users u ON u.roblox_id = m.roblox_id WHERE m.team_id = ? AND lower(u.username) = lower(?)",
-    )
-      .bind(team.id, username)
-      .first<{ id: string; username: string; roles: string }>();
+    const m = d.members.find((x) => x.teamId === team.id && x.username.toLowerCase() === username.toLowerCase());
     if (!m) return c.json({ error: "not_member" }, 404);
     const roles = parseRoles(m.roles);
     // Drivers need the Driver role; employees are the team's staff.
     if (kind === "driver" ? !roles.includes("driver") : !hasAny(roles, PANEL_ROLES)) return c.json({ error: "wrong_role" }, 400);
     user = m;
   }
-  const err = await insertReg(c, await rootOf(c.env, c.req.param("sid")), user.id, kind, team.id, null, "unverified");
-  if (!err) syncLater(c, c.req.param("sid"));
-  return err ?? c.json({ ok: true });
+  const root = rootIn(d, sid);
+  const existing = d.regs.find((r) => r.sessionId === root && r.userId === user.id);
+  if (existing) {
+    if (existing.teamId === team.id && existing.kind === kind) return done(c, d);
+    return c.json({ error: "taken", by: existing.teamName ?? "an independent registration" }, 409);
+  }
+  const at = Date.now();
+  const r = await c.env.DB.prepare(
+    "INSERT INTO registrations (session_id, roblox_id, kind, team_id, discord, grp, created_at) VALUES (?, ?, ?, ?, NULL, 'unverified', ?) ON CONFLICT DO NOTHING",
+  )
+    .bind(root, user.id, kind, team.id, at)
+    .run();
+  if (!r.meta.changes) return c.json({ error: "taken", by: "someone else a moment ago" }, 409);
+  d.regs.push({ sessionId: root, userId: user.id, username: user.username, kind, teamId: team.id, teamName: team.name, discord: null, group: "unverified", denied: 0, at });
+  d.regs.sort((a, b) => a.at - b.at);
+  syncLater(c, sid);
+  return done(c, d);
 });
 
 registration.delete("/:sid/team/:teamId/:uid", async (c) => {
-  const team = await teamManager(c);
-  if (team instanceof Response) return team;
-  const s = await requireOpen(c);
+  const gate = await teamGate(c);
+  if (gate instanceof Response) return gate;
+  const { d, team, sid } = gate;
+  const s = openSettings(c, d, sid);
   if (s instanceof Response) return s;
-  await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ?")
-    .bind(await rootOf(c.env, c.req.param("sid")), c.req.param("uid"), team.id)
-    .run();
-  syncLater(c, c.req.param("sid"));
-  return c.json({ ok: true });
+  const root = rootIn(d, sid);
+  const uid = c.req.param("uid");
+  const held = d.regs.some((r) => r.sessionId === root && r.userId === uid && r.teamId === team.id);
+  if (!held) return done(c, d);
+  await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ?").bind(root, uid, team.id).run();
+  d.regs = d.regs.filter((r) => !(r.sessionId === root && r.userId === uid && r.teamId === team.id));
+  syncLater(c, sid);
+  return done(c, d);
 });
 
 /** A team manager chooses which of the team's registered drivers take part in this session, until the cutoff. */
 registration.put("/:sid/team/:teamId/picks", async (c) => {
-  const team = await teamManager(c);
-  if (team instanceof Response) return team;
-  const sid = c.req.param("sid") ?? "";
-  const s = await loadSettings(c.env, sid);
+  const gate = await teamGate(c);
+  if (gate instanceof Response) return gate;
+  const { d, team, sid } = gate;
+  const s = settingsIn(d, sid);
   if (!s) return c.json({ error: "no_registration" }, 404);
-  const until = await pickUntil(c.env, sid, s);
+  const until = pickUntilIn(d, sid, s);
   if (s.teamLimit === null || until === null) return c.json({ error: "no_limit" }, 409);
   if (Date.now() > until) return c.json({ error: "picks_closed" }, 409);
   const body = (await c.req.json().catch(() => ({}))) as { userIds?: unknown };
   const ids = Array.isArray(body.userIds) ? [...new Set(body.userIds.filter((v): v is string => typeof v === "string"))] : null;
   if (!ids || ids.length > s.teamLimit) return c.json({ error: "too_many" }, 400);
-  const root = await rootOf(c.env, sid);
-  const mine = (
-    await c.env.DB.prepare("SELECT roblox_id AS id FROM registrations WHERE session_id = ? AND team_id = ? AND kind = 'driver' AND denied = 0").bind(root, team.id).all<{ id: string }>()
-  ).results.map((r) => r.id);
+  const root = rootIn(d, sid);
+  const mine = d.regs.filter((r) => r.sessionId === root && r.teamId === team.id && r.kind === "driver" && !r.denied).map((r) => r.userId);
   if (ids.some((id) => !mine.includes(id))) return c.json({ error: "not_registered" }, 400);
   await c.env.DB.batch([
-    ...mine.map((id) => c.env.DB.prepare("DELETE FROM session_picks WHERE session_id = ? AND roblox_id = ?").bind(sid, id)),
+    ...(mine.length ? [c.env.DB.prepare(`DELETE FROM session_picks WHERE session_id = ? AND roblox_id IN (${mine.map(() => "?").join(",")})`).bind(sid, ...mine)] : []),
     ...ids.map((id) => c.env.DB.prepare("INSERT INTO session_picks (session_id, roblox_id) VALUES (?, ?)").bind(sid, id)),
   ]);
+  d.picks = [...d.picks.filter((p) => !(p.sessionId === sid && mine.includes(p.userId))), ...ids.map((userId) => ({ sessionId: sid, userId }))];
   syncLater(c, sid);
-  return c.json({ ok: true });
+  return done(c, d);
 });
 
 // ---- Independents and the person's own group status ----------------------------

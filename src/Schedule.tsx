@@ -1,3 +1,4 @@
+import { useBootData } from "./Layouts";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { RegSummary } from "../shared/registration";
@@ -30,7 +31,7 @@ export function upcomingByRace(races: RaceSummary[], now: number): { race: RaceS
 
 /** Public schedule: upcoming sessions in the viewer's own time zone, with how to register. */
 export function Schedule() {
-  const [races, setRaces] = useState<RaceSummary[] | null>(null);
+  const [races, setRaces] = useState<RaceSummary[] | null>(useBootData()?.races ?? null);
   const [regs, setRegs] = useState<RegSummary[]>([]);
   useEffect(() => {
     api.races().then(setRaces, () => setRaces([]));
