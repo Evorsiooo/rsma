@@ -17,7 +17,7 @@ const ERRORS: Record<string, string> = {
   lookup_failed: "Could not reach Roblox. Try again in a moment.",
   invalid: "Invalid value.",
   picks_closed: "The time to choose drivers for this session has passed.",
-  too_many: "Too many drivers chosen for one team.",
+  too_many: "That session is full for your team. Untick a driver first.",
   not_registered: "Only registered drivers of the team can be chosen.",
   forbidden: "Not allowed.",
 };
@@ -119,20 +119,24 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
     act(registered(m.id, kind) ? registrationApi.teamRemove(root, team.id, m.id) : registrationApi.teamAdd(root, team.id, m.username, kind));
   const guests = regs.filter((r) => r.kind === "spectator");
   const [name, setName] = useState("");
-  const [chosen, setChosen] = useState<Record<string, Set<string>>>({});
+  const [find, setFind] = useState("");
+  const shown = drivers.filter((m) => m.username.toLowerCase().includes(find.trim().toLowerCase()));
+  const [busy, setBusy] = useState(false);
   const now = Date.now();
   const cutIn = (sid: string, uid: string) => views[sid]?.registrations.find((r) => r.teamId === team.id && r.userId === uid && r.kind === "driver")?.cut;
   const pickable = (sid: string) => {
     const v = views[sid];
     return v?.settings?.teamLimit != null && v.pickUntil != null && now <= v.pickUntil;
   };
-  const sel = (sid: string) => chosen[sid] ?? new Set(drivers.filter((m) => cutIn(sid, m.id) === "in").map((m) => m.id));
-  const flip = (sid: string, uid: string) =>
-    setChosen((c) => {
-      const n = new Set(sel(sid));
-      n.has(uid) ? n.delete(uid) : n.add(uid);
-      return { ...c, [sid]: n };
-    });
+  const sel = (sid: string) => new Set(drivers.filter((m) => cutIn(sid, m.id) === "in").map((m) => m.id));
+  // Applies at once, like Registered; the server enforces the limit and the cutoff.
+  const flip = async (sid: string, uid: string) => {
+    const n = sel(sid);
+    n.has(uid) ? n.delete(uid) : n.add(uid);
+    setBusy(true);
+    await act(registrationApi.setPicks(sid, team.id, [...n]));
+    setBusy(false);
+  };
   const limited = sessions.filter((x) => pickable(x.id));
   return (
     <>
@@ -145,6 +149,11 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
         {drivers.length === 0 ? (
           <Bd><div className="note">No member has the Driver role.</div></Bd>
         ) : (
+          <>
+          <Bd top bar>
+            <input type="search" style={{ flex: 1, minWidth: 180 }} placeholder="Search drivers" aria-label="Search drivers" value={find} onChange={(e) => setFind(e.target.value)} />
+            {find.trim() && <span className="mute">{shown.length} of {drivers.length}</span>}
+          </Bd>
           <Bd flush>
             <table className="t">
               <thead>
@@ -157,7 +166,12 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
                 </tr>
               </thead>
               <tbody>
-                {drivers.map((m) => {
+                {shown.length === 0 && (
+                  <tr>
+                    <td colSpan={2 + sessions.length} className="mute">No driver matches.</td>
+                  </tr>
+                )}
+                {shown.map((m) => {
                   const on = registered(m.id, "driver");
                   return (
                     <tr key={m.id}>
@@ -174,7 +188,7 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
                           return (
                             <td key={x.id}>
                               <label className="plain">
-                                <input type="checkbox" checked={set.has(m.id)} disabled={!set.has(m.id) && set.size >= limit} onChange={() => flip(x.id, m.id)} /> Take part
+                                <input type="checkbox" checked={set.has(m.id)} disabled={busy || (!set.has(m.id) && set.size >= limit)} onChange={() => flip(x.id, m.id)} /> Take part
                               </label>
                             </td>
                           );
@@ -187,19 +201,13 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
               </tbody>
             </table>
           </Bd>
+          </>
         )}
-        {limited.map((x) => {
-          const limit = views[x.id].settings!.teamLimit!;
-          const set = sel(x.id);
-          return (
-            <Bd key={x.id} top bar>
-              <button className="btn pri" disabled={!chosen[x.id]} onClick={async () => { if (await act(registrationApi.setPicks(x.id, team.id, [...set]))) setChosen((c) => { const n = { ...c }; delete n[x.id]; return n; }); }}>
-                Save {x.name} drivers
-              </button>
-              <span className="mute">{set.size} of {limit} · choose until {fmt.format(views[x.id].pickUntil!)}</span>
-            </Bd>
-          );
-        })}
+        {limited.map((x) => (
+          <Bd key={x.id} top>
+            <span className="mute">{x.name}: {sel(x.id).size} of {views[x.id].settings!.teamLimit} drivers take part · choose until {fmt.format(views[x.id].pickUntil!)}</span>
+          </Bd>
+        ))}
       </Box>
       {(staff.length > 0 || guests.length > 0 || open) && (
         <Box title={`${team.name} · Staff and guests`}>
