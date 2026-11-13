@@ -45,6 +45,7 @@ export function EventRegistration() {
   const [race, setRace] = useState<RaceSummary | null | undefined>(undefined);
   const [regs, setRegs] = useState<RegSummary[]>([]);
   const [views, setViews] = useState<Record<string, RegistrationView>>({});
+  const [ready, setReady] = useState(false);
   const load = useCallback(async () => {
     const [races, list] = await Promise.all([api.races(), registrationApi.list()]);
     const r = races.find((x) => x.id === id) ?? null;
@@ -54,6 +55,7 @@ export function EventRegistration() {
     const mine = list.filter((g) => r.sessions.some((s) => s.id === g.sessionId));
     const got = await Promise.all(mine.map((g) => registrationApi.get(g.sessionId).then((v) => [g.sessionId, v] as const, () => null)));
     setViews(Object.fromEntries(got.filter((x): x is readonly [string, RegistrationView] => !!x)));
+    setReady(true);
   }, [id]);
   useEffect(() => {
     load().catch(() => setRace(null));
@@ -66,7 +68,7 @@ export function EventRegistration() {
   };
 
   if (race === null) return <NotFound />;
-  if (!race) return <Box title="Registration"><Bd><div className="note">Loading...</div></Bd></Box>;
+  if (!race || !ready) return <Box title="Registration"><Bd><div className="note">Loading...</div></Bd></Box>;
   const now = Date.now();
   const mine = regs.filter((g) => race.sessions.some((s) => s.id === g.sessionId));
   const roots = [...new Set(mine.map((g) => g.root))].filter((r) => views[r]?.settings);
