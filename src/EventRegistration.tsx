@@ -119,6 +119,8 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
     act(registered(m.id, kind) ? registrationApi.teamRemove(root, team.id, m.id) : registrationApi.teamAdd(root, team.id, m.username, kind));
   const guests = regs.filter((r) => r.kind === "spectator");
   const [name, setName] = useState("");
+  const [find, setFind] = useState("");
+  const shown = drivers.filter((m) => m.username.toLowerCase().includes(find.trim().toLowerCase()));
   const [chosen, setChosen] = useState<Record<string, Set<string>>>({});
   const now = Date.now();
   const cutIn = (sid: string, uid: string) => views[sid]?.registrations.find((r) => r.teamId === team.id && r.userId === uid && r.kind === "driver")?.cut;
@@ -145,6 +147,11 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
         {drivers.length === 0 ? (
           <Bd><div className="note">No member has the Driver role.</div></Bd>
         ) : (
+          <>
+          <Bd top bar>
+            <input type="search" style={{ flex: 1, minWidth: 180 }} placeholder="Search drivers" aria-label="Search drivers" value={find} onChange={(e) => setFind(e.target.value)} />
+            {find.trim() && <span className="mute">{shown.length} of {drivers.length}</span>}
+          </Bd>
           <Bd flush>
             <table className="t">
               <thead>
@@ -157,7 +164,12 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
                 </tr>
               </thead>
               <tbody>
-                {drivers.map((m) => {
+                {shown.length === 0 && (
+                  <tr>
+                    <td colSpan={2 + sessions.length} className="mute">No driver matches.</td>
+                  </tr>
+                )}
+                {shown.map((m) => {
                   const on = registered(m.id, "driver");
                   return (
                     <tr key={m.id}>
@@ -187,6 +199,7 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
               </tbody>
             </table>
           </Bd>
+          </>
         )}
         {limited.map((x) => {
           const limit = views[x.id].settings!.teamLimit!;
