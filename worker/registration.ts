@@ -3,8 +3,10 @@ import { Hono, type Context } from "hono";
 import { getCookie } from "hono/cookie";
 import type { Me } from "../shared/types";
 import {
+  applyTeamLimit,
   computeCut,
   eligibleFor,
+  type Cut,
   GROUP_STATUSES,
   REG_KINDS,
   regPhase,
@@ -42,6 +44,8 @@ interface SettingsRow {
   factoryReserved: number;
   independents: number;
   teamCap: number | null;
+  teamLimit: number | null;
+  pickCutoff: number | null;
   follows: string | null;
 }
 
@@ -58,7 +62,7 @@ export async function rootOf(env: AdminEnv, sid: string): Promise<string> {
 
 export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSettings | null> {
   const r = await env.DB.prepare(
-    `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, follows
+    `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows
      FROM session_registration WHERE session_id = ?`,
   )
     .bind(sid)
@@ -71,7 +75,7 @@ export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSetti
       "SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, team_cap AS teamCap FROM session_registration WHERE session_id = ?",
     )
       .bind(root)
-      .first<Omit<SettingsRow, "independents" | "follows">>();
+      .first<Omit<SettingsRow, "independents" | "follows" | "teamLimit" | "pickCutoff">>();
     if (w) Object.assign(r, w);
   }
   return { ...r, independents: !!r.independents, follows: root === sid ? null : r.follows };
@@ -121,19 +125,26 @@ export async function loadRegs(env: AdminEnv, sid: string, s: RegSettings): Prom
   );
   const regs = eligibleFor(results.map((r) => ({ ...r, denied: !!r.denied })), s, group.members.length > 1);
   const cut = computeCut(regs, s, factories);
-  return regs.map((r) => ({ ...r, cut: cut.get(r.userId) ?? "waitlist" }));
+  const picks = new Set((await env.DB.prepare("SELECT roblox_id AS id FROM session_picks WHERE session_id = ?").bind(sid).all<{ id: string }>()).results.map((p) => p.id));
+  return applyTeamLimit(regs.map((r) => ({ ...r, cut: cut.get(r.userId) ?? ("waitlist" as Cut) })), s.teamLimit, picks);
+}
+
+/** Teams choose their drivers for a session until this time: the cutoff, or the session start. */
+async function pickUntil(env: AdminEnv, sid: string, s: RegSettings): Promise<number | null> {
+  if (s.teamLimit === null) return null;
+  return s.pickCutoff ?? (await env.DB.prepare("SELECT starts_at AS t FROM sessions WHERE id = ?").bind(sid).first<{ t: number }>())?.t ?? null;
 }
 
 /** Registration of sessions that have not ended, for the home page and My Team. A linked session shows its group's window. */
 registration.get("/", async (c) => {
   const now = Date.now();
   const { results } = await c.env.DB.prepare(
-    `SELECT r.session_id AS sessionId, r.opens_at AS opensAt, r.deadline, r.independents, r.follows, s.ends_at AS endsAt
+    `SELECT r.session_id AS sessionId, r.opens_at AS opensAt, r.deadline, r.independents, r.follows, r.team_limit AS teamLimit, r.pick_cutoff AS pickCutoff, s.starts_at AS startsAt, s.ends_at AS endsAt
      FROM session_registration r JOIN sessions s ON s.id = r.session_id JOIN races a ON a.id = s.race_id
      WHERE a.status = 'active' AND a.expires_at > ?`,
   )
     .bind(now)
-    .all<{ sessionId: string; opensAt: number; deadline: number; independents: number; follows: string | null; endsAt: number }>();
+    .all<{ sessionId: string; opensAt: number; deadline: number; independents: number; follows: string | null; teamLimit: number | null; pickCutoff: number | null; startsAt: number; endsAt: number }>();
   const by = new Map(results.map((r) => [r.sessionId, r]));
   const rootOfRow = (r: (typeof results)[number]) => {
     let cur = r;
@@ -157,6 +168,8 @@ registration.get("/", async (c) => {
           independents: anyIndependents.get(root.sessionId) ?? false,
           root: root.sessionId,
           teamsOnly: (groupSize.get(root.sessionId) ?? 1) > 1 && !r.independents,
+          teamLimit: r.teamLimit,
+          pickUntil: r.teamLimit === null ? null : (r.pickCutoff ?? r.startsAt),
         };
       }) satisfies RegSummary[],
   );
@@ -170,6 +183,7 @@ registration.get("/:sid", async (c) => {
   const view: RegistrationView = {
     settings,
     group: [],
+    pickUntil: null,
     phase: settings ? regPhase(settings, Date.now()) : null,
     counts: { driver: { ...empty }, employee: { ...empty }, spectator: { ...empty } },
     staff: isStaff(me),
@@ -178,6 +192,7 @@ registration.get("/:sid", async (c) => {
     self: null,
   };
   if (!settings) return c.json(view);
+  view.pickUntil = await pickUntil(c.env, sid, settings);
   view.group = (await loadGroup(c.env, sid)).members.map(({ id, name, teamsOnly }) => ({ id, name, teamsOnly }));
   const all = await loadRegs(c.env, sid, settings);
   const spots = { driver: settings.drivers, employee: settings.employees, spectator: settings.spectators };
@@ -284,6 +299,32 @@ registration.delete("/:sid/team/:teamId/:uid", async (c) => {
     .bind(await rootOf(c.env, c.req.param("sid")), c.req.param("uid"), team.id)
     .run();
   await syncRegistered(c.env, c.req.param("sid"));
+  return c.json({ ok: true });
+});
+
+/** A team manager chooses which of the team's registered drivers take part in this session, until the cutoff. */
+registration.put("/:sid/team/:teamId/picks", async (c) => {
+  const team = await teamManager(c);
+  if (team instanceof Response) return team;
+  const sid = c.req.param("sid") ?? "";
+  const s = await loadSettings(c.env, sid);
+  if (!s) return c.json({ error: "no_registration" }, 404);
+  const until = await pickUntil(c.env, sid, s);
+  if (s.teamLimit === null || until === null) return c.json({ error: "no_limit" }, 409);
+  if (Date.now() > until) return c.json({ error: "picks_closed" }, 409);
+  const body = (await c.req.json().catch(() => ({}))) as { userIds?: unknown };
+  const ids = Array.isArray(body.userIds) ? [...new Set(body.userIds.filter((v): v is string => typeof v === "string"))] : null;
+  if (!ids || ids.length > s.teamLimit) return c.json({ error: "too_many" }, 400);
+  const root = await rootOf(c.env, sid);
+  const mine = (
+    await c.env.DB.prepare("SELECT roblox_id AS id FROM registrations WHERE session_id = ? AND team_id = ? AND kind = 'driver' AND denied = 0").bind(root, team.id).all<{ id: string }>()
+  ).results.map((r) => r.id);
+  if (ids.some((id) => !mine.includes(id))) return c.json({ error: "not_registered" }, 400);
+  await c.env.DB.batch([
+    ...mine.map((id) => c.env.DB.prepare("DELETE FROM session_picks WHERE session_id = ? AND roblox_id = ?").bind(sid, id)),
+    ...ids.map((id) => c.env.DB.prepare("INSERT INTO session_picks (session_id, roblox_id) VALUES (?, ?)").bind(sid, id)),
+  ]);
+  await syncRegistered(c.env, sid);
   return c.json({ ok: true });
 });
 

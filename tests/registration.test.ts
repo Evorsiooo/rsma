@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeCut, eligibleFor, groupSummary, regPhase, type RegSettings } from "../shared/registration.ts";
+import { applyTeamLimit, computeCut, eligibleFor, groupSummary, regPhase, type RegSettings } from "../shared/registration.ts";
 
-const s: RegSettings = { opensAt: 100, deadline: 200, drivers: 3, employees: 1, spectators: 1, factoryReserved: 1, independents: true, teamCap: null, follows: null };
+const s: RegSettings = { opensAt: 100, deadline: 200, drivers: 3, employees: 1, spectators: 1, factoryReserved: 1, independents: true, teamCap: null, teamLimit: null, pickCutoff: null, follows: null };
 const d = (userId: string, at: number, teamId: string | null, denied = false) => ({ userId, kind: "driver" as const, teamId, denied, at });
 
 test("phase follows the window", () => {
@@ -72,4 +72,14 @@ test("group summary says who takes part in what", () => {
     teams: "Team drivers are registered for Open track and Timed runs with one registration.",
   });
   assert.equal(groupSummary(g.map((m) => ({ ...m, teamsOnly: false })))?.independents, "Independent drivers take part in Open track and Timed runs.");
+});
+
+test("team limit fields a team's own choice, or its first drivers, and leaves other teams alone", () => {
+  const cut = (userId: string, at: number, teamId: string | null) => ({ ...d(userId, at, teamId), cut: "in" as const });
+  const regs = [cut("a1", 1, "a"), cut("a2", 2, "a"), cut("a3", 3, "a"), cut("b1", 4, "b"), cut("i1", 5, null)];
+  const out = (picks: string[]) => applyTeamLimit(regs, 2, new Set(picks)).map((r) => r.cut).join(",");
+  assert.equal(out([]), "in,in,out,in,in");
+  assert.equal(out(["a3", "a1"]), "in,out,in,in,in");
+  assert.equal(out(["a3"]), "out,out,in,in,in");
+  assert.equal(applyTeamLimit(regs, null, new Set()), regs);
 });

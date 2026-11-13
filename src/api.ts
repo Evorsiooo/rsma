@@ -141,6 +141,7 @@ export const registrationApi = {
   get: (sid: string) => get<RegistrationView>(reg(sid)),
   teamAdd: (sid: string, teamId: string, username: string, kind: RegKind) => send("POST", reg(sid, `/team/${teamId}`), { username, kind }),
   teamRemove: (sid: string, teamId: string, userId: string) => send("DELETE", reg(sid, `/team/${teamId}/${userId}`)),
+  setPicks: (sid: string, teamId: string, userIds: string[]) => send("PUT", reg(sid, `/team/${teamId}/picks`), { userIds }),
   independent: (sid: string, discord: string) => send("POST", reg(sid, "/independent"), { discord, group: "pending" }),
   independentRequest: (sid: string, username: string, discord: string) => send("POST", reg(sid, "/independent-request"), { username, discord, group: "pending" }),
   withdraw: (sid: string) => send("DELETE", reg(sid, "/independent")),

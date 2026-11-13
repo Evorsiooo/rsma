@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { GROUP_URL, groupSummary, REG_KIND_LABEL, REG_KINDS, type RegKind, type RegistrationView, type RegTeam } from "../shared/registration";
+import { CUT_LABEL, GROUP_URL, groupSummary, REG_KIND_LABEL, REG_KINDS, type RegKind, type RegistrationView, type RegTeam } from "../shared/registration";
 import { PANEL_ROLES, hasAny } from "../shared/teams";
 import type { SessionInfo } from "../shared/types";
 import { api, registrationApi } from "./api";
@@ -20,6 +20,9 @@ const ERRORS: Record<string, string> = {
   invalid_discord: "Enter your Discord username.",
   group_required: "Say whether you joined the group or your request is pending.",
   independents_closed: "Independent drivers cannot register for this session.",
+  picks_closed: "The time to choose drivers for this session has passed.",
+  too_many: "Too many drivers chosen for one team.",
+  not_registered: "Only registered drivers of the team can be chosen.",
   forbidden: "Not allowed.",
 };
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
@@ -30,7 +33,6 @@ const link = (href: string, text: string) => (
     {text}
   </a>
 );
-const CUT_LABEL = { in: "In", waitlist: "Waiting", denied: "Denied" } as const;
 
 type Res = { ok: true } | { ok: false; error: string };
 
@@ -96,8 +98,20 @@ function TeamSection({ team, view, open, sid, act }: { team: RegTeam; view: Regi
   const free = team.members.filter((m) => !mine.some((r) => r.userId === m.id) && (kind === "driver" ? m.roles.includes("driver") : hasAny(m.roles, PANEL_ROLES)));
   const username = kind === "spectator" ? name.trim() : pick || free[0]?.username || "";
   const hasDriver = mine.some((r) => r.kind === "driver");
+  // A session can limit how many drivers each team fields; the team chooses who, until the cutoff.
+  const limit = view.settings?.teamLimit ?? null;
+  const pickOpen = limit !== null && view.pickUntil !== null && Date.now() <= view.pickUntil;
+  const choosable = mine.filter((r) => r.kind === "driver" && (r.cut === "in" || r.cut === "out"));
+  const [chosen, setChosen] = useState<Set<string> | null>(null);
+  const sel = chosen ?? new Set(choosable.filter((r) => r.cut === "in").map((r) => r.userId));
+  const toggle = (id: string) => setChosen((c) => { const n = new Set(c ?? sel); n.has(id) ? n.delete(id) : n.add(id); return n; });
   return (
     <Box title={team.name}>
+      {limit !== null && (
+        <Bd style={{ borderBottom: "1px dotted var(--s-line-l)" }}>
+          At most {limit} of your drivers take part in this session.{pickOpen && view.pickUntil ? ` Choose who until ${fmt.format(view.pickUntil)}; until you do, your first registered drivers take part.` : " The choice is closed."}
+        </Bd>
+      )}
       {hasDriver && (
         <Bd style={{ borderBottom: "1px dotted var(--s-line-l)" }}>
           Ask your drivers to {link(GROUP_URL, "join the RSMA Roblox group")} (a pending request counts) before the deadline, or they cannot race.
@@ -111,7 +125,11 @@ function TeamSection({ team, view, open, sid, act }: { team: RegTeam; view: Regi
             <tbody>
               {mine.map((r) => (
                 <tr key={r.userId}>
-                  <td>{r.username}</td>
+                  <td>{pickOpen && choosable.some((c) => c.userId === r.userId) ? (
+                    <label className="plain">
+                      <input type="checkbox" checked={sel.has(r.userId)} disabled={!sel.has(r.userId) && sel.size >= (limit ?? 0)} onChange={() => toggle(r.userId)} /> {r.username}
+                    </label>
+                  ) : r.username}</td>
                   <td className="mute">{REG_KIND_LABEL[r.kind]}</td>
                   <td>{CUT_LABEL[r.cut]}</td>
                   {open && (
@@ -123,6 +141,14 @@ function TeamSection({ team, view, open, sid, act }: { team: RegTeam; view: Regi
               ))}
             </tbody>
           </table>
+        </Bd>
+      )}
+      {pickOpen && choosable.length > 0 && (
+        <Bd top bar>
+          <button className="btn pri" disabled={chosen === null} onClick={async () => { if (await act(registrationApi.setPicks(sid, team.id, [...sel]))) setChosen(null); }}>
+            Save drivers for this session
+          </button>
+          <span className="mute">{sel.size} of {limit} chosen</span>
         </Bd>
       )}
       {open && (
