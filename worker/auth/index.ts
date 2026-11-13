@@ -33,25 +33,32 @@ export async function getMe(env: AuthEnv, cookie: string | undefined): Promise<M
   const claims = await readSession(env.SESSION_SECRET, cookie);
   if (!claims) return null;
   const id = claims.sub;
-  if (claims.via === "token") {
-    // A token session lasts only while the setting is on and the code it came from is still the current one.
-    const row = await env.DB.prepare("SELECT created_at AS at FROM access_codes WHERE roblox_id = ?").bind(id).first<{ at: number }>();
-    if (!row || row.at !== claims.v || !(await tokenMode(env.DB))) return null;
-  }
-  // Three independent lookups: one round trip to the database, not three.
-  const [user, { results }, rows] = await Promise.all([
-    env.DB.prepare("SELECT roblox_id AS id, username, display_name AS displayName FROM users WHERE roblox_id = ?")
-      .bind(id)
-      .first<Omit<Me, "roles" | "via" | "teams" | "memberships">>(),
-    env.DB.prepare("SELECT role FROM user_roles WHERE roblox_id = ?").bind(id).all<{ role: Role }>(),
-    env.DB.prepare("SELECT t.id, t.name, m.roles FROM teams t JOIN team_members m ON m.team_id = t.id WHERE m.roblox_id = ? ORDER BY lower(t.name)")
-      .bind(id)
-      .all<{ id: string; name: string; roles: string }>(),
+  // The lookups are independent, so they go out together: one round trip to the database, not several.
+  // A token session lasts only while the setting is on and the code it came from is still the current one.
+  const token = claims.via === "token";
+  const [user, { results }, rows, codeRow, tokensOn] = await Promise.all([
+    env.DB.prepare(ME_USER).bind(id).first<MeUser>(),
+    env.DB.prepare(ME_ROLES).bind(id).all<{ role: Role }>(),
+    env.DB.prepare(ME_TEAMS).bind(id).all<MeTeamRow>(),
+    token ? env.DB.prepare("SELECT created_at AS at FROM access_codes WHERE roblox_id = ?").bind(id).first<{ at: number }>() : null,
+    token ? tokenMode(env.DB) : true,
   ]);
+  if (token && (!codeRow || codeRow.at !== claims.v || !tokensOn)) return null;
+  return buildMe(claims, user, results, rows.results);
+}
+
+// The three lookups that make up a signed-in user, shared with the registration loader that asks for them in one batch.
+export const ME_USER = "SELECT roblox_id AS id, username, display_name AS displayName FROM users WHERE roblox_id = ?";
+export const ME_ROLES = "SELECT role FROM user_roles WHERE roblox_id = ?";
+export const ME_TEAMS = "SELECT t.id, t.name, m.roles FROM teams t JOIN team_members m ON m.team_id = t.id WHERE m.roblox_id = ? ORDER BY lower(t.name)";
+export type MeUser = Omit<Me, "roles" | "via" | "teams" | "memberships">;
+export type MeTeamRow = { id: string; name: string; roles: string };
+
+export function buildMe(claims: { via: "roblox" | "token" }, user: MeUser | null, roles: { role: Role }[], teamRows: MeTeamRow[]): Me | null {
   if (!user) return null;
-  const memberships = rows.results.map((t) => ({ id: t.id, name: t.name, roles: parseRoles(t.roles) }));
+  const memberships = teamRows.map((t) => ({ id: t.id, name: t.name, roles: parseRoles(t.roles) }));
   const teams = memberships.filter((t) => hasAny(t.roles, PANEL_ROLES)).map(({ id, name }) => ({ id, name }));
-  return { ...user, roles: claims.via === "token" ? [] : results.map((r) => r.role), via: claims.via, teams, memberships };
+  return { ...user, roles: claims.via === "token" ? [] : roles.map((r) => r.role), via: claims.via, teams, memberships };
 }
 
 export const hasRole = (me: Me | null, ...roles: Role[]) =>

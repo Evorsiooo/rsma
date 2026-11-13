@@ -1,3 +1,4 @@
+import { useBootData } from "./Layouts";
 import { useCallback, useEffect, useState } from "react";
 import { Link, Navigate, useNavigate, useParams } from "react-router-dom";
 import type { RegSummary } from "../shared/registration";
@@ -58,7 +59,7 @@ export function MyTeamPage() {
   const [leaving, setLeaving] = useState(false);
   const tokens = useTokenMode();
   const [codeFor, setCodeFor] = useState<{ id: string; username: string } | null>(null);
-  const [races, setRaces] = useState<RaceSummary[]>([]);
+  const [races, setRaces] = useState<RaceSummary[]>(useBootData()?.races ?? []);
   const [regs, setRegs] = useState<RegSummary[]>([]);
   useEffect(() => {
     api.races().then(setRaces, () => {});

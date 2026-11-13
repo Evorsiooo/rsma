@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { CUT_LABEL, GROUP_URL, REG_KIND_LABEL, type RegistrationView, type RegSummary, type RegTeam } from "../shared/registration";
+import { CUT_LABEL, GROUP_URL, REG_KIND_LABEL, type EventView, type RegistrationView, type RegTeam } from "../shared/registration";
 import { PANEL_ROLES, hasAny } from "../shared/teams";
-import type { RaceSummary, SessionSummary } from "../shared/types";
+import type { SessionSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
 import { NotFound } from "./NotFound";
 import { Bd, Box } from "./site/parts";
@@ -20,13 +20,19 @@ const ERRORS: Record<string, string> = {
   too_many: "That session is full for your team. Untick a driver first.",
   not_registered: "Only registered drivers of the team can be chosen.",
   forbidden: "Not allowed.",
+  unauthorized: "You are signed out. Sign in again.",
+  network: "Could not reach the server. Check your connection.",
 };
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
 const fmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
-type Res = { ok: true } | { ok: false; error: string };
-type Act = (p: Promise<Res>) => Promise<boolean>;
+type Res = { ok: true; data?: unknown } | { ok: false; error: string };
+/**
+ * Runs one change. Changes go to the server one after another, in the order they were made, so a quick second click
+ * can never overtake the first. With a key, the box shows the wanted state at once until the changes are done.
+ */
+type Act = (call: () => Promise<Res>, tick?: { key: string; want: boolean }) => Promise<boolean>;
 
 /** Old per-session address: forward to the event's page. */
 export function RegisterRedirect() {
@@ -42,40 +48,62 @@ export function RegisterRedirect() {
 /** /race/:id/register: a team registers its people once for the event; limited sessions are chosen per session. */
 export function EventRegistration() {
   const { id = "" } = useParams();
-  const [race, setRace] = useState<RaceSummary | null | undefined>(undefined);
-  const [regs, setRegs] = useState<RegSummary[]>([]);
-  const [views, setViews] = useState<Record<string, RegistrationView>>({});
-  const [ready, setReady] = useState(false);
-  const load = useCallback(async () => {
-    const [races, list] = await Promise.all([api.races(), registrationApi.list()]);
-    const r = races.find((x) => x.id === id) ?? null;
-    setRace(r);
-    setRegs(list);
-    if (!r) return;
-    const mine = list.filter((g) => r.sessions.some((s) => s.id === g.sessionId));
-    const got = await Promise.all(mine.map((g) => registrationApi.get(g.sessionId).then((v) => [g.sessionId, v] as const, () => null)));
-    setViews(Object.fromEntries(got.filter((x): x is readonly [string, RegistrationView] => !!x)));
-    setReady(true);
-  }, [id]);
+  const [ev, setEv] = useState<EventView | null | undefined>(undefined);
+  // What the boxes show while changes are on their way: key -> wanted state.
+  const [opt, setOpt] = useState<Record<string, boolean>>({});
+  const chain = useRef<Promise<unknown>>(Promise.resolve());
+  const pending = useRef(0);
+  const failed = useRef(false);
+  const live = useRef(true);
   useEffect(() => {
-    load().catch(() => setRace(null));
-  }, [load]);
-  // After an action only the registration views change; the race list and windows stay as they were.
-  const refresh = useCallback(async () => {
-    const got = await Promise.all(Object.keys(views).map((sid) => registrationApi.get(sid).then((v) => [sid, v] as const, () => null)));
-    setViews((cur) => ({ ...cur, ...Object.fromEntries(got.filter((x): x is readonly [string, RegistrationView] => !!x)) }));
-  }, [views]);
-  const act: Act = async (p) => {
-    const r = await p;
-    if (!r.ok) say(r.error);
-    await refresh();
-    return r.ok;
+    live.current = true;
+    return () => {
+      live.current = false;
+    };
+  }, []);
+  const reload = useCallback(() => registrationApi.event(id).then((e) => live.current && setEv(e), () => live.current && setEv((cur) => cur ?? null)), [id]);
+  useEffect(() => {
+    reload();
+  }, [reload]);
+  // Every answer carries the whole event as it is after that change, so there is nothing to reload on success.
+  // After a rejected or lost change the page is reloaded once, so what it shows is what the server has.
+  const act: Act = (call, tick) => {
+    if (tick) setOpt((o) => ({ ...o, [tick.key]: tick.want }));
+    pending.current++;
+    const task = chain.current.then(async () => {
+      let ok = false;
+      try {
+        const r = await call();
+        if (r.ok) {
+          ok = true;
+          const e = (r.data as { event?: EventView } | undefined)?.event;
+          if (e && live.current) setEv(e);
+        } else {
+          failed.current = true;
+          say(r.error);
+        }
+      } catch {
+        failed.current = true;
+        say("network");
+      }
+      if (--pending.current === 0) {
+        if (failed.current) {
+          failed.current = false;
+          await reload();
+        }
+        if (live.current) setOpt({});
+      }
+      return ok;
+    });
+    chain.current = task;
+    return task;
   };
 
-  if (race === null) return <NotFound />;
-  if (!race || !ready) return <Box title="Registration"><Bd><div className="note">Loading...</div></Bd></Box>;
-  const now = Date.now();
-  const mine = regs.filter((g) => race.sessions.some((s) => s.id === g.sessionId));
+  if (ev === null) return <NotFound />;
+  if (!ev) return <Box title="Registration"><Bd><div className="note">Loading...</div></Bd></Box>;
+  const race = ev.race;
+  const views: Record<string, RegistrationView> = Object.fromEntries(Object.entries(ev.sessions).map(([sid, v]) => [sid, v.view]));
+  const mine = Object.entries(ev.sessions).map(([sessionId, v]) => ({ sessionId, root: v.root }));
   const roots = [...new Set(mine.map((g) => g.root))].filter((r) => views[r]?.settings);
   const byId = (sid: string) => race.sessions.find((s) => s.id === sid) as SessionSummary;
   if (roots.length === 0) return <NotFound />;
@@ -86,13 +114,13 @@ export function EventRegistration() {
       </div>
       {roots.map((root) => {
         const sessions = race.sessions.filter((s) => mine.some((g) => g.sessionId === s.id && g.root === root)).sort((a, b) => a.startsAt - b.startsAt);
-        return <Group key={root} root={root} sessions={sessions.map((s) => byId(s.id))} views={views} act={act} />;
+        return <Group key={root} root={root} sessions={sessions.map((s) => byId(s.id))} views={views} opt={opt} act={act} />;
       })}
     </>
   );
 }
 
-function Group({ root, sessions, views, act }: { root: string; sessions: SessionSummary[]; views: Record<string, RegistrationView>; act: Act }) {
+function Group({ root, sessions, views, opt, act }: { root: string; sessions: SessionSummary[]; views: Record<string, RegistrationView>; opt: Record<string, boolean>; act: Act }) {
   const rv = views[root];
   const s = rv.settings!;
   const phase = rv.phase;
@@ -107,30 +135,26 @@ function Group({ root, sessions, views, act }: { root: string; sessions: Session
         (rv.teams.length === 0 ? (
           <Box title="Team Registration"><Bd><div className="note">Only a Team Principal or Sporting Director can register a team.</div></Bd></Box>
         ) : (
-          rv.teams.map((t) => <TeamBox key={t.id} team={t} root={root} sessions={sessions} views={views} act={act} />)
+          rv.teams.map((t) => <TeamBox key={t.id} team={t} root={root} sessions={sessions} views={views} opt={opt} act={act} />)
         ))}
     </>
   );
 }
 
-function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: string; sessions: SessionSummary[]; views: Record<string, RegistrationView>; act: Act }) {
+function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; root: string; sessions: SessionSummary[]; views: Record<string, RegistrationView>; opt: Record<string, boolean>; act: Act }) {
   const rv = views[root];
   const open = rv.phase === "open";
   const regs = rv.registrations.filter((r) => r.teamId === team.id);
   const drivers = team.members.filter((m) => m.roles.includes("driver"));
   const staff = team.members.filter((m) => hasAny(m.roles, PANEL_ROLES));
   const registered = (uid: string, kind: string) => regs.some((r) => r.userId === uid && r.kind === kind);
-  // A tick shows at once; the server answer replaces it, and a rejected tick springs back with a message.
-  const [opt, setOpt] = useState<Record<string, boolean>>({});
+  // A tick shows at once; the server's answer replaces it, and a rejected tick springs back with a message.
   const shownOn = (key: string, real: boolean) => opt[key] ?? real;
-  const settle = async (key: string, want: boolean, p: Promise<Res>) => {
-    setOpt((o) => ({ ...o, [key]: want }));
-    await act(p);
-    setOpt((o) => { const n = { ...o }; delete n[key]; return n; });
-  };
+  // What a click does follows what the box shows, so a second click always undoes the first.
   const toggle = (m: { id: string; username: string }, kind: "driver" | "employee") => {
-    const on = registered(m.id, kind);
-    return settle(`${kind}:${m.id}`, !on, on ? registrationApi.teamRemove(root, team.id, m.id) : registrationApi.teamAdd(root, team.id, m.username, kind));
+    const key = `${kind}:${m.id}`;
+    const want = !shownOn(key, registered(m.id, kind));
+    return act(() => (want ? registrationApi.teamAdd(root, team.id, m.username, kind) : registrationApi.teamRemove(root, team.id, m.id)), { key, want });
   };
   const guests = regs.filter((r) => r.kind === "spectator");
   const [name, setName] = useState("");
@@ -144,10 +168,10 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
   };
   const sel = (sid: string) => new Set(drivers.filter((m) => shownOn(`pick:${sid}:${m.id}`, cutIn(sid, m.id) === "in")).map((m) => m.id));
   // Applies at once, like Registered; the server enforces the limit and the cutoff.
-  const flip = async (sid: string, uid: string) => {
+  const flip = (sid: string, uid: string) => {
     const n = sel(sid);
     n.has(uid) ? n.delete(uid) : n.add(uid);
-    await settle(`pick:${sid}:${uid}`, n.has(uid), registrationApi.setPicks(sid, team.id, [...n]));
+    return act(() => registrationApi.setPicks(sid, team.id, [...n]), { key: `pick:${sid}:${uid}`, want: n.has(uid) });
   };
   const limited = sessions.filter((x) => pickable(x.id));
   return (
@@ -246,7 +270,7 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
                   <tr key={r.userId}>
                     <td>{r.username}</td>
                     <td className="mute">{REG_KIND_LABEL.spectator}</td>
-                    <td className="n">{open && <button className="btn sm red" onClick={() => act(registrationApi.teamRemove(root, team.id, r.userId))}>Remove</button>}</td>
+                    <td className="n">{open && <button className="btn sm red" onClick={() => act(() => registrationApi.teamRemove(root, team.id, r.userId))}>Remove</button>}</td>
                   </tr>
                 ))}
               </tbody>
@@ -255,7 +279,7 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
           {open && (
             <Bd top bar>
               <input type="text" style={{ flex: 1, minWidth: 180 }} placeholder="Spectator Roblox username" aria-label="Spectator username" value={name} onChange={(e) => setName(e.target.value)} />
-              <button className="btn pri" disabled={!name.trim()} onClick={async () => { if (await act(registrationApi.teamAdd(root, team.id, name.trim(), "spectator"))) setName(""); }}>
+              <button className="btn pri" disabled={!name.trim()} onClick={async () => { if (await act(() => registrationApi.teamAdd(root, team.id, name.trim(), "spectator"))) setName(""); }}>
                 Add spectator
               </button>
             </Bd>

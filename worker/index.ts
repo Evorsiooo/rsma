@@ -10,6 +10,7 @@ import { registration } from "./registration";
 import { syncRegistered, teamWithCar } from "./stage";
 import { loadRaces, loadSession } from "./sessions";
 import { notifyStewardMessage } from "./discord";
+import { timedDb, waitedMs, type DbStats } from "./db-timing";
 import { DEFAULT_EMBED, embedTags, raceEmbed, routeOf, sessionEmbed, type Embed } from "../shared/embed";
 
 export { RaceDO } from "./race-do";
@@ -20,6 +21,17 @@ interface Env extends AuthEnv {
 }
 
 const app = new Hono<{ Bindings: Env }>();
+// Every API call reports how many database calls it made and how long it waited on them (Server-Timing).
+app.use("/api/*", async (c, next) => {
+  const stats: DbStats = { calls: 0, spans: [] };
+  const t0 = performance.now();
+  c.env = { ...c.env, DB: timedDb(c.env.DB, stats, Number((c.env as { DB_DELAY_MS?: string }).DB_DELAY_MS) || 0) };
+  await next();
+  if (c.res.status === 101) return;
+  const res = new Response(c.res.body, c.res);
+  res.headers.set("Server-Timing", `db;dur=${waitedMs(stats).toFixed(0)};desc="${stats.calls} calls", app;dur=${(performance.now() - t0).toFixed(0)}`);
+  c.res = res;
+});
 // Live data: never let a browser or the edge reuse an API response.
 app.use("/api/*", async (c, next) => {
   await next();
@@ -74,13 +86,13 @@ async function ensureRegistered(env: Env, id: string) {
 
 app.get("/api/sessions/:id/state", async (c) => {
   const id = c.req.param("id");
-  const info = await loadSession(c.env.DB, id);
+  // The session and the signed-in user are independent lookups: asked together.
+  const [info, me] = await Promise.all([loadSession(c.env.DB, id), getMe(c.env, getCookie(c, SESSION_COOKIE))]);
   if (!info) return c.json({ error: "not_found" }, 404);
-  await ensureRegistered(c.env, id);
   const headers = new Headers();
-  const me = await getMe(c.env, getCookie(c, SESSION_COOKIE));
+  const [, steward] = await Promise.all([ensureRegistered(c.env, id), isRaceSteward(c.env, me, info.race.id)]);
   if (me) {
-    if (await isRaceSteward(c.env, me, info.race.id)) headers.set("x-staff", "1");
+    if (steward) headers.set("x-staff", "1");
     headers.set("x-user", me.username);
     headers.set("x-teams", me.teams.map((t) => t.id).join(","));
   }
@@ -342,9 +354,12 @@ app.get("*", async (c) => {
   if (!page.ok || !(page.headers.get("content-type") ?? "").includes("text/html")) return page;
   const route = routeOf(url.pathname);
   let embed: Embed | null = null;
+  // Browsers never read the preview tags, so they skip the database lookups (two round trips) that would delay the page.
+  // Link-preview crawlers do not send Sec-Fetch-Dest.
+  const browser = c.req.header("sec-fetch-dest") === "document";
   if (route.kind === "static") {
     embed = route.embed;
-  } else {
+  } else if (!browser) {
     try {
       if (route.kind === "session") {
         const info = await loadSession(c.env.DB, route.id);
