@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
-import { GROUP_URL, REG_KIND_LABEL, REG_KINDS, type RegKind, type RegistrationView, type RegTeam } from "../shared/registration";
+import { GROUP_URL, groupSummary, REG_KIND_LABEL, REG_KINDS, type RegKind, type RegistrationView, type RegTeam } from "../shared/registration";
 import { PANEL_ROLES, hasAny } from "../shared/teams";
 import type { SessionInfo } from "../shared/types";
 import { api, registrationApi } from "./api";
@@ -63,7 +63,7 @@ export function RegistrationPage() {
       </div>
       {view.group.length > 1 && (
         <div style={{ fontSize: 12 }} className="note">
-          One registration covers {view.group.map((m) => m.name + (m.teamsOnly ? " (teams only)" : "")).join(", ")}. Removing someone removes them from all of them.
+          {groupSummary(view.group)?.teams} {groupSummary(view.group)?.independents} Removing someone removes them from all of them.
         </div>
       )}
       <Box title="Spots">
