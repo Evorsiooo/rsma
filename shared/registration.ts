@@ -145,3 +145,17 @@ export function computeCut(regs: CutInput[], s: RegSettings, factoryIds: Set<str
   }
   return out;
 }
+
+const list = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? ""));
+
+/** Who takes part in which session of a group, from each session's own settings. Empty when the session is not linked. */
+export function groupSummary(group: RegGroupMember[]): { independents: string; teams: string } | null {
+  if (group.length < 2) return null;
+  const open = group.filter((m) => !m.teamsOnly).map((m) => m.name);
+  const teams = group.map((m) => m.name);
+  const closed = group.filter((m) => m.teamsOnly).map((m) => m.name);
+  return {
+    independents: closed.length === 0 ? `Independent drivers take part in ${list(open)}.` : open.length === 0 ? "Independent drivers cannot take part." : `Independent drivers take part in ${list(open)} only and cannot take part in ${list(closed)}.`,
+    teams: `Team drivers are registered for ${list(teams)} with one registration.`,
+  };
+}
