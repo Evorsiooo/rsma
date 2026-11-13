@@ -51,24 +51,34 @@ interface SettingsRow {
 
 /** The session whose registration a session shares: itself, or the first of the sessions it follows. */
 export async function rootOf(env: AdminEnv, sid: string): Promise<string> {
+  // The links of the whole race in one query; the chain is followed in memory.
+  const { results } = await env.DB.prepare(
+    `SELECT session_id AS id, follows FROM session_registration
+     WHERE session_id IN (SELECT id FROM sessions WHERE race_id = (SELECT race_id FROM sessions WHERE id = ?1)) OR session_id = ?1`,
+  )
+    .bind(sid)
+    .all<{ id: string; follows: string | null }>();
+  const by = new Map(results.map((r) => [r.id, r.follows]));
   let cur = sid;
   for (let i = 0; i < 20; i++) {
-    const r = await env.DB.prepare("SELECT follows FROM session_registration WHERE session_id = ?").bind(cur).first<{ follows: string | null }>();
-    if (!r?.follows || !(await env.DB.prepare("SELECT 1 FROM session_registration WHERE session_id = ?").bind(r.follows).first())) return cur;
-    cur = r.follows;
+    const next = by.get(cur);
+    if (!next || !by.has(next)) return cur;
+    cur = next;
   }
   return cur;
 }
 
 export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSettings | null> {
-  const r = await env.DB.prepare(
-    `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows
-     FROM session_registration WHERE session_id = ?`,
-  )
-    .bind(sid)
-    .first<SettingsRow>();
+  const [r, root] = await Promise.all([
+    env.DB.prepare(
+      `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows
+       FROM session_registration WHERE session_id = ?`,
+    )
+      .bind(sid)
+      .first<SettingsRow>(),
+    rootOf(env, sid),
+  ]);
   if (!r) return null;
-  const root = await rootOf(env, sid);
   if (root !== sid) {
     // A linked session shares the first session's window and numbers; only its independents setting is its own.
     const w = await env.DB.prepare(
@@ -110,22 +120,24 @@ const isStaff = (me: Me | null) => hasRole(me, "races", "steward");
 const managedTeams = (me: Me | null) => (me?.memberships ?? []).filter((t) => hasAny(t.roles, MANAGER_ROLES));
 
 /** Everyone registered for the group `sid` belongs to, with the cut worked out for `sid` itself. */
-export async function loadRegs(env: AdminEnv, sid: string, s: RegSettings): Promise<Registration[]> {
-  const group = await loadGroup(env, sid);
-  const { results } = await env.DB.prepare(
-    `SELECT r.roblox_id AS userId, u.username, r.kind, r.team_id AS teamId, t.name AS teamName, r.discord,
-            r.grp AS "group", r.denied, r.created_at AS at
-     FROM registrations r JOIN users u ON u.roblox_id = r.roblox_id LEFT JOIN teams t ON t.id = r.team_id
-     WHERE r.session_id = ? ORDER BY r.created_at`,
-  )
-    .bind(group.root)
-    .all<Omit<Registration, "denied" | "cut"> & { denied: number }>();
-  const factories = new Set(
-    (await env.DB.prepare("SELECT id FROM teams WHERE kind = 'factory'").all<{ id: string }>()).results.map((t) => t.id),
-  );
+export async function loadRegs(env: AdminEnv, sid: string, s: RegSettings, known?: Awaited<ReturnType<typeof loadGroup>>): Promise<Registration[]> {
+  const group = known ?? (await loadGroup(env, sid));
+  const [{ results }, factoryRows, pickRows] = await Promise.all([
+    env.DB.prepare(
+      `SELECT r.roblox_id AS userId, u.username, r.kind, r.team_id AS teamId, t.name AS teamName, r.discord,
+              r.grp AS "group", r.denied, r.created_at AS at
+       FROM registrations r JOIN users u ON u.roblox_id = r.roblox_id LEFT JOIN teams t ON t.id = r.team_id
+       WHERE r.session_id = ? ORDER BY r.created_at`,
+    )
+      .bind(group.root)
+      .all<Omit<Registration, "denied" | "cut"> & { denied: number }>(),
+    env.DB.prepare("SELECT id FROM teams WHERE kind = 'factory'").all<{ id: string }>(),
+    env.DB.prepare("SELECT roblox_id AS id FROM session_picks WHERE session_id = ?").bind(sid).all<{ id: string }>(),
+  ]);
+  const factories = new Set(factoryRows.results.map((t) => t.id));
   const regs = eligibleFor(results.map((r) => ({ ...r, denied: !!r.denied })), s, group.members.length > 1);
   const cut = computeCut(regs, s, factories);
-  const picks = new Set((await env.DB.prepare("SELECT roblox_id AS id FROM session_picks WHERE session_id = ?").bind(sid).all<{ id: string }>()).results.map((p) => p.id));
+  const picks = new Set(pickRows.results.map((p) => p.id));
   return applyTeamLimit(regs.map((r) => ({ ...r, cut: cut.get(r.userId) ?? ("waitlist" as Cut) })), s.teamLimit, picks);
 }
 
@@ -192,21 +204,28 @@ registration.get("/:sid", async (c) => {
     self: null,
   };
   if (!settings) return c.json(view);
-  view.pickUntil = await pickUntil(c.env, sid, settings);
-  view.group = (await loadGroup(c.env, sid)).members.map(({ id, name, teamsOnly }) => ({ id, name, teamsOnly }));
-  const all = await loadRegs(c.env, sid, settings);
+  const managed = managedTeams(me);
+  const ids = managed.map((t) => t.id);
+  // Everything that does not depend on something else is asked at once.
+  const [until, group] = await Promise.all([pickUntil(c.env, sid, settings), loadGroup(c.env, sid)]);
+  const [all, members] = await Promise.all([
+    loadRegs(c.env, sid, settings, group),
+    ids.length
+      ? c.env.DB.prepare(
+          `SELECT m.team_id AS teamId, u.roblox_id AS id, u.username, m.roles FROM team_members m JOIN users u ON u.roblox_id = m.roblox_id
+           WHERE m.team_id IN (${ids.map(() => "?").join(",")}) ORDER BY lower(u.username)`,
+        )
+          .bind(...ids)
+          .all<{ teamId: string; id: string; username: string; roles: string }>()
+      : Promise.resolve({ results: [] as { teamId: string; id: string; username: string; roles: string }[] }),
+  ]);
+  view.pickUntil = until;
+  view.group = group.members.map(({ id, name, teamsOnly }) => ({ id, name, teamsOnly }));
   const spots = { driver: settings.drivers, employee: settings.employees, spectator: settings.spectators };
   if (view.staff) for (const k of REG_KINDS) view.counts[k] = { taken: all.filter((r) => r.kind === k && !r.denied).length, spots: spots[k] };
   view.self = all.find((r) => r.userId === me?.id) ?? null;
-  const managed = managedTeams(me);
+  const { results } = members;
   if (managed.length) {
-    const ids = managed.map((t) => t.id);
-    const { results } = await c.env.DB.prepare(
-      `SELECT m.team_id AS teamId, u.roblox_id AS id, u.username, m.roles FROM team_members m JOIN users u ON u.roblox_id = m.roblox_id
-       WHERE m.team_id IN (${ids.map(() => "?").join(",")}) ORDER BY lower(u.username)`,
-    )
-      .bind(...ids)
-      .all<{ teamId: string; id: string; username: string; roles: string }>();
     view.teams = managed.map<RegTeam>((t) => ({
       id: t.id,
       name: t.name,
@@ -218,6 +237,11 @@ registration.get("/:sid", async (c) => {
     : all.filter((r) => r.userId === me?.id || (r.teamId && managed.some((t) => t.id === r.teamId)));
   return c.json(view);
 });
+
+/** Staging the queue is not needed for the answer: answer now, finish it right after. */
+function syncLater(c: C, sid: string) {
+  c.executionCtx.waitUntil(syncRegistered(c.env, sid).catch((e) => console.error("syncRegistered failed", e)));
+}
 
 function needMe(c: C): Me | Response {
   const me = c.get("me");
@@ -286,7 +310,7 @@ registration.post("/:sid/team/:teamId", async (c) => {
     user = m;
   }
   const err = await insertReg(c, await rootOf(c.env, c.req.param("sid")), user.id, kind, team.id, null, "unverified");
-  if (!err) await syncRegistered(c.env, c.req.param("sid"));
+  if (!err) syncLater(c, c.req.param("sid"));
   return err ?? c.json({ ok: true });
 });
 
@@ -298,7 +322,7 @@ registration.delete("/:sid/team/:teamId/:uid", async (c) => {
   await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ?")
     .bind(await rootOf(c.env, c.req.param("sid")), c.req.param("uid"), team.id)
     .run();
-  await syncRegistered(c.env, c.req.param("sid"));
+  syncLater(c, c.req.param("sid"));
   return c.json({ ok: true });
 });
 
@@ -324,7 +348,7 @@ registration.put("/:sid/team/:teamId/picks", async (c) => {
     ...mine.map((id) => c.env.DB.prepare("DELETE FROM session_picks WHERE session_id = ? AND roblox_id = ?").bind(sid, id)),
     ...ids.map((id) => c.env.DB.prepare("INSERT INTO session_picks (session_id, roblox_id) VALUES (?, ?)").bind(sid, id)),
   ]);
-  await syncRegistered(c.env, sid);
+  syncLater(c, sid);
   return c.json({ ok: true });
 });
 
@@ -342,7 +366,7 @@ registration.post("/:sid/independent", async (c) => {
   if (!discord) return c.json({ error: "invalid_discord" }, 400);
   if (!group) return c.json({ error: "group_required" }, 400);
   const err = await insertReg(c, await rootOf(c.env, c.req.param("sid")), me.id, "driver", null, discord, group);
-  if (!err) await syncRegistered(c.env, c.req.param("sid"));
+  if (!err) syncLater(c, c.req.param("sid"));
   return err ?? c.json({ ok: true });
 });
 
@@ -378,7 +402,7 @@ registration.delete("/:sid/independent", async (c) => {
   await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id IS NULL")
     .bind(await rootOf(c.env, c.req.param("sid")), me.id)
     .run();
-  await syncRegistered(c.env, c.req.param("sid"));
+  syncLater(c, c.req.param("sid"));
   return c.json({ ok: true });
 });
 
@@ -421,7 +445,7 @@ registration.post("/:sid/staff", async (c) => {
   const user = await resolveUser(c, username);
   if (user instanceof Response) return user;
   const err = await insertReg(c, sid, user.id, kind, teamId as string | null, cleanDiscord(body.discord), cleanGroup(body.group) ?? "unverified");
-  if (!err) await syncRegistered(c.env, param);
+  if (!err) syncLater(c, param);
   return err ?? c.json({ ok: true });
 });
 
@@ -444,7 +468,7 @@ registration.put("/:sid/staff/:uid", async (c) => {
   await c.env.DB.prepare("UPDATE registrations SET kind = ?, team_id = ?, grp = ?, denied = ?, discord = ? WHERE session_id = ? AND roblox_id = ?")
     .bind(kind, teamId, group, denied, discord, sid, uid)
     .run();
-  await syncRegistered(c.env, c.req.param("sid"));
+  syncLater(c, c.req.param("sid"));
   return c.json({ ok: true });
 });
 
@@ -460,6 +484,6 @@ registration.delete("/:sid/staff/:uid", async (c) => {
   const me = await staff(c);
   if (me instanceof Response) return me;
   await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ?").bind(await rootOf(c.env, c.req.param("sid")), c.req.param("uid")).run();
-  await syncRegistered(c.env, c.req.param("sid"));
+  syncLater(c, c.req.param("sid"));
   return c.json({ ok: true });
 });

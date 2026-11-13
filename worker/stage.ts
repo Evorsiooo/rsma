@@ -13,18 +13,17 @@ export async function teamWithCar(db: D1Database, id: string) {
 async function syncOne(env: AdminEnv, sid: string): Promise<void> {
   const settings = await loadSettings(env, sid);
   if (!settings) return;
-  const drivers = [];
-  for (const r of await loadRegs(env, sid, settings)) {
-    if (r.kind !== "driver" || r.cut !== "in") continue;
-    drivers.push({ name: r.username, team: r.teamId ? ((await teamWithCar(env.DB, r.teamId)) ?? undefined) : undefined });
-  }
+  const staged = (await loadRegs(env, sid, settings)).filter((r) => r.kind === "driver" && r.cut === "in");
+  // One lookup per team, all at once, instead of one per driver in turn.
+  const teams = new Map(await Promise.all([...new Set(staged.flatMap((r) => (r.teamId ? [r.teamId] : [])))].map(async (id) => [id, (await teamWithCar(env.DB, id)) ?? undefined] as const)));
+  const drivers = staged.map((r) => ({ name: r.username, team: r.teamId ? teams.get(r.teamId) : undefined }));
   const stub = env.RACE.get(env.RACE.idFromName(sid));
   await stub.fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd: { type: "syncReg", drivers }, actor: "Registration" }) });
 }
 
 /** Sync every session the registration of `sid` covers, each with its own spots and eligibility. */
 export async function syncRegistered(env: AdminEnv, sid: string): Promise<void> {
-  for (const m of (await loadGroup(env, sid)).members) await syncOne(env, m.id);
+  await Promise.all((await loadGroup(env, sid)).members.map((m) => syncOne(env, m.id)));
 }
 
 /** Sessions a team (or one of its members) is registered in, taken before the registrations are deleted. */

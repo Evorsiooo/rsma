@@ -60,10 +60,15 @@ export function EventRegistration() {
   useEffect(() => {
     load().catch(() => setRace(null));
   }, [load]);
+  // After an action only the registration views change; the race list and windows stay as they were.
+  const refresh = useCallback(async () => {
+    const got = await Promise.all(Object.keys(views).map((sid) => registrationApi.get(sid).then((v) => [sid, v] as const, () => null)));
+    setViews((cur) => ({ ...cur, ...Object.fromEntries(got.filter((x): x is readonly [string, RegistrationView] => !!x)) }));
+  }, [views]);
   const act: Act = async (p) => {
     const r = await p;
     if (!r.ok) say(r.error);
-    await load();
+    await refresh();
     return r.ok;
   };
 
@@ -115,27 +120,34 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
   const drivers = team.members.filter((m) => m.roles.includes("driver"));
   const staff = team.members.filter((m) => hasAny(m.roles, PANEL_ROLES));
   const registered = (uid: string, kind: string) => regs.some((r) => r.userId === uid && r.kind === kind);
-  const toggle = (m: { id: string; username: string }, kind: "driver" | "employee") =>
-    act(registered(m.id, kind) ? registrationApi.teamRemove(root, team.id, m.id) : registrationApi.teamAdd(root, team.id, m.username, kind));
+  // A tick shows at once; the server answer replaces it, and a rejected tick springs back with a message.
+  const [opt, setOpt] = useState<Record<string, boolean>>({});
+  const shownOn = (key: string, real: boolean) => opt[key] ?? real;
+  const settle = async (key: string, want: boolean, p: Promise<Res>) => {
+    setOpt((o) => ({ ...o, [key]: want }));
+    await act(p);
+    setOpt((o) => { const n = { ...o }; delete n[key]; return n; });
+  };
+  const toggle = (m: { id: string; username: string }, kind: "driver" | "employee") => {
+    const on = registered(m.id, kind);
+    return settle(`${kind}:${m.id}`, !on, on ? registrationApi.teamRemove(root, team.id, m.id) : registrationApi.teamAdd(root, team.id, m.username, kind));
+  };
   const guests = regs.filter((r) => r.kind === "spectator");
   const [name, setName] = useState("");
   const [find, setFind] = useState("");
   const shown = drivers.filter((m) => m.username.toLowerCase().includes(find.trim().toLowerCase()));
-  const [busy, setBusy] = useState(false);
   const now = Date.now();
   const cutIn = (sid: string, uid: string) => views[sid]?.registrations.find((r) => r.teamId === team.id && r.userId === uid && r.kind === "driver")?.cut;
   const pickable = (sid: string) => {
     const v = views[sid];
     return v?.settings?.teamLimit != null && v.pickUntil != null && now <= v.pickUntil;
   };
-  const sel = (sid: string) => new Set(drivers.filter((m) => cutIn(sid, m.id) === "in").map((m) => m.id));
+  const sel = (sid: string) => new Set(drivers.filter((m) => shownOn(`pick:${sid}:${m.id}`, cutIn(sid, m.id) === "in")).map((m) => m.id));
   // Applies at once, like Registered; the server enforces the limit and the cutoff.
   const flip = async (sid: string, uid: string) => {
     const n = sel(sid);
     n.has(uid) ? n.delete(uid) : n.add(uid);
-    setBusy(true);
-    await act(registrationApi.setPicks(sid, team.id, [...n]));
-    setBusy(false);
+    await settle(`pick:${sid}:${uid}`, n.has(uid), registrationApi.setPicks(sid, team.id, [...n]));
   };
   const limited = sessions.filter((x) => pickable(x.id));
   return (
@@ -172,7 +184,7 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
                   </tr>
                 )}
                 {shown.map((m) => {
-                  const on = registered(m.id, "driver");
+                  const on = shownOn(`driver:${m.id}`, registered(m.id, "driver"));
                   return (
                     <tr key={m.id}>
                       <td>{m.username}</td>
@@ -188,7 +200,7 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
                           return (
                             <td key={x.id}>
                               <label className="plain">
-                                <input type="checkbox" checked={set.has(m.id)} disabled={busy || (!set.has(m.id) && set.size >= limit)} onChange={() => flip(x.id, m.id)} /> Take part
+                                <input type="checkbox" checked={set.has(m.id)} disabled={!set.has(m.id) && set.size >= limit} onChange={() => flip(x.id, m.id)} /> Take part
                               </label>
                             </td>
                           );
@@ -226,7 +238,7 @@ function TeamBox({ team, root, sessions, views, act }: { team: RegTeam; root: st
                     <td>{m.username}</td>
                     <td className="mute">{REG_KIND_LABEL.employee}</td>
                     <td>
-                      <input type="checkbox" aria-label={`${m.username} registered as employee`} checked={registered(m.id, "employee")} disabled={!open} onChange={() => toggle(m, "employee")} />
+                      <input type="checkbox" aria-label={`${m.username} registered as employee`} checked={shownOn(`employee:${m.id}`, registered(m.id, "employee"))} disabled={!open} onChange={() => toggle(m, "employee")} />
                     </td>
                   </tr>
                 ))}
