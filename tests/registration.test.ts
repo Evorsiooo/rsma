@@ -62,6 +62,7 @@ test("team cap counts factory reserved drivers and later teams still wait", () =
   const regs = [d("c1", 1, "cust"), d("f1", 2, "fac"), d("f2", 3, "fac"), d("c2", 4, "cust")];
   const cut = computeCut(regs, { ...s, drivers: 4, factoryReserved: 1, teamCap: 2 }, new Set(["fac"]));
   assert.deepEqual(["c1", "f1", "f2", "c2"].map((u) => cut.get(u)), ["in", "in", "waitlist", "waitlist"]);
+});
 
 test("group summary says who takes part in what", () => {
   const g = [{ id: "a", name: "Open track", teamsOnly: false }, { id: "b", name: "Timed runs", teamsOnly: true }];
