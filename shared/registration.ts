@@ -18,6 +18,8 @@ export interface RegSettings {
   /** Driver slots held for each factory team. */
   factoryReserved: number;
   independents: boolean;
+  /** Most driver spots all teams together can take; null for no cap. */
+  teamCap: number | null;
   /** Session whose registration this one shares (the window is that session's); null when it has its own. */
   follows: string | null;
 }
@@ -107,11 +109,16 @@ export function computeCut(regs: CutInput[], s: RegSettings, factoryIds: Set<str
   const out = new Map<string, Cut>();
   const live = regs.filter((r) => !r.denied).sort((a, b) => a.at - b.at);
   for (const r of regs) if (r.denied) out.set(r.userId, "denied");
-  const fill = (list: CutInput[], spots: number, taken: Set<string>) => {
+  const cap = s.teamCap ?? Infinity;
+  const teamIn = (taken: Set<string>) => regs.filter((r) => r.kind === "driver" && r.teamId && taken.has(r.userId)).length;
+  const fill = (list: CutInput[], spots: number, taken: Set<string>, capped = false) => {
     let left = spots - taken.size;
+    let teams = capped ? teamIn(taken) : 0;
     for (const r of list) {
       if (taken.has(r.userId)) continue;
+      if (capped && r.teamId && teams >= cap) continue;
       if (left > 0) {
+        if (capped && r.teamId) teams++;
         taken.add(r.userId);
         left--;
       }
@@ -124,12 +131,12 @@ export function computeCut(regs: CutInput[], s: RegSettings, factoryIds: Set<str
   for (const r of drivers) {
     if (!r.teamId || !factoryIds.has(r.teamId)) continue;
     const n = perTeam.get(r.teamId) ?? 0;
-    if (n < s.factoryReserved && reserved.size < s.drivers) {
+    if (n < s.factoryReserved && reserved.size < s.drivers && teamIn(reserved) < cap) {
       reserved.add(r.userId);
       perTeam.set(r.teamId, n + 1);
     }
   }
-  const driversIn = fill(drivers, s.drivers, reserved);
+  const driversIn = fill(drivers, s.drivers, reserved, true);
   const employeesIn = fill(live.filter((r) => r.kind === "employee"), s.employees, new Set());
   const spectatorsIn = fill(live.filter((r) => r.kind === "spectator"), s.spectators, new Set());
   for (const r of live) {

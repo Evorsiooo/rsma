@@ -315,13 +315,14 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
   }
   const [drivers, employees, spectators, reserved] = [num(b.drivers), num(b.employees), num(b.spectators), num(b.factoryReserved)];
   if (!Number.isFinite(opensAt) || !Number.isFinite(deadline) || deadline <= opensAt) return c.json({ error: "invalid_times" }, 400);
-  if (drivers === null || employees === null || spectators === null || reserved === null) return c.json({ error: "invalid" }, 400);
+  const teamCap = b.teamCap === null || b.teamCap === undefined ? null : num(b.teamCap);
+  if (drivers === null || employees === null || spectators === null || reserved === null || (b.teamCap != null && teamCap === null)) return c.json({ error: "invalid" }, 400);
   await c.env.DB.prepare(
-    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
-     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8, follows = ?9`,
+    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows, team_cap)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
+     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8, follows = ?9, team_cap = ?10`,
   )
-    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0, follows)
+    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0, follows, teamCap)
     .run();
   await syncRegistered(c.env, id);
   return c.json({ ok: true });

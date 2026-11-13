@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { computeCut, eligibleFor, groupSummary, regPhase, type RegSettings } from "../shared/registration.ts";
 
-const s: RegSettings = { opensAt: 100, deadline: 200, drivers: 3, employees: 1, spectators: 1, factoryReserved: 1, independents: true, follows: null };
+const s: RegSettings = { opensAt: 100, deadline: 200, drivers: 3, employees: 1, spectators: 1, factoryReserved: 1, independents: true, teamCap: null, follows: null };
 const d = (userId: string, at: number, teamId: string | null, denied = false) => ({ userId, kind: "driver" as const, teamId, denied, at });
 
 test("phase follows the window", () => {
@@ -50,6 +50,18 @@ test("a teams-only session in a group leaves independent drivers out, spots coun
 
 test("a session on its own keeps independents staff added by hand", () => {
   assert.equal(eligibleFor([d("i1", 1, null)], { independents: false }, false).length, 1);
+});
+
+test("team cap limits team drivers in total and leaves independents alone", () => {
+  const regs = [d("t1", 1, "a"), d("t2", 2, "b"), d("t3", 3, "a"), d("i1", 4, null), d("i2", 5, null)];
+  const cut = computeCut(regs, { ...s, drivers: 4, teamCap: 2 }, new Set());
+  assert.deepEqual(["t1", "t2", "t3", "i1", "i2"].map((u) => cut.get(u)), ["in", "in", "waitlist", "in", "in"]);
+});
+
+test("team cap counts factory reserved drivers and later teams still wait", () => {
+  const regs = [d("c1", 1, "cust"), d("f1", 2, "fac"), d("f2", 3, "fac"), d("c2", 4, "cust")];
+  const cut = computeCut(regs, { ...s, drivers: 4, factoryReserved: 1, teamCap: 2 }, new Set(["fac"]));
+  assert.deepEqual(["c1", "f1", "f2", "c2"].map((u) => cut.get(u)), ["in", "in", "waitlist", "waitlist"]);
 });
 
 test("group summary says who takes part in what", () => {
