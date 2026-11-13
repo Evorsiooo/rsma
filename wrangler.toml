@@ -2,6 +2,10 @@ name = "rsma"
 main = "worker/index.ts"
 compatibility_date = "2026-10-01"
 
+# Run the Worker near the database instead of near each visitor: one hop across the Atlantic per request, not one per query.
+[placement]
+mode = "smart"
+
 [assets]
 not_found_handling = "single-page-application"
 binding = "ASSETS"
