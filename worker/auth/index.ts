@@ -38,16 +38,17 @@ export async function getMe(env: AuthEnv, cookie: string | undefined): Promise<M
     const row = await env.DB.prepare("SELECT created_at AS at FROM access_codes WHERE roblox_id = ?").bind(id).first<{ at: number }>();
     if (!row || row.at !== claims.v || !(await tokenMode(env.DB))) return null;
   }
-  const user = await env.DB.prepare("SELECT roblox_id AS id, username, display_name AS displayName FROM users WHERE roblox_id = ?")
-    .bind(id)
-    .first<Omit<Me, "roles" | "via" | "teams" | "memberships">>();
+  // Three independent lookups: one round trip to the database, not three.
+  const [user, { results }, rows] = await Promise.all([
+    env.DB.prepare("SELECT roblox_id AS id, username, display_name AS displayName FROM users WHERE roblox_id = ?")
+      .bind(id)
+      .first<Omit<Me, "roles" | "via" | "teams" | "memberships">>(),
+    env.DB.prepare("SELECT role FROM user_roles WHERE roblox_id = ?").bind(id).all<{ role: Role }>(),
+    env.DB.prepare("SELECT t.id, t.name, m.roles FROM teams t JOIN team_members m ON m.team_id = t.id WHERE m.roblox_id = ? ORDER BY lower(t.name)")
+      .bind(id)
+      .all<{ id: string; name: string; roles: string }>(),
+  ]);
   if (!user) return null;
-  const { results } = await env.DB.prepare("SELECT role FROM user_roles WHERE roblox_id = ?").bind(id).all<{ role: Role }>();
-  const rows = await env.DB.prepare(
-    "SELECT t.id, t.name, m.roles FROM teams t JOIN team_members m ON m.team_id = t.id WHERE m.roblox_id = ? ORDER BY lower(t.name)",
-  )
-    .bind(id)
-    .all<{ id: string; name: string; roles: string }>();
   const memberships = rows.results.map((t) => ({ id: t.id, name: t.name, roles: parseRoles(t.roles) }));
   const teams = memberships.filter((t) => hasAny(t.roles, PANEL_ROLES)).map(({ id, name }) => ({ id, name }));
   return { ...user, roles: claims.via === "token" ? [] : results.map((r) => r.role), via: claims.via, teams, memberships };
