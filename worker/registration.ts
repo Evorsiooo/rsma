@@ -66,7 +66,12 @@ export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSetti
   if (!r) return null;
   const root = await rootOf(env, sid);
   if (root !== sid) {
-    const w = await env.DB.prepare("SELECT opens_at AS opensAt, deadline FROM session_registration WHERE session_id = ?").bind(root).first<Pick<SettingsRow, "opensAt" | "deadline">>();
+    // A linked session shares the first session's window and numbers; only its independents setting is its own.
+    const w = await env.DB.prepare(
+      "SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, team_cap AS teamCap FROM session_registration WHERE session_id = ?",
+    )
+      .bind(root)
+      .first<Omit<SettingsRow, "independents" | "follows">>();
     if (w) Object.assign(r, w);
   }
   return { ...r, independents: !!r.independents, follows: root === sid ? null : r.follows };
