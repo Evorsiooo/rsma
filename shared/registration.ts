@@ -18,13 +18,27 @@ export interface RegSettings {
   /** Driver slots held for each factory team. */
   factoryReserved: number;
   independents: boolean;
+  /** Session whose registration this one shares (the window is that session's); null when it has its own. */
+  follows: string | null;
 }
 
 export interface RegSummary {
   sessionId: string;
   opensAt: number;
   deadline: number;
+  /** Independent drivers can register for this session or one linked to it. */
   independents: boolean;
+  /** The first session of the group: where registrations are stored. Equals sessionId when not linked. */
+  root: string;
+  /** This session does not take independent drivers, even though the group registration does. */
+  teamsOnly: boolean;
+}
+
+/** One registration covers every session in a group; each session keeps its own spots and eligibility. */
+export interface RegGroupMember {
+  id: string;
+  name: string;
+  teamsOnly: boolean;
 }
 
 export type RegPhase = "upcoming" | "open" | "closed";
@@ -55,6 +69,8 @@ export interface RegTeam {
 
 export interface RegistrationView {
   settings: RegSettings | null;
+  /** Sessions this registration covers, in start order; one entry when the session is not linked. */
+  group: RegGroupMember[];
   phase: RegPhase | null;
   /** Taken and total spots per kind, denied people excluded. */
   counts: Record<RegKind, { taken: number; spots: number }>;
@@ -65,6 +81,14 @@ export interface RegistrationView {
   registrations: Registration[];
   /** The viewer's own registration, if any. */
   self: Registration | null;
+}
+
+/**
+ * Registrations that count for one session. Teams are always eligible; a linked session that does not take
+ * independents leaves independent drivers out. A session on its own keeps everyone staff entered by hand.
+ */
+export function eligibleFor<T extends { kind: RegKind; teamId: string | null }>(regs: T[], s: Pick<RegSettings, "independents">, linked: boolean): T[] {
+  return linked && !s.independents ? regs.filter((r) => r.kind !== "driver" || r.teamId) : regs;
 }
 
 interface CutInput {

@@ -6,6 +6,7 @@ import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { sessionsOf } from "./sessions";
 import { resolveUserId } from "./roblox-users";
+import { rootOf } from "./registration";
 import { regSessionsOf, syncRegistered, syncSessions } from "./stage";
 import { issueCode, revokeCode, setTokenMode, tokenMode } from "./access-codes";
 import { formatDiscordStewardMessage, getDiscordWebhook, sendDiscordWebhook, setDiscordWebhook } from "./discord";
@@ -272,44 +273,70 @@ admin.patch("/sessions/:id", guard("races"), async (c) => {
 });
 
 admin.delete("/sessions/:id", guard("races"), async (c) => {
-  const sid = c.req.param("id");
+  const sid = c.req.param("id") ?? "";
+  const followers = await followersOf(c.env, sid);
   await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE session_registration SET follows = NULL WHERE follows = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sid),
   ]);
+  await syncSessions(c.env, followers);
   return c.json({ ok: true });
 });
 
-/** Registration settings for a session: window, spots per kind, factory reserve, independents. */
+/** Sessions linked directly to this one's registration. */
+async function followersOf(env: AdminEnv, sid: string): Promise<string[]> {
+  return (await env.DB.prepare("SELECT session_id AS id FROM session_registration WHERE follows = ?").bind(sid).all<{ id: string }>()).results.map((r) => r.id);
+}
+
+/** Registration settings for a session: window, spots per kind, factory reserve, independents, and the session it shares registration with. */
 admin.put("/sessions/:id/registration", guard("races"), async (c) => {
   const id = c.req.param("id") ?? "";
   if (!(await c.env.DB.prepare("SELECT 1 FROM sessions WHERE id = ?").bind(id).first())) return c.json({ error: "not_found" }, 404);
   const b = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
   const num = (v: unknown) => (Number.isInteger(v) && (v as number) >= 0 && (v as number) <= 999 ? (v as number) : null);
-  const opensAt = Number(b.opensAt);
-  const deadline = Number(b.deadline);
+  const follows = typeof b.follows === "string" && b.follows ? b.follows : null;
+  let opensAt = Number(b.opensAt);
+  let deadline = Number(b.deadline);
+  if (follows) {
+    // Linked: the first session of the group sets the window, and the group must be in the same race with no loop.
+    const same = await c.env.DB.prepare("SELECT 1 FROM sessions a JOIN sessions b ON a.race_id = b.race_id WHERE a.id = ? AND b.id = ?").bind(id, follows).first();
+    const head = await rootOf(c.env, follows);
+    let loop = follows === id;
+    for (let cur: string | null | undefined = follows, i = 0; cur && !loop && i < 20; i++) {
+      cur = (await c.env.DB.prepare("SELECT follows FROM session_registration WHERE session_id = ?").bind(cur).first<{ follows: string | null }>())?.follows;
+      loop = cur === id;
+    }
+    const w = await c.env.DB.prepare("SELECT opens_at AS opensAt, deadline FROM session_registration WHERE session_id = ?").bind(head).first<{ opensAt: number; deadline: number }>();
+    if (!same || !w || loop) return c.json({ error: "invalid_link" }, 400);
+    if (await c.env.DB.prepare("SELECT 1 FROM registrations WHERE session_id = ?").bind(id).first()) return c.json({ error: "has_registrations" }, 409);
+    ({ opensAt, deadline } = w);
+  }
   const [drivers, employees, spectators, reserved] = [num(b.drivers), num(b.employees), num(b.spectators), num(b.factoryReserved)];
   if (!Number.isFinite(opensAt) || !Number.isFinite(deadline) || deadline <= opensAt) return c.json({ error: "invalid_times" }, 400);
   if (drivers === null || employees === null || spectators === null || reserved === null) return c.json({ error: "invalid" }, 400);
   await c.env.DB.prepare(
-    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
-     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8`,
+    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8, follows = ?9`,
   )
-    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0)
+    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0, follows)
     .run();
   await syncRegistered(c.env, id);
   return c.json({ ok: true });
 });
 
-/** Turn registration off for a session and clear what was entered. */
+/** Turn registration off for a session and clear what was entered. Sessions that followed it keep their own settings, unlinked. */
 admin.delete("/sessions/:id/registration", guard("races"), async (c) => {
   const id = c.req.param("id") ?? "";
+  const followers = await followersOf(c.env, id);
   await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE session_registration SET follows = NULL WHERE follows = ?").bind(id),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(id),
   ]);
+  await syncSessions(c.env, followers);
   return c.json({ ok: true });
 });
 

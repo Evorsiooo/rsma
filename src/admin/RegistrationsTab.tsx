@@ -26,7 +26,7 @@ export function RegistrationsTab({ races }: { races: AdminRace[] }) {
   const [sid, setSid] = useState("");
   const [view, setView] = useState<RegistrationView | null>(null);
   useEffect(() => {
-    registrationApi.list().then((l) => setRegIds(new Set(l.map((r) => r.sessionId))), () => setRegIds(new Set()));
+    registrationApi.list().then((l) => setRegIds(new Set(l.filter((r) => r.root === r.sessionId).map((r) => r.sessionId))), () => setRegIds(new Set()));
   }, []);
   const options = races.flatMap((r) => r.sessions.filter((s) => regIds?.has(s.id)).map((s) => ({ id: s.id, label: `${r.name} · ${s.name}` })));
   const current = options.find((o) => o.id === sid)?.id ?? options[0]?.id ?? "";

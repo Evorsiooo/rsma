@@ -49,7 +49,7 @@ export function DriverRegistration() {
     registrationApi.list().then(setRegs, () => setRegs([]));
   }, []);
   const now = Date.now();
-  const options = upcomingSessions(races, regs ?? [], now).filter((u) => u.reg && u.reg.independents && regStatus(u.reg, now).phase !== "closed");
+  const options = upcomingSessions(races, regs ?? [], now).filter((u) => u.reg && u.reg.independents && u.reg.root === u.session.id && regStatus(u.reg, now).phase !== "closed");
   const chosen = options.find((u) => u.session.id === pick) ?? options[0];
   const sid = chosen?.session.id ?? "";
   const load = useCallback(() => (sid ? registrationApi.get(sid).then(setView, () => setView(null)) : Promise.resolve()), [sid]);
@@ -66,6 +66,9 @@ export function DriverRegistration() {
   const status = chosen?.reg ? regStatus(chosen.reg, now) : null;
   const open = status?.phase === "open";
   const self = view?.self ?? null;
+  const group = view?.group ?? [];
+  const alsoCovers = group.filter((m) => m.id !== sid);
+  const joinedSessions = group.filter((m) => !(m.teamsOnly && !self?.teamId));
 
   const groupCheck = (
     <label className="plain">
@@ -103,6 +106,11 @@ export function DriverRegistration() {
               <span className="mute">{status.text}</span>
             </div>
           )}
+          {alsoCovers.length > 0 && (
+            <div className="mute" style={{ marginTop: 6 }}>
+              One registration covers {group.map((m) => m.name + (m.teamsOnly ? " (teams only)" : "")).join(", ")}.
+            </div>
+          )}
         </Bd>
       </Box>
       {chosen && self && (
@@ -114,6 +122,11 @@ export function DriverRegistration() {
                   <td><b>{REG_KIND_LABEL[self.kind]}{self.teamName ? ` · ${self.teamName}` : " · Independent"}</b></td>
                   <td style={{ width: 90 }}>{CUT_LABEL[self.cut]}</td>
                 </tr>
+                {group.length > 1 && (
+                  <tr>
+                    <td colSpan={2} className="mute">Registered for {joinedSessions.map((m) => m.name).join(", ")}</td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </Bd>
@@ -123,7 +136,7 @@ export function DriverRegistration() {
                 <input type="checkbox" checked={inGroup(self.group)} disabled={!open} onChange={(e) => act(registrationApi.selfGroup(sid, e.target.checked ? "pending" : "unverified"))} /> I have joined the RSMA Roblox group or my request is pending
               </label>
               {open && !self.teamId && (
-                <button className="btn red" onClick={() => act(registrationApi.withdraw(sid))}>Withdraw</button>
+                <button className="btn red" onClick={() => act(registrationApi.withdraw(sid))}>{joinedSessions.length > 1 ? "Withdraw from all" : "Withdraw"}</button>
               )}
             </Bd>
           )}

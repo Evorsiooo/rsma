@@ -61,6 +61,11 @@ export function RegistrationPage() {
       <div style={{ fontSize: 12 }} className="note">
         <b style={{ color: "var(--s-ink)" }}>{info.race.name} · {info.session.name} · team registration</b> · {label}
       </div>
+      {view.group.length > 1 && (
+        <div style={{ fontSize: 12 }} className="note">
+          One registration covers {view.group.map((m) => m.name + (m.teamsOnly ? " (teams only)" : "")).join(", ")}. Removing someone removes them from all of them.
+        </div>
+      )}
       <Box title="Spots">
         <table className="kv">
           <tbody>
