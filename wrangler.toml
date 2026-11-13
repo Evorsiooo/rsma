@@ -12,6 +12,7 @@ run_worker_first = [
   "/",
   "/race/*",
   "/session/*",
+  "/schedule",
   "/driver-registration",
   "/team-registration",
   "/work-at-rsma",
