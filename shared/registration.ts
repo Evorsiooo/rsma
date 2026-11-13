@@ -20,6 +20,10 @@ export interface RegSettings {
   independents: boolean;
   /** Most driver spots all teams together can take; null for no cap. */
   teamCap: number | null;
+  /** Most drivers each team fields in this session, chosen by the team; null for no limit. Not shared with the group. */
+  teamLimit: number | null;
+  /** Until when teams can change who they field; null for the session start. */
+  pickCutoff: number | null;
   /** Session whose registration this one shares (the window is that session's); null when it has its own. */
   follows: string | null;
 }
@@ -34,6 +38,10 @@ export interface RegSummary {
   root: string;
   /** This session does not take independent drivers, even though the group registration does. */
   teamsOnly: boolean;
+  /** Most drivers each team fields in this session; null for no limit. */
+  teamLimit: number | null;
+  /** Teams choose their drivers until this time; null with no limit. */
+  pickUntil: number | null;
 }
 
 /** One registration covers every session in a group; each session keeps its own spots and eligibility. */
@@ -47,7 +55,10 @@ export type RegPhase = "upcoming" | "open" | "closed";
 export const regPhase = (s: Pick<RegSettings, "opensAt" | "deadline">, now: number): RegPhase =>
   now < s.opensAt ? "upcoming" : now <= s.deadline ? "open" : "closed";
 
-export type Cut = "in" | "waitlist" | "denied";
+/** "out": registered with the group but not fielded by their team in this session. */
+export type Cut = "in" | "waitlist" | "denied" | "out";
+
+export const CUT_LABEL: Record<Cut, string> = { in: "In", waitlist: "Waiting", denied: "Denied", out: "Not in this session" };
 
 export interface Registration {
   userId: string;
@@ -71,6 +82,8 @@ export interface RegTeam {
 
 export interface RegistrationView {
   settings: RegSettings | null;
+  /** Until when teams can choose who they field, when this session has a team limit. */
+  pickUntil: number | null;
   /** Sessions this registration covers, in start order; one entry when the session is not linked. */
   group: RegGroupMember[];
   phase: RegPhase | null;
@@ -158,4 +171,22 @@ export function groupSummary(group: RegGroupMember[]): { independents: string; t
     independents: closed.length === 0 ? `Independent drivers take part in ${list(open)}.` : open.length === 0 ? "Independent drivers cannot take part." : `Independent drivers take part in ${list(open)} only and cannot take part in ${list(closed)}.`,
     teams: `Team drivers are registered for ${list(teams)} with one registration.`,
   };
+}
+
+/**
+ * Applies a per-team limit to a session: each team fields at most `limit` of the drivers that made the cut.
+ * A team that has chosen fields its choice; a team that has not fields its first registered drivers.
+ */
+export function applyTeamLimit<T extends { userId: string; kind: RegKind; teamId: string | null; cut: Cut; at: number }>(regs: T[], limit: number | null, picks: Set<string>): T[] {
+  if (limit === null) return regs;
+  const out = new Map<string, Cut>();
+  const byTeam = new Map<string, T[]>();
+  for (const r of regs) if (r.kind === "driver" && r.teamId && r.cut === "in") byTeam.set(r.teamId, [...(byTeam.get(r.teamId) ?? []), r]);
+  for (const list of byTeam.values()) {
+    const sorted = [...list].sort((a, b) => a.at - b.at);
+    const chosen = sorted.filter((r) => picks.has(r.userId));
+    const fielded = new Set((chosen.length ? chosen : sorted).slice(0, limit).map((r) => r.userId));
+    for (const r of list) if (!fielded.has(r.userId)) out.set(r.userId, "out");
+  }
+  return regs.map((r) => (out.has(r.userId) ? { ...r, cut: out.get(r.userId)! } : r));
 }

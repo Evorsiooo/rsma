@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { startSignIn, useTokenMode } from "./access";
-import { GROUP_URL, groupSummary, inGroup, REG_KIND_LABEL, type RegSummary, type RegistrationView } from "../shared/registration";
+import { CUT_LABEL, GROUP_URL, groupSummary, inGroup, REG_KIND_LABEL, type RegSummary, type RegistrationView } from "../shared/registration";
 import type { RaceSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
 import { useMe } from "./me";
@@ -24,7 +24,6 @@ const ERRORS: Record<string, string> = {
 };
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
-const CUT_LABEL = { in: "In", waitlist: "Waiting", denied: "Denied" } as const;
 
 const link = (href: string, text: string) => (
   <a href={href} target="_blank" rel="noreferrer">

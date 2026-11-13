@@ -100,6 +100,7 @@ export function MyTeamPage() {
                       <td className="mute">{head ? `Same registration as ${head.name}` : (st?.text ?? "")}</td>
                       <td className="n">
                         {canEdit && !head && st?.phase === "open" && <Link className="btn pri sm" to={`/session/${session.id}/register`}>Register</Link>}{" "}
+                        {canEdit && reg?.teamLimit != null && reg.pickUntil != null && now <= reg.pickUntil && <Link className="btn sm" to={`/session/${session.id}/register`}>Choose drivers</Link>}{" "}
                         {panel && <Link className="btn sm" to={`/session/${session.id}/team/${team.id}`}>Team panel</Link>}
                       </td>
                     </tr>

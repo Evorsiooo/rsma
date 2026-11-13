@@ -817,6 +817,8 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
   const [withReg, setWithReg] = useState<SessionSummary[]>([]);
   const [follows, setFollows] = useState<string | null>(null);
   const [teamCap, setTeamCap] = useState("");
+  const [teamLimit, setTeamLimit] = useState("");
+  const [pickCutoff, setPickCutoff] = useState("");
   useEffect(() => {
     const others = sessions.filter((o) => o.id !== session.id);
     Promise.all(others.map((o) => registrationApi.get(o.id).then((v) => (v.settings ? o : null), () => null))).then((l) =>
@@ -829,6 +831,8 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
         setOn(true);
         setFollows(s.follows);
         setTeamCap(s.teamCap === null ? "" : String(s.teamCap));
+        setTeamLimit(s.teamLimit === null ? "" : String(s.teamLimit));
+        setPickCutoff(s.pickCutoff === null ? "" : toLocalInput(s.pickCutoff));
         setOpens(toLocalInput(s.opensAt));
         setDeadline(toLocalInput(s.deadline));
         setN({ drivers: String(s.drivers), employees: String(s.employees), spectators: String(s.spectators), factoryReserved: String(s.factoryReserved) });
@@ -847,9 +851,11 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
     factoryReserved: num(n.factoryReserved),
     independents,
     teamCap: teamCap.trim() === "" ? null : num(teamCap),
+    teamLimit: teamLimit.trim() === "" ? null : num(teamLimit),
+    pickCutoff: teamLimit.trim() === "" || pickCutoff === "" ? null : fromLocalInput(pickCutoff),
     follows,
   };
-  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (follows !== null || settings.deadline > settings.opensAt);
+  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt);
   const save = async () => {
     const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
     if (!r.ok) return say(r.error);
@@ -920,6 +926,19 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
           {field("Employee spots", "employees")}
           {field("Spectator spots", "spectators")}
           </>}
+          <label className="r-row" style={{ alignItems: "center" }}>
+            <span style={{ width: 240, flex: "none" }}>Drivers per team in this session (blank for no limit)</span>
+            <input className="r-field r-fill" inputMode="numeric" aria-label="Drivers per team in this session" value={teamLimit} onChange={(e) => setTeamLimit(e.target.value)} />
+          </label>
+          {teamLimit.trim() !== "" && (
+            <>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Teams choose until (blank for session start)</span>
+                <input className="r-field r-fill" type="datetime-local" aria-label="Teams choose until" value={pickCutoff} onChange={(e) => setPickCutoff(e.target.value)} />
+              </label>
+              <div style={{ color: "var(--r-text-dim)" }}>Teams register all their drivers once. Here each team fields up to that many of them, chosen by the team until the time above. A team that has not chosen fields its first registered drivers.</div>
+            </>
+          )}
           <label className="r-check">
             <input type="checkbox" checked={independents} onChange={(e) => setIndependents(e.target.checked)} />
             <span>{follows !== null ? "Independent drivers can take part in this session" : "Independent drivers can register"}</span>

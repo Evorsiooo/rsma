@@ -70,7 +70,7 @@ export function Schedule() {
                   const st = reg ? regStatus(reg, now) : null;
                   const live = s.startsAt <= now;
                   const when = whenText(s.startsAt, s.endsAt);
-                  const note = [head ? `Same registration as ${head.name}` : st?.text, reg?.teamsOnly ? "Teams only" : ""].filter(Boolean).join(" · ");
+                  const note = [head ? `Same registration as ${head.name}` : st?.text, reg?.teamsOnly ? "Teams only" : "", reg?.teamLimit != null ? `${reg.teamLimit} drivers per team` : ""].filter(Boolean).join(" · ");
                   return (
                     <tr key={s.id}>
                       <td><b>{s.name}</b> <span className="mute">{TYPE_LABEL[s.type]}</span></td>

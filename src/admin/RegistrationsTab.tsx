@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { inGroup, REG_KIND_LABEL, REG_KINDS, type GroupStatus, type RegKind, type Registration, type RegistrationView } from "../../shared/registration";
+import { CUT_LABEL, inGroup, REG_KIND_LABEL, REG_KINDS, type GroupStatus, type RegKind, type Registration, type RegistrationView } from "../../shared/registration";
 import type { AdminRace } from "../../shared/types";
 import { api, registrationApi } from "../api";
 import { CodeDialog, useTokenMode } from "../access";
@@ -16,7 +16,6 @@ const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
 
 const dim = { color: "var(--r-text-dim)" } as const;
-const CUT_LABEL = { in: "In", waitlist: "Waiting", denied: "Denied" } as const;
 
 type Res = { ok: true } | { ok: false; error: string };
 
@@ -79,7 +78,7 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
   useEffect(() => {
     api.teams().then(setTeams, () => {});
   }, []);
-  const order = { in: 0, waitlist: 1, denied: 2 } as const;
+  const order = { in: 0, out: 1, waitlist: 2, denied: 3 } as const;
   const rows = [...view.registrations].sort((a, b) => REG_KINDS.indexOf(a.kind) - REG_KINDS.indexOf(b.kind) || order[a.cut] - order[b.cut] || a.at - b.at);
   return (
     <div className="r-panel">

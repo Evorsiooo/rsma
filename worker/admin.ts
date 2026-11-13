@@ -277,6 +277,7 @@ admin.delete("/sessions/:id", guard("races"), async (c) => {
   const followers = await followersOf(c.env, sid);
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE session_registration SET follows = NULL WHERE follows = ?").bind(sid),
+    c.env.DB.prepare("DELETE FROM session_picks WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sid),
@@ -322,14 +323,17 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
     capIn = w.teamCap;
   }
   if (!Number.isFinite(opensAt) || !Number.isFinite(deadline) || deadline <= opensAt) return c.json({ error: "invalid_times" }, 400);
+  const teamLimit = b.teamLimit === null || b.teamLimit === undefined ? null : num(b.teamLimit);
+  const pickCutoff = b.pickCutoff === null || b.pickCutoff === undefined ? null : Number(b.pickCutoff);
+  if ((b.teamLimit != null && teamLimit === null) || (pickCutoff !== null && !Number.isFinite(pickCutoff))) return c.json({ error: "invalid" }, 400);
   const teamCap = capIn === null || capIn === undefined ? null : num(capIn);
   if (drivers === null || employees === null || spectators === null || reserved === null || (capIn != null && teamCap === null)) return c.json({ error: "invalid" }, 400);
   await c.env.DB.prepare(
-    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows, team_cap)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
-     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8, follows = ?9, team_cap = ?10`,
+    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows, team_cap, team_limit, pick_cutoff)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8, follows = ?9, team_cap = ?10, team_limit = ?11, pick_cutoff = ?12`,
   )
-    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0, follows, teamCap)
+    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0, follows, teamCap, teamLimit, pickCutoff)
     .run();
   await syncRegistered(c.env, id);
   return c.json({ ok: true });
@@ -341,6 +345,7 @@ admin.delete("/sessions/:id/registration", guard("races"), async (c) => {
   const followers = await followersOf(c.env, id);
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE session_registration SET follows = NULL WHERE follows = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM session_picks WHERE session_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(id),
   ]);
