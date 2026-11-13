@@ -81,31 +81,48 @@ export function MyTeamPage() {
   };
   const now = Date.now();
   const sessions = upcomingSessions(races, regs, now);
+  // One line per event: its open registration window, else the first.
+  const events = [...new Set(sessions.filter((u) => u.reg).map((u) => u.race))].map((race) => {
+    const regsOf = sessions.filter((u) => u.race.id === race.id && u.reg).map((u) => regs.find((g) => g.sessionId === u.reg!.root) ?? u.reg!);
+    return { race, reg: regsOf.find((g) => regStatus(g, now).phase === "open") ?? regsOf[0] };
+  });
   const panel = me.teams.some((t) => t.id === team.id);
   return (
     <>
-      {sessions.length > 0 && (
-        <Box title="Upcoming Sessions">
+      {canEdit && events.length > 0 && (
+        <Box title="Registration">
           <Bd flush>
             <table className="t">
               <tbody>
-                {sessions.map(({ race, session, reg }) => {
-                  const st = reg ? regStatus(reg, now) : null;
-                  // Linked sessions are registered for once, with the first session of the group.
-                  const head = reg && reg.root !== session.id ? races.flatMap((r) => r.sessions).find((x) => x.id === reg.root) : undefined;
+                {events.map(({ race, reg }) => {
+                  const st = regStatus(reg, now);
                   return (
-                    <tr key={session.id}>
-                      <td>{race.name} · {session.name}</td>
-                      <td>{fmtWhen(session.startsAt)}</td>
-                      <td className="mute">{head ? `Same registration as ${head.name}` : (st?.text ?? "")}</td>
+                    <tr key={race.id}>
+                      <td>{race.name}</td>
+                      <td className="mute">{st.text}</td>
                       <td className="n">
-                        {canEdit && !head && st?.phase === "open" && <Link className="btn pri sm" to={`/session/${session.id}/register`}>Register</Link>}{" "}
-                        {canEdit && reg?.teamLimit != null && reg.pickUntil != null && now <= reg.pickUntil && <Link className="btn sm" to={`/session/${session.id}/register`}>Choose drivers</Link>}{" "}
-                        {panel && <Link className="btn sm" to={`/session/${session.id}/team/${team.id}`}>Team panel</Link>}
+                        {st.phase === "upcoming" ? null : <Link className={`btn sm${st.phase === "open" ? " pri" : ""}`} to={`/race/${race.id}/register`}>{st.phase === "open" ? "Register drivers" : "View"}</Link>}
                       </td>
                     </tr>
                   );
                 })}
+              </tbody>
+            </table>
+          </Bd>
+        </Box>
+      )}
+      {panel && sessions.length > 0 && (
+        <Box title="Upcoming Sessions">
+          <Bd flush>
+            <table className="t">
+              <tbody>
+                {sessions.map(({ race, session }) => (
+                  <tr key={session.id}>
+                    <td>{race.name} · {session.name}</td>
+                    <td>{fmtWhen(session.startsAt)}</td>
+                    <td className="n"><Link className="btn sm" to={`/session/${session.id}/team/${team.id}`}>Team panel</Link></td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </Bd>

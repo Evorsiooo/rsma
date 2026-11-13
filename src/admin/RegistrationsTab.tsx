@@ -121,10 +121,10 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
         </table>
       )}
       <div style={{ padding: 4 }}>
-        <button className="r-btn" style={{ width: 160 }} onClick={() => setAdding(true)}>Add person</button>
+        <button className="r-btn" style={{ width: 160 }} onClick={() => setAdding(true)}>Register someone</button>
       </div>
       {codeFor && <CodeDialog name={codeFor.username} issue={() => registrationApi.staffCode(sid, codeFor.userId)} onClose={() => setCodeFor(null)} />}
-      {adding && <PersonDialog title="Add person" teams={teams} onClose={() => setAdding(false)} onSave={async (v) => act(registrationApi.staffAdd(sid, { username: v.username!, kind: v.kind, teamId: v.teamId, discord: v.discord || undefined, group: v.group }))} />}
+      {adding && <PersonDialog title="Register someone" teams={teams} onClose={() => setAdding(false)} onSave={async (v) => act(registrationApi.staffAdd(sid, { username: v.username!, kind: v.kind, teamId: v.teamId, discord: v.discord || undefined, group: v.group }))} />}
       {edit && (
         <PersonDialog
           title={`Edit ${edit.username}`}
