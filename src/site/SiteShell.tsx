@@ -14,7 +14,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
   const staff = !!me && me.roles.some((r) => r !== "steward");
   const team = !!me && me.memberships.length > 0;
   // Team session registration belongs to the My Team tab; timing pages to Home.
-  const onTeam = pathname.startsWith("/my-team") || /^\/session\/[^/]+\/register$/.test(pathname);
+  const onTeam = pathname.startsWith("/my-team") || /^\/(session|race)\/[^/]+\/register$/.test(pathname);
   const tab = (to: string, label: string, on?: boolean, cls?: string) => (
     <NavLink to={to} end className={({ isActive }) => `${cls ?? ""}${(on ?? isActive) ? " on" : ""}`}>
       {label}

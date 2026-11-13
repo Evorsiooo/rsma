@@ -17,7 +17,7 @@ import { Schedule } from "./Schedule";
 import { TeamRegistration } from "./TeamRegistration";
 import { DriverRegistration } from "./DriverRegistration";
 import { WorkAtRSMA } from "./WorkAtRSMA";
-import { RegistrationPage } from "./RegistrationPage";
+import { EventRegistration, RegisterRedirect } from "./EventRegistration";
 import { NotFound } from "./NotFound";
 import { RaceRedirect } from "./RaceRedirect";
 
@@ -42,7 +42,8 @@ export function App() {
           <Route path="/" element={<Home />} />
           <Route path="/race/:id" element={<RaceRedirect />} />
           <Route path="/session/:id" element={<RacePage />} />
-          <Route path="/session/:id/register" element={<RegistrationPage />} />
+          <Route path="/race/:id/register" element={<EventRegistration />} />
+          <Route path="/session/:id/register" element={<RegisterRedirect />} />
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/driver-registration" element={<DriverRegistration />} />
           <Route path="/team-registration" element={<TeamRegistration />} />
