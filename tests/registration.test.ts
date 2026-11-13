@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { computeCut, eligibleFor, regPhase, type RegSettings } from "../shared/registration.ts";
+import { computeCut, eligibleFor, groupSummary, regPhase, type RegSettings } from "../shared/registration.ts";
 
 const s: RegSettings = { opensAt: 100, deadline: 200, drivers: 3, employees: 1, spectators: 1, factoryReserved: 1, independents: true, follows: null };
 const d = (userId: string, at: number, teamId: string | null, denied = false) => ({ userId, kind: "driver" as const, teamId, denied, at });
@@ -50,4 +50,14 @@ test("a teams-only session in a group leaves independent drivers out, spots coun
 
 test("a session on its own keeps independents staff added by hand", () => {
   assert.equal(eligibleFor([d("i1", 1, null)], { independents: false }, false).length, 1);
+});
+
+test("group summary says who takes part in what", () => {
+  const g = [{ id: "a", name: "Open track", teamsOnly: false }, { id: "b", name: "Timed runs", teamsOnly: true }];
+  assert.equal(groupSummary(g.slice(0, 1)), null);
+  assert.deepEqual(groupSummary(g), {
+    independents: "Independent drivers take part in Open track only and cannot take part in Timed runs.",
+    teams: "Team drivers are registered for Open track and Timed runs with one registration.",
+  });
+  assert.equal(groupSummary(g.map((m) => ({ ...m, teamsOnly: false })))?.independents, "Independent drivers take part in Open track and Timed runs.");
 });

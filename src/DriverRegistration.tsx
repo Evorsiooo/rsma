@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { startSignIn, useTokenMode } from "./access";
-import { GROUP_URL, inGroup, REG_KIND_LABEL, type RegSummary, type RegistrationView } from "../shared/registration";
+import { GROUP_URL, groupSummary, inGroup, REG_KIND_LABEL, type RegSummary, type RegistrationView } from "../shared/registration";
 import type { RaceSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
 import { useMe } from "./me";
@@ -68,6 +68,7 @@ export function DriverRegistration() {
   const self = view?.self ?? null;
   const group = view?.group ?? [];
   const alsoCovers = group.filter((m) => m.id !== sid);
+  const summary = groupSummary(group);
   const joinedSessions = group.filter((m) => !(m.teamsOnly && !self?.teamId));
 
   const groupCheck = (
@@ -108,7 +109,7 @@ export function DriverRegistration() {
           )}
           {alsoCovers.length > 0 && (
             <div className="mute" style={{ marginTop: 6 }}>
-              One registration covers {group.map((m) => m.name + (m.teamsOnly ? " (teams only)" : "")).join(", ")}.
+              {summary?.independents} {summary?.teams}
             </div>
           )}
         </Bd>
