@@ -52,6 +52,7 @@ export function SiteShell({ children }: { children: ReactNode }) {
         <div className="chk" />
         <nav className="tabs">
           {tab("/", "Home", pathname === "/" || pathname.startsWith("/race/") || (pathname.startsWith("/session/") && !onTeam))}
+          {tab("/schedule", "Schedule")}
           {tab("/driver-registration", "Driver Registration")}
           {tab("/team-registration", "Team Registration")}
           {tab("/work-at-rsma", "Work at the RSMA")}
