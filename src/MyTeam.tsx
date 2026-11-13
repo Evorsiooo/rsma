@@ -97,7 +97,7 @@ export function MyTeamPage() {
                     <tr key={session.id}>
                       <td>{race.name} · {session.name}</td>
                       <td>{fmtWhen(session.startsAt)}</td>
-                      <td className="mute">{head ? `Registered with ${head.name}` : (st?.text ?? "")}</td>
+                      <td className="mute">{head ? `Same registration as ${head.name}` : (st?.text ?? "")}</td>
                       <td className="n">
                         {canEdit && !head && st?.phase === "open" && <Link className="btn pri sm" to={`/session/${session.id}/register`}>Register</Link>}{" "}
                         {panel && <Link className="btn sm" to={`/session/${session.id}/team/${team.id}`}>Team panel</Link>}

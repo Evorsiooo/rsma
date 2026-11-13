@@ -4,10 +4,10 @@ import type { RaceSummary, SessionSummary } from "../shared/types";
 const fmt = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 export const fmtWhen = (ms: number) => fmt.format(ms);
 
-/** "Opens 7 Nov, 10:00", "Closes 8 Nov, 12:00" or "Closed". */
+/** "Registration opens 7 Nov, 10:00", "Registration closes 8 Nov, 12:00" or "Registration closed". */
 export function regStatus(r: RegSummary, now: number): { phase: RegPhase; text: string } {
   const phase = regPhase(r, now);
-  return { phase, text: phase === "upcoming" ? `Opens ${fmt.format(r.opensAt)}` : phase === "open" ? `Closes ${fmt.format(r.deadline)}` : "Closed" };
+  return { phase, text: phase === "upcoming" ? `Registration opens ${fmt.format(r.opensAt)}` : phase === "open" ? `Registration closes ${fmt.format(r.deadline)}` : "Registration closed" };
 }
 
 export interface UpcomingSession {
