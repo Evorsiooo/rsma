@@ -91,13 +91,15 @@ export function MyTeamPage() {
               <tbody>
                 {sessions.map(({ race, session, reg }) => {
                   const st = reg ? regStatus(reg, now) : null;
+                  // Linked sessions are registered for once, with the first session of the group.
+                  const head = reg && reg.root !== session.id ? races.flatMap((r) => r.sessions).find((x) => x.id === reg.root) : undefined;
                   return (
                     <tr key={session.id}>
                       <td>{race.name} · {session.name}</td>
                       <td>{fmtWhen(session.startsAt)}</td>
-                      <td className="mute">{st?.text ?? ""}</td>
+                      <td className="mute">{head ? `Registered with ${head.name}` : (st?.text ?? "")}</td>
                       <td className="n">
-                        {canEdit && st?.phase === "open" && <Link className="btn pri sm" to={`/session/${session.id}/register`}>Register</Link>}{" "}
+                        {canEdit && !head && st?.phase === "open" && <Link className="btn pri sm" to={`/session/${session.id}/register`}>Register</Link>}{" "}
                         {panel && <Link className="btn sm" to={`/session/${session.id}/team/${team.id}`}>Team panel</Link>}
                       </td>
                     </tr>

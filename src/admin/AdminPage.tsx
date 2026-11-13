@@ -304,7 +304,7 @@ function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
   const [regFor, setRegFor] = useState<SessionSummary | null>(null);
   return (
     <>
-      {regFor && <RegistrationDialog session={regFor} onClose={() => { setRegFor(null); onChange(); }} />}
+      {regFor && <RegistrationDialog session={regFor} sessions={race.sessions} onClose={() => { setRegFor(null); onChange(); }} />}
       {!form && !del && !regFor && (
       <Dialog title={`Sessions: ${race.name}`} size="l" onClose={onClose} foot={<><button className="r-btn" onClick={() => setForm({})}>Add session</button><button className="r-btn" onClick={onClose}>Close</button></>}>
         {race.sessions.length === 0 ? (
@@ -803,7 +803,7 @@ function System() {
   );
 }
 
-function RegistrationDialog({ session, onClose }: { session: SessionSummary; onClose: () => void }) {
+function RegistrationDialog({ session, sessions, onClose }: { session: SessionSummary; sessions: SessionSummary[]; onClose: () => void }) {
   const [loaded, setLoaded] = useState(false);
   const [on, setOn] = useState(false);
   const [opens, setOpens] = useState(inDays(0));
@@ -811,10 +811,19 @@ function RegistrationDialog({ session, onClose }: { session: SessionSummary; onC
   const [n, setN] = useState({ drivers: "20", employees: "10", spectators: "10", factoryReserved: "1" });
   const [independents, setIndependents] = useState(false);
   const [staging, setStaging] = useState(session.staging);
+  // Back-to-back sessions share one registration: this session follows the one before it.
+  const previous = [...sessions].filter((o) => o.startsAt < session.startsAt).sort((a, b) => b.startsAt - a.startsAt)[0];
+  const [prevHasReg, setPrevHasReg] = useState(false);
+  const [follows, setFollows] = useState<string | null>(null);
+  const followed = sessions.find((o) => o.id === follows) ?? previous;
+  useEffect(() => {
+    if (previous) registrationApi.get(previous.id).then((v) => setPrevHasReg(!!v.settings), () => {});
+  }, [previous?.id]);
   useEffect(() => {
     registrationApi.get(session.id).then(({ settings: s }) => {
       if (s) {
         setOn(true);
+        setFollows(s.follows);
         setOpens(toLocalInput(s.opensAt));
         setDeadline(toLocalInput(s.deadline));
         setN({ drivers: String(s.drivers), employees: String(s.employees), spectators: String(s.spectators), factoryReserved: String(s.factoryReserved) });
@@ -832,8 +841,9 @@ function RegistrationDialog({ session, onClose }: { session: SessionSummary; onC
     spectators: num(n.spectators),
     factoryReserved: num(n.factoryReserved),
     independents,
+    follows,
   };
-  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && settings.deadline > settings.opensAt;
+  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (follows !== null || settings.deadline > settings.opensAt);
   const save = async () => {
     const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
     if (!r.ok) return say(r.error);
@@ -865,23 +875,30 @@ function RegistrationDialog({ session, onClose }: { session: SessionSummary; onC
         <input type="checkbox" checked={on} onChange={(e) => setOn(e.target.checked)} />
         <span>Registration open for this session</span>
       </label>
+      {on && (follows !== null || (previous && prevHasReg)) && (
+        <label className="r-check">
+          <input type="checkbox" checked={follows !== null} onChange={(e) => setFollows(e.target.checked ? previous.id : null)} />
+          <span>Same registration as {followed?.name}</span>
+        </label>
+      )}
+      {on && follows !== null && <div style={{ color: "var(--r-text-dim)" }}>People register once for both. Opens and closes with {followed?.name}. Spots and independents below apply to this session only.</div>}
       {on && (
         <>
-          <label className="r-row" style={{ alignItems: "center" }}>
+          {follows === null && <><label className="r-row" style={{ alignItems: "center" }}>
             <span style={{ width: 240, flex: "none" }}>Opens</span>
             <input className="r-field r-fill" type="datetime-local" aria-label="Registration opens" value={opens} onChange={(e) => setOpens(e.target.value)} />
           </label>
           <label className="r-row" style={{ alignItems: "center" }}>
             <span style={{ width: 240, flex: "none" }}>Deadline</span>
             <input className="r-field r-fill" type="datetime-local" aria-label="Registration deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
-          </label>
+          </label></>}
           {field("Driver spots", "drivers")}
           {field("Reserved per factory team", "factoryReserved")}
           {field("Employee spots", "employees")}
           {field("Spectator spots", "spectators")}
           <label className="r-check">
             <input type="checkbox" checked={independents} onChange={(e) => setIndependents(e.target.checked)} />
-            <span>Independent drivers can register</span>
+            <span>{follows !== null ? "Independent drivers can take part in this session" : "Independent drivers can register"}</span>
           </label>
         </>
       )}
@@ -889,7 +906,7 @@ function RegistrationDialog({ session, onClose }: { session: SessionSummary; onC
         <input type="checkbox" checked={staging} onChange={(e) => setStaging(e.target.checked)} />
         <span>Allow staging without registration (stewards stage drivers by hand)</span>
       </label>
-      {!on && <div style={{ color: "var(--r-text-dim)" }}>Saving with this off removes registration and every entry for this session.</div>}
+      {!on && <div style={{ color: "var(--r-text-dim)" }}>Saving with this off removes registration and every entry for this session. Sessions that shared it become separate.</div>}
     </Dialog>
   );
 }
