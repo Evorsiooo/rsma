@@ -5,11 +5,11 @@ import { CUT_LABEL, GROUP_URL, groupSummary, inGroup, REG_KIND_LABEL, type RegSu
 import type { RaceSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
 import { useMe } from "./me";
-import { fmtWhen, regStatus, upcomingSessions } from "./regUi";
+import { fmtWhen, ownedTeams, regStatus, registrationEvents, upcomingSessions } from "./regUi";
 import { Link } from "react-router-dom";
 import { DISCORD_URL } from "./Shell";
 import { Bd, Box } from "./site/parts";
-import { toast } from "./ui";
+import { Dialog, toast } from "./ui";
 
 const ERRORS: Record<string, string> = {
   not_open: "Registration is not open.",
@@ -43,6 +43,7 @@ export function DriverRegistration() {
   const [joined, setJoined] = useState(false);
   const [username, setUsername] = useState("");
   const [sent, setSent] = useState(false);
+  const [confirm, setConfirm] = useState(false);
   const tokens = useTokenMode();
   useEffect(() => {
     api.races().then(setRaces, () => {});
@@ -69,6 +70,10 @@ export function DriverRegistration() {
   const group = view?.group ?? [];
   const alsoCovers = group.filter((m) => m.id !== sid);
   const summary = groupSummary(group);
+  const owned = ownedTeams(me);
+  const teams = me?.memberships ?? [];
+  const names = (l: { name: string }[]) => l.map((t) => t.name).join(", ");
+  const teamEvents = registrationEvents(upcomingSessions(races, regs ?? [], now), regs ?? [], now);
   const joinedSessions = group.filter((m) => !(m.teamsOnly && !self?.teamId));
 
   const groupCheck = (
@@ -78,23 +83,60 @@ export function DriverRegistration() {
   );
   return (
     <>
-      <Box title="Race for a Team">
+      {owned.length > 0 ? (
+        <Box title={`Register your team${owned.length > 1 ? "s" : ""} (${names(owned)})`}>
+          {regs && teamEvents.length > 0 ? (
+            <Bd flush>
+              <table className="t">
+                <tbody>
+                  {teamEvents.map(({ race, reg }) => {
+                    const st = regStatus(reg, now);
+                    return (
+                      <tr key={race.id}>
+                        <td>{race.name}</td>
+                        <td className="mute">{st.text}</td>
+                        <td className="n">
+                          {st.phase === "upcoming" ? null : <Link className={`btn sm${st.phase === "open" ? " pri" : ""}`} to={`/race/${race.id}/register`}>{st.phase === "open" ? "Register drivers" : "View"}</Link>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </Bd>
+          ) : (
+            <Bd><div className="mute">{regs ? "No event has registration yet." : "Loading..."}</div></Bd>
+          )}
+          <Bd top bar>
+            <Link className="btn" to={owned.length === 1 ? `/my-team/${owned[0].id}` : "/my-team"}>{owned.length === 1 ? "Team page" : "My Teams"}</Link>
+          </Bd>
+        </Box>
+      ) : teams.length === 0 ? (
+        <Box title="Race for a Team">
+          <Bd>
+            <p style={{ marginBottom: 8 }}>
+              Teams that are hiring post in #team-updates on the RSMA Discord. Team drivers are registered for sessions by their team and have reserved slots.
+            </p>
+            <div className="bar">
+              <a className="btn pri" href={DISCORD_URL} target="_blank" rel="noreferrer">Find a Team on Discord</a>
+              <Link className="btn" to="/team-registration">Register a Team</Link>
+            </div>
+          </Bd>
+        </Box>
+      ) : (
+        <Box title={`You are in ${names(teams)}`}>
+          <Bd>
+            <p style={{ marginBottom: 8 }}>Your team registers you for sessions. You do not need to register here.</p>
+            <Link className="btn pri" to={teams.length === 1 ? `/my-team/${teams[0].id}` : "/my-team"}>{teams.length === 1 ? "Team page" : "My Teams"}</Link>
+          </Bd>
+        </Box>
+      )}
+      <Box title="Independent Drivers">
         <Bd>
           <p style={{ marginBottom: 8 }}>
-            Teams that are hiring post in #team-updates on the RSMA Discord. Team drivers are registered for sessions by their team and have reserved slots.
+            {teams.length > 0 && <b>Only for drivers without a team. </b>}Independent drivers race without a team. To race you must be in the {link(GROUP_URL, "RSMA Roblox group")}. Make sure you are in the group or that you have sent a join request, before the deadline. Staff use your Discord username to contact you.
           </p>
-          <div className="bar">
-            <a className="btn pri" href={DISCORD_URL} target="_blank" rel="noreferrer">Find a Team on Discord</a>
-            <Link className="btn" to="/team-registration">Register a Team</Link>
-          </div>
-        </Bd>
-      </Box>
-      <Box title="Independent Driver Registration">
-        <Bd>
-          <p style={{ marginBottom: 8 }}>
-            Independent drivers race without a team. To race you must be in the {link(GROUP_URL, "RSMA Roblox group")}. Make sure you are in the group or that you have sent a join request, before the deadline. Staff use your Discord username to contact you.
-          </p>
-          {regs && options.length === 0 && <div className="mute">No session is open for driver registration.</div>}
+          {regs && options.length === 0 && <div className="mute">No session is open for independent drivers.</div>}
           {chosen && status && (
             <div className="bar">
               <select aria-label="Session" style={{ width: 300 }} value={sid} onChange={(e) => setPick(e.target.value)}>
@@ -181,7 +223,7 @@ export function DriverRegistration() {
                 <span />
                 {groupCheck}
                 <span />
-                <button className="btn pri" style={{ justifySelf: "start" }} disabled={!discord.trim() || !joined} onClick={() => act(registrationApi.independent(sid, discord.trim()))}>
+                <button className="btn pri" style={{ justifySelf: "start" }} disabled={!discord.trim() || !joined} onClick={() => (teams.length > 0 ? setConfirm(true) : act(registrationApi.independent(sid, discord.trim())))}>
                   Register
                 </button>
               </div>
@@ -191,6 +233,30 @@ export function DriverRegistration() {
             <Bd top bar><button className="btn" onClick={() => startSignIn("/driver-registration")}>I have an access code</button></Bd>
           )}
         </Box>
+      )}
+      {confirm && (
+        <Dialog
+          title="Register as an independent?"
+          onClose={() => setConfirm(false)}
+          foot={
+            <>
+              <button className="btn" onClick={() => setConfirm(false)}>Cancel</button>
+              <button
+                className="btn pri"
+                onClick={async () => {
+                  setConfirm(false);
+                  await act(registrationApi.independent(sid, discord.trim()));
+                }}
+              >
+                Register as independent
+              </button>
+            </>
+          }
+        >
+          <p>
+            You are in {names(teams)}. Registering as an independent means racing without {teams.length > 1 ? "a team" : "your team"} in this session. {teams.length > 1 ? "Teams register" : `${teams[0].name} registers`} drivers from the team page.
+          </p>
+        </Dialog>
       )}
     </>
   );

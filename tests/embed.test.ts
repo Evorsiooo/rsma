@@ -7,7 +7,7 @@ const session = { id: "s1", raceId: "r1", name: "Practice 1", type: "practice" a
 const race = (over: Partial<RaceSummary> = {}): RaceSummary => ({ id: "r1", name: "Test Race", expiresAt: 0, sessions: [session], ended: false, ...over });
 
 test("public pages have their own preview and everything else gets the site-wide card", () => {
-  assert.equal((routeOf("/driver-registration") as { embed: { title: string } }).embed.title, "Driver Registration");
+  assert.equal((routeOf("/driver-registration") as { embed: { title: string } }).embed.title, "Independent Drivers");
   assert.equal((routeOf("/schedule") as { embed: { title: string } }).embed.title, "Schedule");
   assert.equal((routeOf("/terms/") as { embed: { title: string } }).embed.title, "Terms of service");
   for (const gated of ["/admin", "/my-team", "/my-team/t1", "/session/s1/steward", "/session/s1/driver", "/session/s1/team/t1", "/session/s1/register", "/nope"]) {
