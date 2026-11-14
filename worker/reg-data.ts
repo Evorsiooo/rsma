@@ -3,6 +3,8 @@ import {
   applyTeamLimit,
   computeCut,
   eligibleFor,
+  heldSpots,
+  waitPositions,
   REG_KINDS,
   regPhase,
   type Cut,
@@ -188,12 +190,25 @@ export function groupIn(d: EventData, sid: string): { root: string; members: (Re
   return { root, members: members.map((m) => ({ id: m.sessionId, name: m.name, teamsOnly: linked && !m.independents, independents: !!m.independents })) };
 }
 
+/**
+ * Everyone registered for the group, with one result each. Linked sessions share one list of spots, so the cut and the
+ * waiting list are worked out once for the group, never per session.
+ */
+export function groupRegs(d: EventData, group: ReturnType<typeof groupIn>): { regs: Registration[]; held: number; settings: RegSettings | null } {
+  const gs = settingsIn(d, group.root);
+  if (!gs) return { regs: [], held: 0, settings: null };
+  const rows = d.regs.filter((r) => r.sessionId === group.root).map(({ sessionId: _s, ...r }) => ({ ...r, denied: !!r.denied }));
+  const cut = computeCut(rows, gs, d.factories);
+  const withCut = rows.map((r) => ({ ...r, cut: cut.get(r.userId) ?? ("waitlist" as Cut) }));
+  const pos = waitPositions(withCut);
+  return { regs: withCut.map((r) => ({ ...r, waitPos: pos.get(r.userId) ?? null })), held: heldSpots(rows, gs, d.factories), settings: gs };
+}
+
+/** The registrations that take part in one session: the group's results, minus people this session does not take. */
 export function regsIn(d: EventData, sid: string, s: RegSettings, group: ReturnType<typeof groupIn>): Registration[] {
-  const rows = d.regs.filter((r) => r.sessionId === group.root).map((r) => ({ ...r, denied: !!r.denied }));
-  const regs = eligibleFor(rows, s, group.members.length > 1).map(({ sessionId: _s, ...r }) => r);
-  const cut = computeCut(regs, s, d.factories);
+  const regs = eligibleFor(groupRegs(d, group).regs, s, group.members.length > 1);
   const picks = new Set(d.picks.filter((p) => p.sessionId === sid).map((p) => p.userId));
-  return applyTeamLimit(regs.map((r) => ({ ...r, cut: cut.get(r.userId) ?? ("waitlist" as Cut) })), s.teamLimit, picks);
+  return applyTeamLimit(regs, s.teamLimit, picks);
 }
 
 export const isStaff = (me: Me | null) => hasRole(me, "races", "steward");
@@ -208,7 +223,7 @@ export function pickUntilIn(d: EventData, sid: string, s: RegSettings): number |
 export function viewIn(d: EventData, sid: string, now = Date.now()): RegistrationView {
   const me = d.me;
   const settings = settingsIn(d, sid);
-  const empty = { taken: 0, spots: 0 };
+  const empty = { taken: 0, spots: 0, waiting: 0, held: 0 };
   const view: RegistrationView = {
     settings,
     group: [],
@@ -224,15 +239,21 @@ export function viewIn(d: EventData, sid: string, now = Date.now()): Registratio
   const managed = managedTeams(me);
   const group = groupIn(d, sid);
   const all = regsIn(d, sid, settings, group);
+  const g = groupRegs(d, group);
   view.pickUntil = pickUntilIn(d, sid, settings);
   view.group = group.members.map(({ id, name, teamsOnly }) => ({ id, name, teamsOnly }));
-  const spots = { driver: settings.drivers, employee: settings.employees, spectator: settings.spectators };
-  if (view.staff) for (const k of REG_KINDS) view.counts[k] = { taken: all.filter((r) => r.kind === k && !r.denied).length, spots: spots[k] };
+  const gs = g.settings ?? settings;
+  const spots = { driver: gs.drivers, employee: gs.employees, spectator: gs.spectators };
+  // Everyone sees the spots, the people who are In and the waiting list, counted over the whole group.
+  for (const k of REG_KINDS) {
+    view.counts[k] = { spots: spots[k], taken: g.regs.filter((r) => r.kind === k && r.cut === "in").length, waiting: g.regs.filter((r) => r.kind === k && r.cut === "waitlist").length, held: k === "driver" ? g.held : 0 };
+  }
   view.self = all.find((r) => r.userId === me?.id) ?? null;
   if (managed.length) {
     view.teams = managed.map<RegTeam>((t) => ({
       id: t.id,
       name: t.name,
+      factory: d.factories.has(t.id),
       members: d.members.filter((m) => m.teamId === t.id).map((m) => ({ id: m.id, username: m.username, roles: parseRoles(m.roles) as TeamRole[] })),
     }));
   }

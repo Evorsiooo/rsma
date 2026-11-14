@@ -51,6 +51,14 @@ export interface RegGroupMember {
   teamsOnly: boolean;
 }
 
+export interface SpotCount {
+  spots: number;
+  taken: number;
+  waiting: number;
+  /** Driver spots kept free for factory teams that have not filled their reserved spots yet. */
+  held: number;
+}
+
 export type RegPhase = "upcoming" | "open" | "closed";
 export const regPhase = (s: Pick<RegSettings, "opensAt" | "deadline">, now: number): RegPhase =>
   now < s.opensAt ? "upcoming" : now <= s.deadline ? "open" : "closed";
@@ -72,11 +80,15 @@ export interface Registration {
   denied: boolean;
   at: number;
   cut: Cut;
+  /** Place on the waiting list, 1 is next to move up. Only for people who are Waiting. */
+  waitPos: number | null;
 }
 
 export interface RegTeam {
   id: string;
   name: string;
+  /** Factory teams have reserved driver spots. */
+  factory: boolean;
   members: { id: string; username: string; roles: import("./teams").TeamRole[] }[];
 }
 
@@ -87,8 +99,8 @@ export interface RegistrationView {
   /** Sessions this registration covers, in start order; one entry when the session is not linked. */
   group: RegGroupMember[];
   phase: RegPhase | null;
-  /** Taken and total spots per kind, denied people excluded. */
-  counts: Record<RegKind, { taken: number; spots: number }>;
+  /** Per kind, for the whole registration group: spots, people who are In, people who are Waiting, and spots held back for factory teams. */
+  counts: Record<RegKind, SpotCount>;
   staff: boolean;
   /** Teams the viewer registers for. */
   teams: RegTeam[];
@@ -99,7 +111,8 @@ export interface RegistrationView {
 }
 
 /**
- * Registrations that count for one session. Teams are always eligible; a linked session that does not take
+ * Registrations that take part in one session. The cut is worked out once for the whole group; this only decides who
+ * is in which session. Teams are always eligible; a linked session that does not take
  * independents leaves independent drivers out. A session on its own keeps everyone staff entered by hand.
  */
 export function eligibleFor<T extends { kind: RegKind; teamId: string | null }>(regs: T[], s: Pick<RegSettings, "independents">, linked: boolean): T[] {
@@ -114,11 +127,35 @@ interface CutInput {
   at: number;
 }
 
+/** Each factory team's first `factoryReserved` drivers, and how many reserved spots no factory driver has taken yet. */
+function reserve(live: CutInput[], s: RegSettings, factoryIds: Set<string>, hold: boolean) {
+  const cap = s.teamCap ?? Infinity;
+  const reserved = new Set<string>();
+  const perTeam = new Map<string, number>();
+  const teamIn = (taken: Set<string>) => live.filter((r) => r.kind === "driver" && r.teamId && taken.has(r.userId)).length;
+  for (const r of live) {
+    if (r.kind !== "driver" || !r.teamId || !factoryIds.has(r.teamId)) continue;
+    const n = perTeam.get(r.teamId) ?? 0;
+    if (n < s.factoryReserved && reserved.size < s.drivers && teamIn(reserved) < cap) {
+      reserved.add(r.userId);
+      perTeam.set(r.teamId, n + 1);
+    }
+  }
+  let unfilled = 0;
+  if (hold) for (const id of factoryIds) unfilled += Math.max(0, s.factoryReserved - (perTeam.get(id) ?? 0));
+  return { reserved, held: Math.min(unfilled, Math.max(0, s.drivers - reserved.size)) };
+}
+
+/** Driver spots kept free for factory teams that have not filled their reserved spots yet. */
+export function heldSpots(regs: CutInput[], s: RegSettings, factoryIds: Set<string>): number {
+  return reserve(regs.filter((r) => !r.denied && r.kind === "driver").sort((a, b) => a.at - b.at), s, factoryIds, true).held;
+}
+
 /**
- * Who makes the cut. Factory teams keep their first `factoryReserved` drivers; the remaining driver
- * spots go first come first served. Denied people drop out and the next in line moves up.
+ * Who is In. Spots go in the order people registered. The only exception: each factory team has `factoryReserved`
+ * spots for its own drivers, kept free until they are taken. Denied people drop out and the next in line moves up.
  */
-export function computeCut(regs: CutInput[], s: RegSettings, factoryIds: Set<string>): Map<string, Cut> {
+export function computeCut(regs: CutInput[], s: RegSettings, factoryIds: Set<string>, hold = true): Map<string, Cut> {
   const out = new Map<string, Cut>();
   const live = regs.filter((r) => !r.denied).sort((a, b) => a.at - b.at);
   for (const r of regs) if (r.denied) out.set(r.userId, "denied");
@@ -139,17 +176,8 @@ export function computeCut(regs: CutInput[], s: RegSettings, factoryIds: Set<str
     return taken;
   };
   const drivers = live.filter((r) => r.kind === "driver");
-  const reserved = new Set<string>();
-  const perTeam = new Map<string, number>();
-  for (const r of drivers) {
-    if (!r.teamId || !factoryIds.has(r.teamId)) continue;
-    const n = perTeam.get(r.teamId) ?? 0;
-    if (n < s.factoryReserved && reserved.size < s.drivers && teamIn(reserved) < cap) {
-      reserved.add(r.userId);
-      perTeam.set(r.teamId, n + 1);
-    }
-  }
-  const driversIn = fill(drivers, s.drivers, reserved, true);
+  const { reserved, held } = reserve(drivers, s, factoryIds, hold);
+  const driversIn = fill(drivers, s.drivers - held, reserved, true);
   const employeesIn = fill(live.filter((r) => r.kind === "employee"), s.employees, new Set());
   const spectatorsIn = fill(live.filter((r) => r.kind === "spectator"), s.spectators, new Set());
   for (const r of live) {
@@ -157,6 +185,47 @@ export function computeCut(regs: CutInput[], s: RegSettings, factoryIds: Set<str
     out.set(r.userId, inn.has(r.userId) ? "in" : "waitlist");
   }
   return out;
+}
+
+/** Place on the waiting list of each person who is Waiting, per kind, in registration order. */
+export function waitPositions(regs: { userId: string; kind: RegKind; at: number; cut: Cut }[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const k of REG_KINDS) {
+    regs
+      .filter((r) => r.kind === k && r.cut === "waitlist")
+      .sort((a, b) => a.at - b.at)
+      .forEach((r, i) => out.set(r.userId, i + 1));
+  }
+  return out;
+}
+
+// ---- Wording, shared so every screen says the same thing -------------------------------------
+
+/** "In", "Waiting, position 2", "Denied". */
+export function statusText(r: Pick<Registration, "cut" | "waitPos">): string {
+  return r.cut === "waitlist" && r.waitPos ? `Waiting, position ${r.waitPos}` : CUT_LABEL[r.cut];
+}
+
+/** The one sentence that says how spots are given out. */
+export function orderRule(s: Pick<RegSettings, "factoryReserved">): string {
+  return s.factoryReserved > 0
+    ? `Spots go in the order people registered. The only exception is that each factory team has ${s.factoryReserved} reserved ${s.factoryReserved === 1 ? "spot" : "spots"} for its own drivers. Nobody else can take those.`
+    : "Spots go in the order people registered.";
+}
+
+/** "8 of 10 taken, 2 waiting" for one kind of spot. */
+export function spotsLine(c: SpotCount): string {
+  const free = Math.max(0, c.spots - c.taken - c.held);
+  return `${c.taken} of ${c.spots} taken${c.held > 0 ? `, ${c.held} held for factory teams` : ""}${free > 0 ? `, ${free} free` : ""}${c.waiting > 0 ? `, ${c.waiting} waiting` : ""}`;
+}
+
+/** What is said before registering while no spot is free. Null while one is free. `team` words it for a team registering drivers. */
+export function fullNotice(c: SpotCount, noun: string, opts: { ownReserved?: boolean; team?: boolean } = {}): string | null {
+  if (c.spots - c.taken - c.held > 0 || (opts.ownReserved && c.held > 0)) return null;
+  const spots = `All ${noun} spots are taken${c.held > 0 ? " or held for factory teams" : ""}. Registration is still open.`;
+  return opts.team
+    ? `${spots} A driver you register now will be Waiting, from position ${c.waiting + 1}, and moves up when someone ahead withdraws or is denied.`
+    : `${spots} If you register now you will be Waiting, position ${c.waiting + 1}, and you move up when someone ahead of you withdraws or is denied.`;
 }
 
 const list = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? ""));

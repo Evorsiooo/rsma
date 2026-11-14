@@ -1,7 +1,7 @@
 import { useBootData } from "./Layouts";
 import { useCallback, useEffect, useState } from "react";
 import { startSignIn, useTokenMode } from "./access";
-import { CUT_LABEL, GROUP_URL, groupSummary, inGroup, REG_KIND_LABEL, type RegSummary, type RegistrationView } from "../shared/registration";
+import { fullNotice, GROUP_URL, groupSummary, inGroup, orderRule, REG_KIND_LABEL, spotsLine, statusText, type RegSummary, type RegistrationView } from "../shared/registration";
 import type { RaceSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
 import { useMe } from "./me";
@@ -151,7 +151,14 @@ export function DriverRegistration() {
           )}
           {alsoCovers.length > 0 && (
             <div className="mute" style={{ marginTop: 6 }}>
-              {summary?.independents} {summary?.teams}
+              {summary?.independents} {summary?.teams} One list of spots for all of them: you get the same result in each session you take part in.
+            </div>
+          )}
+          {chosen && view?.settings && (
+            <div style={{ marginTop: 6 }}>
+              <div>Driver spots: {spotsLine(view.counts.driver)}.</div>
+              <div className="mute">{orderRule(view.settings)}</div>
+              {open && !self && fullNotice(view.counts.driver, "driver") && <div style={{ marginTop: 6 }}><b>{fullNotice(view.counts.driver, "driver")}</b></div>}
             </div>
           )}
         </Bd>
@@ -163,8 +170,15 @@ export function DriverRegistration() {
               <tbody>
                 <tr>
                   <td><b>{REG_KIND_LABEL[self.kind]}{self.teamName ? ` · ${self.teamName}` : " · Independent"}</b></td>
-                  <td style={{ width: 90 }}>{CUT_LABEL[self.cut]}</td>
+                  <td style={{ width: 170 }}>{statusText(self)}</td>
                 </tr>
+                {self.cut === "waitlist" && (
+                  <tr>
+                    <td colSpan={2} className="mute">
+                      Registration stays open. {self.waitPos && self.waitPos > 1 ? `${self.waitPos - 1} ${self.waitPos === 2 ? "person is" : "people are"} ahead of you.` : "You are next."} You move up when someone ahead of you withdraws or is denied.
+                    </td>
+                  </tr>
+                )}
                 {group.length > 1 && (
                   <tr>
                     <td colSpan={2} className="mute">Registered for {joinedSessions.map((m) => m.name).join(", ")}</td>
