@@ -48,7 +48,7 @@ function About() {
     <Box title="About the RSMA">
       <Bd>
         <p style={{ marginBottom: 6 }}>
-          The Ro-State Motorsport Association runs rally and time-trial events in Roblox. Teams register their drivers for each session and have reserved slots, and independent drivers can register too.
+          The Ro-State Motorsport Association runs rally and time-trial events in Roblox. Teams register their drivers for each session and have reserved slots, and drivers without a team can register too.
         </p>
         <div className="bar">
           {owned.length > 0 ? (
@@ -56,7 +56,7 @@ function About() {
           ) : (
             <Link className="btn pri" to="/team-registration">Register a Team</Link>
           )}
-          <Link className="btn" to="/driver-registration">Independent Drivers</Link>
+          <Link className="btn" to="/driver-registration">Become a Driver</Link>
         </div>
       </Bd>
     </Box>

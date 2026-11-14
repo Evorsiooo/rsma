@@ -18,8 +18,8 @@ const STATIC: Record<string, Embed> = {
   "/": { title: "Ro-State Motorsport Association", description: "Live timing, results and registration for RSMA events.", image: "home" },
   "/schedule": { title: "Schedule", description: "Upcoming RSMA races and sessions, with start times in your own time zone.", image: "home" },
   "/driver-registration": {
-    title: "Independent Drivers",
-    description: "Register as an independent driver for an RSMA session, or find a team to race for.",
+    title: "Become a Driver",
+    description: "Become an RSMA driver: race for a team, or register for a session on your own without one.",
     image: "driver",
   },
   "/team-registration": {

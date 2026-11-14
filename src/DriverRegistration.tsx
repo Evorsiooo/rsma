@@ -112,10 +112,11 @@ export function DriverRegistration() {
           </Bd>
         </Box>
       ) : teams.length === 0 ? (
-        <Box title="Race for a Team">
+        <Box title="Become a Driver">
           <Bd>
+            <p style={{ marginBottom: 4 }}>There are two ways to race in the RSMA: for a team, or without one.</p>
             <p style={{ marginBottom: 8 }}>
-              Teams that are hiring post in #team-updates on the RSMA Discord. Team drivers are registered for sessions by their team and have reserved slots.
+              <b>Race for a team.</b> Teams that are hiring post in #team-updates on the RSMA Discord. Your team registers you for sessions, and team drivers have reserved slots. This is the usual way in.
             </p>
             <div className="bar">
               <a className="btn pri" href={DISCORD_URL} target="_blank" rel="noreferrer">Find a Team on Discord</a>
@@ -131,12 +132,12 @@ export function DriverRegistration() {
           </Bd>
         </Box>
       )}
-      <Box title="Independent Drivers">
+      <Box title="Register Without a Team">
         <Bd>
           <p style={{ marginBottom: 8 }}>
-            {teams.length > 0 && <b>Only for drivers without a team. </b>}Independent drivers race without a team. To race you must be in the {link(GROUP_URL, "RSMA Roblox group")}. Make sure you are in the group or that you have sent a join request, before the deadline. Staff use your Discord username to contact you.
+            {teams.length > 0 ? <b>Only for drivers without a team. </b> : <b>Race without a team. </b>}Independent drivers register themselves for each session. To race you must be in the {link(GROUP_URL, "RSMA Roblox group")}. Make sure you are in the group or that you have sent a join request, before the deadline. Staff use your Discord username to contact you.
           </p>
-          {regs && options.length === 0 && <div className="mute">No session is open for independent drivers.</div>}
+          {regs && options.length === 0 && <div className="mute">No session is open for drivers without a team.</div>}
           {chosen && status && (
             <div className="bar">
               <select aria-label="Session" style={{ width: 300 }} value={sid} onChange={(e) => setPick(e.target.value)}>
