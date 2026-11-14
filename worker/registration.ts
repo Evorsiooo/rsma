@@ -120,28 +120,6 @@ export async function independentsOpen(env: AdminEnv, sid: string): Promise<bool
 }
 
 
-/** Everyone registered for the group `sid` belongs to, with the cut worked out for `sid` itself. */
-export async function loadRegs(env: AdminEnv, sid: string, s: RegSettings, known?: Awaited<ReturnType<typeof loadGroup>>): Promise<Registration[]> {
-  const group = known ?? (await loadGroup(env, sid));
-  const [{ results }, factoryRows, pickRows] = await Promise.all([
-    env.DB.prepare(
-      `SELECT r.roblox_id AS userId, u.username, r.kind, r.team_id AS teamId, t.name AS teamName, r.discord,
-              r.grp AS "group", r.denied, r.created_at AS at
-       FROM registrations r JOIN users u ON u.roblox_id = r.roblox_id LEFT JOIN teams t ON t.id = r.team_id
-       WHERE r.session_id = ? ORDER BY r.created_at`,
-    )
-      .bind(group.root)
-      .all<Omit<Registration, "denied" | "cut"> & { denied: number }>(),
-    env.DB.prepare("SELECT id FROM teams WHERE kind = 'factory'").all<{ id: string }>(),
-    env.DB.prepare("SELECT roblox_id AS id FROM session_picks WHERE session_id = ?").bind(sid).all<{ id: string }>(),
-  ]);
-  const factories = new Set(factoryRows.results.map((t) => t.id));
-  const regs = eligibleFor(results.map((r) => ({ ...r, denied: !!r.denied })), s, group.members.length > 1);
-  const cut = computeCut(regs, s, factories);
-  const picks = new Set(pickRows.results.map((p) => p.id));
-  return applyTeamLimit(regs.map((r) => ({ ...r, cut: cut.get(r.userId) ?? ("waitlist" as Cut) })), s.teamLimit, picks);
-}
-
 /** Teams choose their drivers for a session until this time: the cutoff, or the session start. */
 async function pickUntil(env: AdminEnv, sid: string, s: RegSettings): Promise<number | null> {
   if (s.teamLimit === null) return null;

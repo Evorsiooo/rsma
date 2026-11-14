@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { CUT_LABEL, inGroup, REG_KIND_LABEL, REG_KINDS, type GroupStatus, type RegKind, type Registration, type RegistrationView } from "../../shared/registration";
+import { inGroup, spotsLine, statusText, REG_KIND_LABEL, REG_KINDS, type GroupStatus, type RegKind, type Registration, type RegistrationView } from "../../shared/registration";
 import type { AdminRace } from "../../shared/types";
 import { api, registrationApi } from "../api";
 import { CodeDialog, useTokenMode } from "../access";
@@ -57,7 +57,7 @@ export function RegistrationsTab({ races }: { races: AdminRace[] }) {
               {REG_KINDS.map((k) => (
                 <tr key={k}>
                   <td className="is-left">{REG_KIND_LABEL[k]}s</td>
-                  <td style={{ width: 160 }}>{view.counts[k].taken} / {view.counts[k].spots}</td>
+                  <td>{spotsLine(view.counts[k])}</td>
                 </tr>
               ))}
             </tbody>
@@ -94,7 +94,7 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
               <th className="is-left" style={{ width: 140 }}>Team</th>
               <th className="is-left" style={{ width: 120 }}>Discord</th>
               <th style={{ width: 100 }}>Group</th>
-              <th style={{ width: 70 }}>Status</th>
+              <th style={{ width: 150 }}>Status</th>
               <th style={{ width: tokens ? 320 : 240 }} />
             </tr>
           </thead>
@@ -106,7 +106,7 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
                 <td className="is-left" style={clip}>{r.teamName ?? "Independent"}</td>
                 <td className="is-left" style={{ ...dim, ...clip }}>{r.discord ?? ""}</td>
                 <td>{r.kind === "driver" ? (inGroup(r.group) ? "In group" : "Not in group") : ""}</td>
-                <td>{CUT_LABEL[r.cut]}</td>
+                <td>{statusText(r)}</td>
                 <td style={{ padding: 2 }}>
                   <div className="r-grid" style={{ ["--cols" as string]: tokens ? 4 : 3 }}>
                     <button className="r-cell" onClick={() => act(registrationApi.staffEdit(sid, r.userId, { denied: !r.denied }))}>{r.denied ? "Restore" : "Deny"}</button>

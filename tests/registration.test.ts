@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { applyTeamLimit, computeCut, eligibleFor, groupSummary, regPhase, type RegSettings } from "../shared/registration.ts";
+import { applyTeamLimit, computeCut, eligibleFor, fullNotice, groupSummary, heldSpots, orderRule, regPhase, spotsLine, statusText, waitPositions, type RegSettings } from "../shared/registration.ts";
 
 const s: RegSettings = { opensAt: 100, deadline: 200, drivers: 3, employees: 1, spectators: 1, factoryReserved: 1, independents: true, teamCap: null, teamLimit: null, pickCutoff: null, follows: null };
 const d = (userId: string, at: number, teamId: string | null, denied = false) => ({ userId, kind: "driver" as const, teamId, denied, at });
@@ -38,14 +38,49 @@ test("employees and spectators are capped separately", () => {
   assert.deepEqual(["e1", "e2", "s1"].map((u) => cut.get(u)), ["in", "waitlist", "in"]);
 });
 
-test("a teams-only session in a group leaves independent drivers out, spots counted per session", () => {
-  const regs = [d("i1", 1, null), d("t1", 2, "cust"), d("t2", 3, "cust"), d("i2", 4, null)];
-  const open = computeCut(eligibleFor(regs, { independents: true }, true), s, new Set());
-  assert.deepEqual(["i1", "t1", "t2"].map((u) => open.get(u)), ["in", "in", "in"]);
-  const teamsOnly = computeCut(eligibleFor(regs, { independents: false }, true), { ...s, drivers: 1 }, new Set());
-  assert.equal(teamsOnly.get("i1"), undefined);
-  assert.equal(teamsOnly.get("t1"), "in");
-  assert.equal(teamsOnly.get("t2"), "waitlist");
+test("a linked group has one cut: a person is never In for one session and Waiting for another", () => {
+  // Spots are shared by the group, so independents use up spots even though a teams-only session leaves them out.
+  const regs = [d("i1", 1, null), d("t1", 2, "cust"), d("t2", 3, "cust"), d("t3", 4, "cust")];
+  const cut = computeCut(regs, { ...s, drivers: 3 }, new Set());
+  assert.deepEqual(["i1", "t1", "t2", "t3"].map((u) => cut.get(u)), ["in", "in", "in", "waitlist"]);
+  const teamsOnly = eligibleFor(regs, { independents: false }, true).map((r) => r.userId);
+  assert.deepEqual(teamsOnly, ["t1", "t2", "t3"]);
+});
+
+test("reserved factory spots are held until a factory driver takes them", () => {
+  const regs = [d("c1", 1, "cust"), d("c2", 2, "cust"), d("c3", 3, "cust")];
+  const fac = new Set(["fac"]);
+  const held = computeCut(regs, s, fac);
+  assert.deepEqual(["c1", "c2", "c3"].map((u) => held.get(u)), ["in", "in", "waitlist"]);
+  assert.equal(heldSpots(regs, s, fac), 1);
+  // Without holding, the last one is In until a factory driver registers and pushes them out.
+  assert.equal(computeCut(regs, s, fac, false).get("c3"), "in");
+  const late = computeCut([...regs, d("f1", 9, "fac")], s, fac);
+  assert.deepEqual(["c1", "c2", "c3", "f1"].map((u) => late.get(u)), ["in", "in", "waitlist", "in"]);
+  assert.equal(heldSpots([...regs, d("f1", 9, "fac")], s, fac), 0);
+});
+
+test("waiting list is in registration order and moves up when someone ahead leaves", () => {
+  const base = [d("a", 1, null), d("b", 2, null), d("c", 3, null), d("e", 4, null)];
+  const small = { ...s, drivers: 1, factoryReserved: 0 };
+  const pos = (regs: typeof base) => {
+    const cut = computeCut(regs, small, new Set());
+    return waitPositions(regs.map((r) => ({ ...r, cut: cut.get(r.userId)! })));
+  };
+  assert.deepEqual([...pos(base)], [["b", 1], ["c", 2], ["e", 3]]);
+  assert.deepEqual([...pos(base.filter((r) => r.userId !== "a"))], [["c", 1], ["e", 2]]);
+  assert.deepEqual([...pos(base.map((r) => (r.userId === "b" ? { ...r, denied: true } : r)))], [["c", 1], ["e", 2]]);
+});
+
+test("wording", () => {
+  assert.equal(statusText({ cut: "waitlist", waitPos: 2 }), "Waiting, position 2");
+  assert.equal(statusText({ cut: "in", waitPos: null }), "In");
+  assert.equal(spotsLine({ spots: 10, taken: 8, waiting: 0, held: 1 }), "8 of 10 taken, 1 held for factory teams, 1 free");
+  assert.equal(spotsLine({ spots: 4, taken: 4, waiting: 2, held: 0 }), "4 of 4 taken, 2 waiting");
+  assert.match(fullNotice({ spots: 4, taken: 4, waiting: 2, held: 0 }, "driver")!, /position 3/);
+  assert.match(fullNotice({ spots: 4, taken: 4, waiting: 2, held: 0 }, "driver", { team: true })!, /A driver you register now will be Waiting, from position 3/);
+  assert.equal(fullNotice({ spots: 4, taken: 3, waiting: 0, held: 0 }, "driver"), null);
+  assert.match(orderRule({ factoryReserved: 1 }), /order people registered.*only exception.*factory team has 1 reserved spot/);
 });
 
 test("a session on its own keeps independents staff added by hand", () => {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { CUT_LABEL, GROUP_URL, REG_KIND_LABEL, type EventView, type RegistrationView, type RegTeam } from "../shared/registration";
+import { CUT_LABEL, fullNotice, GROUP_URL, orderRule, REG_KIND_LABEL, REG_KINDS, spotsLine, statusText, type EventView, type RegistrationView, type RegTeam } from "../shared/registration";
 import { PANEL_ROLES, hasAny } from "../shared/teams";
 import type { SessionSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
@@ -130,6 +130,19 @@ function Group({ root, sessions, views, opt, act }: { root: string; sessions: Se
     <>
       <Box title={names}>
         <Bd>{status}</Bd>
+        {phase !== "upcoming" && (
+          <Bd top>
+            {REG_KINDS.filter((k) => rv.counts[k].spots > 0).map((k) => (
+              <div key={k}>{REG_KIND_LABEL[k]} spots: {spotsLine(rv.counts[k])}</div>
+            ))}
+            {sessions.length > 1 && <div className="mute">One list of spots for {names}. Everyone gets the same result in all of them.</div>}
+            <div className="mute">{orderRule(s)}</div>
+            {phase === "open" && (() => {
+              const n = fullNotice(rv.counts.driver, "driver", { ownReserved: rv.teams.some((t) => t.factory), team: true });
+              return n && <div style={{ marginTop: 6 }}><b>{n}</b></div>;
+            })()}
+          </Bd>
+        )}
       </Box>
       {phase !== "upcoming" &&
         (rv.teams.length === 0 ? (
@@ -174,10 +187,18 @@ function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; roo
     return act(() => registrationApi.setPicks(sid, team.id, [...n]), { key: `pick:${sid}:${uid}`, want: n.has(uid) });
   };
   const limited = sessions.filter((x) => pickable(x.id));
+  // Only sessions that limit drivers per team get their own column; everyone else has one result for the whole group.
+  const limitedCols = sessions.filter((x) => views[x.id]?.settings?.teamLimit != null);
+  const own = (uid: string) => regs.find((r) => r.userId === uid && r.kind === "driver");
   return (
     <>
       <Box title={`${team.name} · Drivers`}>
         <Bd style={{ borderBottom: "1px dotted var(--s-line-l)" }}>
+          {(() => {
+            const ds = regs.filter((r) => r.kind === "driver");
+            const n = (c: string) => ds.filter((r) => r.cut === c || (c === "in" && r.cut === "out")).length;
+            return ds.length > 0 ? <div style={{ marginBottom: 6 }}><b>{ds.length} registered: {n("in")} In{n("waitlist") > 0 ? `, ${n("waitlist")} Waiting` : ""}{n("denied") > 0 ? `, ${n("denied")} Denied` : ""}.</b></div> : null;
+          })()}
           Registered drivers must {" "}
           <a href={GROUP_URL} target="_blank" rel="noreferrer">join the RSMA Roblox group</a> (a pending request counts) before the deadline, or they cannot race.
           {limited.length > 0 && " Where a session limits drivers per team, choose who takes part until its cutoff."}
@@ -196,7 +217,8 @@ function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; roo
                 <tr>
                   <th>Driver</th>
                   <th>Registered</th>
-                  {sessions.map((x) => (
+                  <th>Status</th>
+                  {limitedCols.map((x) => (
                     <th key={x.id}>{x.name}</th>
                   ))}
                 </tr>
@@ -204,7 +226,7 @@ function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; roo
               <tbody>
                 {shown.length === 0 && (
                   <tr>
-                    <td colSpan={2 + sessions.length} className="mute">No driver matches.</td>
+                    <td colSpan={3 + limitedCols.length} className="mute">No driver matches.</td>
                   </tr>
                 )}
                 {shown.map((m) => {
@@ -215,9 +237,10 @@ function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; roo
                       <td>
                         <input type="checkbox" aria-label={`${m.username} registered`} checked={on} disabled={!open} onChange={() => toggle(m, "driver")} />
                       </td>
-                      {sessions.map((x) => {
+                      <td>{on && own(m.id) ? (own(m.id)!.cut === "out" ? "In" : statusText(own(m.id)!)) : ""}</td>
+                      {limitedCols.map((x) => {
                         const cut = cutIn(x.id, m.id);
-                        if (!on || !cut) return <td key={x.id} className="mute">{""}</td>;
+                        if (!on || !cut || cut === "waitlist" || cut === "denied") return <td key={x.id} className="mute">{""}</td>;
                         if (pickable(x.id) && (cut === "in" || cut === "out")) {
                           const limit = views[x.id].settings!.teamLimit!;
                           const set = sel(x.id);
@@ -229,7 +252,7 @@ function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; roo
                             </td>
                           );
                         }
-                        return <td key={x.id}>{CUT_LABEL[cut]}</td>;
+                        return <td key={x.id}>{cut === "in" ? "Takes part" : CUT_LABEL[cut]}</td>;
                       })}
                     </tr>
                   );
