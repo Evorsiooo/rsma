@@ -83,10 +83,16 @@ export function DriverRegistration() {
   );
   return (
     <>
+      <Box title="Become a Driver">
+        <Bd>
+          There are two ways to race in the RSMA: for a team, or without one. Teams register their drivers for each session. Drivers without a team register themselves.
+        </Bd>
+      </Box>
       {owned.length > 0 ? (
-        <Box title={`Register your team${owned.length > 1 ? "s" : ""} (${names(owned)})`}>
+        <Box title={`Race for a Team · ${names(owned)}`}>
+          <Bd>You own {names(owned)}. Register your drivers for an event below, or open the team page.</Bd>
           {regs && teamEvents.length > 0 ? (
-            <Bd flush>
+            <Bd top flush>
               <table className="t">
                 <tbody>
                   {teamEvents.map(({ race, reg }) => {
@@ -105,40 +111,37 @@ export function DriverRegistration() {
               </table>
             </Bd>
           ) : (
-            <Bd><div className="mute">{regs ? "No event has registration yet." : "Loading..."}</div></Bd>
+            <Bd top><div className="mute">{regs ? "No event has registration yet." : "Loading..."}</div></Bd>
           )}
           <Bd top bar>
             <Link className="btn" to={owned.length === 1 ? `/my-team/${owned[0].id}` : "/my-team"}>{owned.length === 1 ? "Team page" : "My Teams"}</Link>
           </Bd>
         </Box>
       ) : teams.length === 0 ? (
-        <Box title="Become a Driver">
+        <Box title="Race for a Team">
           <Bd>
-            <p style={{ marginBottom: 4 }}>There are two ways to race in the RSMA: for a team, or without one.</p>
-            <p style={{ marginBottom: 8 }}>
-              <b>Race for a team.</b> Teams that are hiring post in #team-updates on the RSMA Discord. Your team registers you for sessions, and team drivers have reserved slots. This is the usual way in.
-            </p>
-            <div className="bar">
-              <a className="btn pri" href={DISCORD_URL} target="_blank" rel="noreferrer">Find a Team on Discord</a>
-              <Link className="btn" to="/team-registration">Register a Team</Link>
-            </div>
+            Teams that are hiring post in #team-updates on the RSMA Discord. Your team registers you for sessions, and team drivers have reserved slots. This is the usual way in.
+          </Bd>
+          <Bd top bar>
+            <a className="btn pri" href={DISCORD_URL} target="_blank" rel="noreferrer">Find a Team on Discord</a>
+            <Link className="btn" to="/team-registration">Register a Team</Link>
           </Bd>
         </Box>
       ) : (
-        <Box title={`You are in ${names(teams)}`}>
-          <Bd>
-            <p style={{ marginBottom: 8 }}>Your team registers you for sessions. You do not need to register here.</p>
+        <Box title={`Race for a Team · ${names(teams)}`}>
+          <Bd>You are in {names(teams)}. Your team registers you for sessions, so you do not need to register yourself.</Bd>
+          <Bd top bar>
             <Link className="btn pri" to={teams.length === 1 ? `/my-team/${teams[0].id}` : "/my-team"}>{teams.length === 1 ? "Team page" : "My Teams"}</Link>
           </Bd>
         </Box>
       )}
-      <Box title="Register Without a Team">
+      <Box title="Race Without a Team">
         <Bd>
-          <p style={{ marginBottom: 8 }}>
-            {teams.length > 0 ? <b>Only for drivers without a team. </b> : <b>Race without a team. </b>}Independent drivers register themselves for each session. To race you must be in the {link(GROUP_URL, "RSMA Roblox group")}. Make sure you are in the group or that you have sent a join request, before the deadline. Staff use your Discord username to contact you.
-          </p>
-          {regs && options.length === 0 && <div className="mute">No session is open for drivers without a team.</div>}
-          {chosen && status && (
+          {teams.length > 0 && <b>Only for drivers without a team. </b>}Independent drivers register themselves for each session. To race you must be in the {link(GROUP_URL, "RSMA Roblox group")}. Make sure you are in the group or that you have sent a join request, before the deadline. Staff use your Discord username to contact you.
+        </Bd>
+        {regs && options.length === 0 && <Bd top><div className="mute">No session is open for drivers without a team.</div></Bd>}
+        {chosen && status && (
+          <Bd top>
             <div className="bar">
               <select aria-label="Session" style={{ width: 300 }} value={sid} onChange={(e) => setPick(e.target.value)}>
                 {options.map((u) => (
@@ -147,26 +150,25 @@ export function DriverRegistration() {
                   </option>
                 ))}
               </select>
-              <span className="mute">{status.text}</span>
+              <span className="mute">Starts {fmtWhen(chosen.session.startsAt)} · {status.text}</span>
             </div>
-          )}
-          {alsoCovers.length > 0 && (
-            <div className="mute" style={{ marginTop: 6 }}>
-              {summary?.independents} {summary?.teams} One list of spots for all of them: you get the same result in each session you take part in.
-            </div>
-          )}
-          {chosen && view?.settings && (
-            <div style={{ marginTop: 6 }}>
-              <div>Driver spots: {spotsLine(view.counts.driver)}.</div>
-              <div className="mute">{orderRule(view.settings)}</div>
-              {open && !self && fullNotice(view.counts.driver, "driver") && <div style={{ marginTop: 6 }}><b>{fullNotice(view.counts.driver, "driver")}</b></div>}
-            </div>
-          )}
-        </Bd>
-      </Box>
-      {chosen && self && (
-        <Box title="Your Registration">
-          <Bd flush>
+            {alsoCovers.length > 0 && (
+              <div className="mute" style={{ marginTop: 6 }}>
+                {summary?.independents} {summary?.teams} One list of spots for all of them: you get the same result in each session you take part in.
+              </div>
+            )}
+            {view?.settings && (
+              <div style={{ marginTop: 6 }}>
+                <div>Driver spots: {spotsLine(view.counts.driver)}.</div>
+                <div className="mute">{orderRule(view.settings)}</div>
+                {open && !self && fullNotice(view.counts.driver, "driver") && <div style={{ marginTop: 6 }}><b>{fullNotice(view.counts.driver, "driver")}</b></div>}
+              </div>
+            )}
+          </Bd>
+        )}
+        {chosen && self && (
+          <>
+          <Bd top flush>
             <table className="t">
               <tbody>
                 <tr>
@@ -198,11 +200,11 @@ export function DriverRegistration() {
               )}
             </Bd>
           )}
-        </Box>
-      )}
-      {chosen && view && !self && open && (
-        <Box title={`${chosen.race.name} · ${chosen.session.name} · starts ${fmtWhen(chosen.session.startsAt)}`}>
-          <Bd>
+          </>
+        )}
+        {chosen && view && !self && open && (
+          <>
+          <Bd top>
             {!me && tokens ? (
               sent ? (
                 <p>Registered. Staff will contact you on Discord with an access code to sign in.</p>
@@ -244,11 +246,12 @@ export function DriverRegistration() {
               </div>
             )}
           </Bd>
-          {!me && tokens && sent && (
-            <Bd top bar><button className="btn" onClick={() => startSignIn("/driver-registration")}>I have an access code</button></Bd>
-          )}
-        </Box>
-      )}
+          </>
+        )}
+        {chosen && view && !self && open && !me && tokens && sent && (
+          <Bd top bar><button className="btn" onClick={() => startSignIn("/driver-registration")}>I have an access code</button></Bd>
+        )}
+      </Box>
       {confirm && (
         <Dialog
           title="Register as an independent?"
