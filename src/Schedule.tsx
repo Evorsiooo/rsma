@@ -4,7 +4,8 @@ import { Link } from "react-router-dom";
 import type { RegSummary } from "../shared/registration";
 import type { RaceSummary, SessionSummary, SessionType } from "../shared/types";
 import { api, registrationApi } from "./api";
-import { regStatus } from "./regUi";
+import { useMe } from "./me";
+import { regStatus, registerPath } from "./regUi";
 import { Bd, Box } from "./site/parts";
 
 const TYPE_LABEL: Record<SessionType, string> = { practice: "Practice", timed: "Timed event", race: "Race" };
@@ -31,6 +32,7 @@ export function upcomingByRace(races: RaceSummary[], now: number): { race: RaceS
 
 /** Public schedule: upcoming sessions in the viewer's own time zone, with how to register. */
 export function Schedule() {
+  const { me } = useMe();
   const [races, setRaces] = useState<RaceSummary[] | null>(useBootData()?.races ?? null);
   const [regs, setRegs] = useState<RegSummary[]>([]);
   useEffect(() => {
@@ -80,7 +82,7 @@ export function Schedule() {
                       </td>
                       <td className="mute">{note}</td>
                       <td className="n">
-                        {!head && st?.phase === "open" && <Link className="btn pri sm" to="/driver-registration">Register</Link>}{" "}
+                        {!head && st?.phase === "open" && <Link className="btn pri sm" to={registerPath(me, race.id)}>Register</Link>}{" "}
                         <Link className="btn sm" to={`/session/${s.id}`}>Timing</Link>
                       </td>
                     </tr>

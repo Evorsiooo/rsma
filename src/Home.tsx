@@ -6,6 +6,8 @@ import { regPhase, type RegSummary } from "../shared/registration";
 import type { RaceSummary, SessionSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
 import { useBootData } from "./Layouts";
+import { useMe } from "./me";
+import { ownedTeams, registerPath } from "./regUi";
 import { Bd, Box } from "./site/parts";
 
 const AUTH_ERRORS: Record<string, string> = {
@@ -40,6 +42,8 @@ function EventRows({ races, label, primary, until }: { races: RaceSummary[]; lab
 }
 
 function About() {
+  const { me } = useMe();
+  const owned = ownedTeams(me);
   return (
     <Box title="About the RSMA">
       <Bd>
@@ -47,8 +51,12 @@ function About() {
           The Ro-State Motorsport Association runs rally and time-trial events in Roblox. Teams register their drivers for each session and have reserved slots, and independent drivers can register too.
         </p>
         <div className="bar">
-          <Link className="btn pri" to="/team-registration">Register a Team</Link>
-          <Link className="btn" to="/driver-registration">Driver Registration</Link>
+          {owned.length > 0 ? (
+            <Link className="btn pri" to={owned.length === 1 ? `/my-team/${owned[0].id}` : "/my-team"}>{owned.length === 1 ? "Team page" : "My Teams"}</Link>
+          ) : (
+            <Link className="btn pri" to="/team-registration">Register a Team</Link>
+          )}
+          <Link className="btn" to="/driver-registration">Independent Drivers</Link>
         </div>
       </Bd>
     </Box>
@@ -60,6 +68,7 @@ const when = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric",
 
 /** The next session that has not started, with a Register button while its registration is open. */
 function NextEvent({ races, regs }: { races: RaceSummary[]; regs: RegSummary[] }) {
+  const { me } = useMe();
   const now = Date.now();
   const next = races
     .flatMap((race) => race.sessions.filter((s) => s.startsAt > now).map((session) => ({ race, session })))
@@ -77,7 +86,7 @@ function NextEvent({ races, regs }: { races: RaceSummary[]; regs: RegSummary[] }
             <span className="mute">{when.format(next.session.startsAt)}</span>
           </span>
           <span className="bar">
-            {open && <Link className="btn pri" to="/driver-registration">Register</Link>}
+            {open && <Link className="btn pri" to={registerPath(me, next.race.id)}>Register</Link>}
             <Link className="btn" to={`/session/${next.session.id}`}>Timing</Link>
           </span>
         </div>

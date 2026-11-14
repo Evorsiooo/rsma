@@ -3,6 +3,7 @@ import { Link, NavLink, useLocation } from "react-router-dom";
 import { startSignIn } from "../access";
 import { api } from "../api";
 import { useMe } from "../me";
+import { ownedTeams } from "../regUi";
 import { DISCORD_URL } from "../Shell";
 
 const today = new Intl.DateTimeFormat("en-US", { weekday: "long", year: "numeric", month: "long", day: "numeric" });
@@ -13,10 +14,13 @@ export function SiteShell({ children }: { children: ReactNode }) {
   const { pathname } = useLocation();
   const staff = !!me && me.roles.some((r) => r !== "steward");
   const team = !!me && me.memberships.length > 0;
+  const owner = ownedTeams(me).length > 0;
+  // The tab carries the team's name; several teams share "My Teams". A long name is cut short, the full name is its tooltip.
+  const teamLabel = me && me.memberships.length === 1 ? me.memberships[0].name : "My Teams";
   // Team session registration belongs to the My Team tab; timing pages to Home.
   const onTeam = pathname.startsWith("/my-team") || /^\/(session|race)\/[^/]+\/register$/.test(pathname);
-  const tab = (to: string, label: string, on?: boolean, cls?: string) => (
-    <NavLink to={to} end className={({ isActive }) => `${cls ?? ""}${(on ?? isActive) ? " on" : ""}`}>
+  const tab = (to: string, label: ReactNode, on?: boolean, cls?: string, title?: string) => (
+    <NavLink to={to} end title={title} className={({ isActive }) => `${cls ?? ""}${(on ?? isActive) ? " on" : ""}`}>
       {label}
     </NavLink>
   );
@@ -53,10 +57,10 @@ export function SiteShell({ children }: { children: ReactNode }) {
         <nav className="tabs">
           {tab("/", "Home", pathname === "/" || pathname.startsWith("/race/") || (pathname.startsWith("/session/") && !onTeam))}
           {tab("/schedule", "Schedule")}
-          {tab("/driver-registration", "Driver Registration")}
-          {tab("/team-registration", "Team Registration")}
+          {tab("/driver-registration", "Independent Drivers")}
+          {!owner && tab("/team-registration", "Team Registration")}
           {tab("/work-at-rsma", "Work at the RSMA")}
-          {team && tab("/my-team", "My Team", onTeam)}
+          {team && tab("/my-team", <span style={{ display: "inline-block", maxWidth: "16ch", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", verticalAlign: "bottom" }}>{teamLabel}</span>, onTeam, undefined, teamLabel)}
           <span className="sp" />
           {staff && tab("/admin", "Admin", pathname.startsWith("/admin"), "staff")}
         </nav>

@@ -5,7 +5,7 @@ import type { RegSummary } from "../shared/registration";
 import type { MyTeam as MyTeamData, RaceSummary } from "../shared/types";
 import { hasAny, MANAGER_ROLES, TEAM_ROLE_LABEL } from "../shared/teams";
 import { api, myTeam, registrationApi } from "./api";
-import { fmtWhen, regStatus, upcomingSessions } from "./regUi";
+import { fmtWhen, regStatus, registrationEvents, upcomingSessions } from "./regUi";
 import { useMe } from "./me";
 import { CodeDialog, useTokenMode } from "./access";
 import { Bd, Box } from "./site/parts";
@@ -83,10 +83,7 @@ export function MyTeamPage() {
   const now = Date.now();
   const sessions = upcomingSessions(races, regs, now);
   // One line per event: its open registration window, else the first.
-  const events = [...new Set(sessions.filter((u) => u.reg).map((u) => u.race))].map((race) => {
-    const regsOf = sessions.filter((u) => u.race.id === race.id && u.reg).map((u) => regs.find((g) => g.sessionId === u.reg!.root) ?? u.reg!);
-    return { race, reg: regsOf.find((g) => regStatus(g, now).phase === "open") ?? regsOf[0] };
-  });
+  const events = registrationEvents(sessions, regs, now);
   const panel = me.teams.some((t) => t.id === team.id);
   return (
     <>
