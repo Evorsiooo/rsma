@@ -10,7 +10,7 @@ import { RacePage } from "./RacePage";
 import { Privacy, Terms } from "./Legal";
 import { MyTeamPage, MyTeamPicker } from "./MyTeam";
 import { Schedule } from "./Schedule";
-import { Standings } from "./Standings";
+import { Standings, StandingsEvent } from "./Standings";
 import { TeamRegistration } from "./TeamRegistration";
 import { DriverRegistration } from "./DriverRegistration";
 import { WorkAtRSMA } from "./WorkAtRSMA";
@@ -60,6 +60,7 @@ export function App() {
           <Route path="/session/:id/register" element={<RegisterRedirect />} />
           <Route path="/schedule" element={<Schedule />} />
           <Route path="/standings" element={<Standings />} />
+          <Route path="/standings/event/:id" element={<StandingsEvent />} />
           <Route path="/driver-registration" element={<DriverRegistration />} />
           <Route path="/team-registration" element={<TeamRegistration />} />
           <Route path="/work-at-rsma" element={<WorkAtRSMA />} />

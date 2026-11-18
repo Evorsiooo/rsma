@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Flag, Row } from "../../shared/race";
 import { fmtPenalty, fmtTime } from "../../shared/race";
+import { fmtPoints } from "../../shared/standings";
 import { useBootSteps, type BootData } from "../Boot";
 
 /** Module box: slanted blue title on a pale rule. `right` is small text or buttons at the end of the title bar. */
@@ -103,12 +104,12 @@ const STATUS: Record<Row["status"], { text: string; cls: string }> = {
 };
 
 /** Classification table of the live timing page: finished runs ranked, then on stage, queued, DNF. */
-export function ResultsTable({ rows, mine }: { rows: Row[]; mine?: (r: Row) => boolean }) {
+export function ResultsTable({ rows, mine, points }: { rows: Row[]; mine?: (r: Row) => boolean; points?: Map<string, number> }) {
   const teams = rows.some((r) => r.teamName);
   const cars = rows.some((r) => r.car);
   const best = Math.min(...rows.filter((r) => r.status === "finished" && r.rawMs != null).map((r) => r.rawMs!));
   return (
-    <table className="t">
+    <table className={points ? "t rank" : "t"}>
       <thead>
         <tr>
           <th className="pos">Pos</th>
@@ -120,6 +121,7 @@ export function ResultsTable({ rows, mine }: { rows: Row[]; mine?: (r: Row) => b
           <th className="n">Raw time</th>
           <th className="n">Penalties</th>
           <th className="n">Final time</th>
+          {points && <th className="n">Points</th>}
         </tr>
       </thead>
       <tbody>
@@ -138,6 +140,7 @@ export function ResultsTable({ rows, mine }: { rows: Row[]; mine?: (r: Row) => b
             <td className="n">{r.rawMs != null ? fmtTime(r.rawMs) : "–"}</td>
             <td className="n">{r.penaltyMs > 0 ? <span className="pen">{fmtPenalty(r.penaltyMs)}</span> : "–"}</td>
             <td className="n fin">{r.finalMs != null ? fmtTime(r.finalMs) : "–"}</td>
+            {points && <td className="n fin">{points.has(r.name.toLowerCase()) ? fmtPoints(points.get(r.name.toLowerCase())!) : "–"}</td>}
           </tr>
         ))}
       </tbody>
