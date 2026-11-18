@@ -142,6 +142,12 @@ body.is-site .t tr.mine td:first-child { box-shadow: inset 3px 0 0 var(--s-blue)
 body.is-site .t .fin { font-weight: bold; }
 body.is-site .t.top td { vertical-align: top; }
 body.is-site .t .c { text-align: center; }
+/* Standings: the driver and the points stay in view while the rounds scroll sideways. */
+body.is-site .t.rank td:nth-child(2), body.is-site .t.rank th:nth-child(2) { position: sticky; left: 0; background: inherit; z-index: 1; }
+body.is-site .t.rank th:nth-child(2) { background: #e6ecf8; }
+body.is-site .t.rank td:last-child, body.is-site .t.rank th:last-child { position: sticky; right: 0; background: inherit; z-index: 1; box-shadow: -1px 0 0 var(--s-line-l); }
+body.is-site .t.rank th:last-child { background: #e6ecf8; }
+body.is-site .t.rank tbody tr:nth-child(odd) { background: #fff; }
 body.is-site .pen { color: var(--s-red); font-weight: bold; }
 body.is-site .st { display: inline-block; min-width: 54px; text-align: center; padding: 0 4px; border: 1px solid; font: bold 10px/15px var(--s-sans); text-transform: uppercase; letter-spacing: .03em; background: #fff; }
 body.is-site .st.fin { color: #14662b; border-color: #14662b; background: #e5f4e9; }

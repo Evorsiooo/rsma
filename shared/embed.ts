@@ -7,7 +7,7 @@ export interface Embed {
   image: EmbedImage;
 }
 
-export type EmbedImage = "default" | "home" | "timing" | "results" | "driver" | "team" | "work" | "legal";
+export type EmbedImage = "default" | "home" | "standings" | "timing" | "results" | "driver" | "team" | "work" | "legal";
 
 export const SITE_NAME = "RSMA";
 export const THEME_COLOR = "#0031a7";
@@ -17,6 +17,11 @@ export const DEFAULT_EMBED: Embed = { title: "Ro-State Motorsport Association", 
 const STATIC: Record<string, Embed> = {
   "/": { title: "Ro-State Motorsport Association", description: "Live timing, results and registration for RSMA events.", image: "home" },
   "/schedule": { title: "Schedule", description: "Upcoming RSMA races and sessions, with start times in your own time zone.", image: "home" },
+  "/standings": {
+    title: "Championship standings",
+    description: "Driver and team championship points from RSMA events.",
+    image: "standings",
+  },
   "/driver-registration": {
     title: "Become a Driver",
     description: "Become an RSMA driver: race for a team, or register for a session on your own without one.",

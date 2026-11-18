@@ -1,4 +1,4 @@
-import { Hono, type Context } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
 import { getCookie } from "hono/cookie";
 import type { AdminRace, AdminTeam, AdminUser, Me, Role, SessionSummary, SessionType, TeamKind } from "../shared/types";
 import { cleanRoles, parseRoles, type TeamRole } from "../shared/teams";
@@ -9,6 +9,7 @@ import { resolveUserId } from "./roblox-users";
 import { rootOf } from "./registration";
 import { regSessionsOf, syncRegistered, syncSessions } from "./stage";
 import { issueCode, revokeCode, setTokenMode, tokenMode } from "./access-codes";
+import { mountStandingsAdmin } from "./standings";
 import { formatDiscordStewardMessage, getDiscordWebhook, sendDiscordWebhook, setDiscordWebhook } from "./discord";
 
 export interface AdminEnv extends AuthEnv {
@@ -43,6 +44,8 @@ const SESSION_TYPES: SessionType[] = ["practice", "timed", "race"];
 
 const cleanName = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 60) : "");
 export const cleanUsername = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_]{3,20}$/.test(v.trim()) ? v.trim() : "");
+
+mountStandingsAdmin(admin, guard("races") as MiddlewareHandler);
 
 // ---- Users ----------------------------------------------------------------
 
