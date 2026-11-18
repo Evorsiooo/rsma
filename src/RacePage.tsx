@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { classify } from "../shared/race";
+import { eventPoints } from "../shared/standings";
 import type { SessionInfo } from "../shared/types";
 import { api } from "./api";
 import { NotFound } from "./NotFound";
@@ -13,12 +14,29 @@ export function RacePage() {
   const { id = "" } = useParams();
   const [info, setInfo] = useState<SessionInfo | null | undefined>(undefined);
   const { state, live, offset } = useRaceLive(id);
+  const [points, setPoints] = useState<Map<string, number> | undefined>();
   const now = useClock(offset);
 
   useEffect(() => {
     setInfo(undefined);
     api.session(id).then(setInfo, () => setInfo(null));
   }, [id]);
+
+  // A championship session shows the points each driver is awarded.
+  const finishedN = state ? state.runs.filter((r) => r.status === "finished").length : 0;
+  useEffect(() => {
+    setPoints(undefined);
+    api.standings().then(
+      (d) => {
+        const ev = d.events.find((e) => e.sessionId === id);
+        if (!ev) return;
+        const sorted = [...ev.results].sort((a, b) => a.position - b.position);
+        const pts = eventPoints(ev, d.config);
+        setPoints(new Map(sorted.map((r, i) => [r.username.toLowerCase(), pts[i]])));
+      },
+      () => {},
+    );
+  }, [id, finishedN]);
 
   if (info === null) return <NotFound />;
   const race = info?.race;
@@ -49,7 +67,7 @@ export function RacePage() {
       {info?.session.selfTimed && !race?.ended && <div className="notice">Self-timed session. Times are recorded by the teams.</div>}
       <Box title={race?.name ?? "\u00A0"} right={rows.length ? `${finished} finished` : undefined}>
         <Bd flush>
-          {rows.length === 0 ? <div className="bd note">{state ? "No runs recorded." : "Loading timing data..."}</div> : <ResultsTable rows={rows} />}
+          {rows.length === 0 ? <div className="bd note">{state ? "No runs recorded." : "Loading timing data..."}</div> : <ResultsTable rows={rows} points={points} />}
         </Bd>
       </Box>
     </>

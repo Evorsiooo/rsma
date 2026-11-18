@@ -1,5 +1,7 @@
 import { useEffect, useState } from "react";
-import { computeStandings, fmtPoints, fmtWindow, type Line, type Standings as Table, type StandingsData } from "../shared/standings";
+import { Link, useParams } from "react-router-dom";
+import { computeStandings, eventPoints, fmtPoints, fmtSpan, fmtWindow, offsetsOf, type Line, type Standings as Table, type StandingsData } from "../shared/standings";
+import { fmtTime } from "../shared/race";
 import { api } from "./api";
 import { Bd, Box } from "./site/parts";
 
@@ -10,6 +12,9 @@ export function scoringText(e: { half: boolean; mode: "position" | "window"; win
   const how = e.mode === "window" ? `Timed windows of ${fmtWindow(e.windowMs ?? defaultWindowMs)}` : "Finishing order";
   return e.half ? `${how}, half points` : how;
 }
+
+/** The results page of a round: the timing page for a session run on the site, the results list for one typed in by hand. */
+const roundPath = (e: { id: string; sessionId?: string }) => (e.sessionId ? `/session/${e.sessionId}` : `/standings/event/${e.id}`);
 
 function Cells({ line, rounds }: { line: Line; rounds: Table["rounds"] }) {
   return (
@@ -35,7 +40,7 @@ function Grid({ lines, rounds, teams }: { lines: Line[]; rounds: Table["rounds"]
           <th>{teams ? "Team" : "Driver"}</th>
           {!teams && <th>Team</th>}
           {rounds.map((r, i) => (
-            <th key={r.id} className="n" title={r.name}>R{i + 1}</th>
+            <th key={r.id} className="n" title={r.name}><Link to={roundPath(r)}>R{i + 1}</Link></th>
           ))}
           <th className="n">Wins</th>
           <th className="n">Points</th>
@@ -100,7 +105,7 @@ export function Standings() {
               {s.rounds.map((r, i) => (
                 <tr key={r.id}>
                   <td className="pos">R{i + 1}</td>
-                  <td><b>{r.name}</b></td>
+                  <td><b><Link to={roundPath(r)}>{r.name}</Link></b></td>
                   <td style={{ whiteSpace: "nowrap" }}>{date.format(r.heldAt)}</td>
                   <td className="mute">{scoringText(r, data.config.windowMs)}</td>
                 </tr>
@@ -127,6 +132,59 @@ export function Standings() {
                   <td key={i} className="n">{fmtPoints(p)}</td>
                 ))}
               </tr>
+            </tbody>
+          </table>
+        </Bd>
+      </Box>
+    </>
+  );
+}
+
+/** Results of one hand-entered event, with the points each driver was awarded. */
+export function StandingsEvent() {
+  const { id = "" } = useParams();
+  const [data, setData] = useState<StandingsData | null | undefined>(undefined);
+  useEffect(() => {
+    api.standings().then(setData, () => setData(null));
+  }, [id]);
+  if (data === undefined) return <Box title="Results"><Bd><div className="note">Loading...</div></Bd></Box>;
+  const ev = data?.events.find((e) => e.id === id);
+  if (!data || !ev) return <Box title="Results"><Bd><div className="note">No such event. <Link to="/standings">Back to the standings</Link>.</div></Bd></Box>;
+  const rows = [...ev.results].sort((a, b) => a.position - b.position);
+  const pts = eventPoints(ev, data.config);
+  const offsets = offsetsOf(rows);
+  const teams = rows.some((r) => r.teamName);
+  const times = rows.some((r) => r.timeMs != null);
+  return (
+    <>
+      <div className="bar between">
+        <Link to="/standings">Standings</Link>
+        <span className="mute">{date.format(ev.heldAt)} · {scoringText(ev, data.config.windowMs)}</span>
+      </div>
+      <Box title={ev.name}>
+        <Bd flush>
+          <table className="t">
+            <thead>
+              <tr>
+                <th className="pos">Pos</th>
+                <th>Driver</th>
+                {teams && <th>Team</th>}
+                {times && <th className="n">Time</th>}
+                {offsets && <th className="n">Gap</th>}
+                <th className="n">Points</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => (
+                <tr key={r.username}>
+                  <td className="pos">{r.position}</td>
+                  <td><b>{r.username}</b></td>
+                  {teams && <td>{r.teamName ?? <span className="mute">–</span>}</td>}
+                  {times && <td className="n">{r.timeMs != null ? fmtTime(r.timeMs) : "–"}</td>}
+                  {offsets && <td className="n">{i === 0 ? "–" : `+${fmtSpan(offsets[i])}`}</td>}
+                  <td className="n fin">{fmtPoints(pts[i])}</td>
+                </tr>
+              ))}
             </tbody>
           </table>
         </Bd>

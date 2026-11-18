@@ -46,7 +46,7 @@ export type EmbedRoute = { kind: "static"; embed: Embed } | { kind: "session"; i
 
 export function routeOf(pathname: string): EmbedRoute {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
-  const fixed = STATIC[path];
+  const fixed = STATIC[path] ?? (path.startsWith("/standings/") ? STATIC["/standings"] : undefined);
   if (fixed) return { kind: "static", embed: fixed };
   const s = path.match(/^\/session\/([^/]+)$/);
   if (s) return { kind: "session", id: decodeURIComponent(s[1]) };
