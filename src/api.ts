@@ -1,6 +1,7 @@
 import type { EventView, GroupStatus, RegKind, RegSettings, RegSummary, RegistrationView } from "../shared/registration";
 import type { TeamRole } from "../shared/teams";
 import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
+import type { StandingsData, PointsConfig } from "../shared/standings";
 import type { Command } from "../shared/commands";
 import type { RaceState } from "../shared/race";
 
@@ -25,6 +26,7 @@ export const api = {
   races: () => get<RaceSummary[]>("/api/races"),
   pastRaces: () => get<RaceSummary[]>("/api/races/past"),
   teams: () => get<Team[]>("/api/teams"),
+  standings: () => get<StandingsData>("/api/standings"),
 };
 
 export async function sendCommand(raceId: string, cmd: Command): Promise<string | null> {
@@ -94,6 +96,12 @@ export const admin = {
   removeMember: (teamId: string, userId: string) => send("DELETE", `/api/admin/teams/${teamId}/members/${userId}`),
   setRegistration: (sessionId: string, s: RegSettings) => send("PUT", `/api/admin/sessions/${sessionId}/registration`, s),
   clearRegistration: (sessionId: string) => send("DELETE", `/api/admin/sessions/${sessionId}/registration`),
+  standings: () => get<StandingsData & { teams: string[] }>("/api/admin/standings"),
+  setPoints: (c: PointsConfig) => send("PUT", "/api/admin/standings/config", c),
+  createEvent: (e: object) => send("POST", "/api/admin/standings/events", e),
+  saveEvent: (id: string, e: object) => send("PUT", `/api/admin/standings/events/${id}`, e),
+  setHalf: (id: string, half: boolean) => send("PATCH", `/api/admin/standings/events/${id}`, { half }),
+  deleteEvent: (id: string) => send("DELETE", `/api/admin/standings/events/${id}`),
   system: () => get<SystemInfo>("/api/admin/system"),
   setTokenMode: (on: boolean) => send("PUT", "/api/admin/system/token-mode", { on }),
   setDiscordWebhook: (url: string) => send("PUT", "/api/admin/system/discord-webhook", { url }),

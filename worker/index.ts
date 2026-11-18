@@ -8,6 +8,7 @@ import { admin } from "./admin";
 import { myTeams } from "./my-team";
 import { registration } from "./registration";
 import { syncRegistered, teamWithCar } from "./stage";
+import { loadStandings } from "./standings";
 import { loadRaces, loadSession } from "./sessions";
 import { notifyStewardMessage } from "./discord";
 import { timedDb, waitedMs, type DbStats } from "./db-timing";
@@ -63,6 +64,9 @@ app.get("/api/races", async (c) => c.json(await loadRaces(c.env.DB, "WHERE statu
 app.get("/api/races/past", async (c) =>
   c.json(await loadRaces(c.env.DB, "WHERE status = 'archived' OR expires_at <= ?1 ORDER BY expires_at DESC LIMIT 50")),
 );
+
+// Public: championship points table inputs (settings and every scored event).
+app.get("/api/standings", async (c) => c.json(await loadStandings(c.env.DB)));
 
 app.get("/api/races/:id", async (c) => {
   const [race] = await loadRaces(c.env.DB, "WHERE id = ?2", c.req.param("id"));

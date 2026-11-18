@@ -9,10 +9,11 @@ import { VERSION } from "../Shell";
 import { Dialog, toast } from "../ui";
 import { NotFound } from "../NotFound";
 import { AddMember, MemberTable } from "../TeamMembers";
+import { StandingsTab } from "./StandingsTab";
 import { RegistrationsTab } from "./RegistrationsTab";
 import { CodeDialog, useTokenMode } from "../access";
 
-type Tab = "users" | "races" | "registrations" | "teams" | "system";
+type Tab = "users" | "races" | "registrations" | "standings" | "teams" | "system";
 
 const ERRORS: Record<string, string> = {
   invalid: "Invalid value. For teams, set a car (factory) or a factory team (customer).",
@@ -51,7 +52,7 @@ export function AdminPage() {
   const canUsers = !!me && (me.roles.includes("admin") || me.roles.includes("users"));
   const canRaces = !!me && (me.roles.includes("admin") || me.roles.includes("races"));
   const isAdmin = !!me?.roles.includes("admin");
-  const tabs = ([canUsers && "users", canRaces && "races", canRaces && "registrations", canUsers && "teams", isAdmin && "system"].filter(Boolean) as Tab[]);
+  const tabs = ([canUsers && "users", canRaces && "races", canRaces && "registrations", canRaces && "standings", canUsers && "teams", isAdmin && "system"].filter(Boolean) as Tab[]);
   const [tab, setTab] = useState<Tab | null>(null);
   const active = tab && tabs.includes(tab) ? tab : tabs[0];
 
@@ -78,6 +79,7 @@ export function AdminPage() {
       {active === "users" && <Users isAdmin={isAdmin} myId={me.id} />}
       {active === "races" && <Races />}
       {active === "registrations" && <Registrations />}
+      {active === "standings" && <StandingsTab />}
       {active === "teams" && <Teams />}
       {active === "system" && <System />}
     </>
