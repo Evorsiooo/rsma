@@ -13,6 +13,13 @@ export interface SessionSummary {
   selfTimed: boolean;
   /** Stewards may stage drivers by hand; off unless the session has no registration to stage from. */
   staging: boolean;
+  /** Its finished runs score championship points. */
+  championship: boolean;
+  halfPoints: boolean;
+  /** "window": points by the gap to the fastest time instead of the finishing order. */
+  scoring: "position" | "window";
+  /** Window width in ms; null uses the default of the points settings. */
+  windowMs: number | null;
 }
 
 export interface RaceSummary {

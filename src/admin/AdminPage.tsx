@@ -371,14 +371,21 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
   const [start, setStart] = useState(() => toLocalInput(session?.startsAt ?? Math.max(Date.now(), last?.endsAt ?? 0)));
   const [selfTimed, setSelfTimed] = useState(session?.selfTimed ?? false);
   const [end, setEnd] = useState(() => toLocalInput(session?.endsAt ?? Math.max(Date.now(), last?.endsAt ?? 0) + 3600_000));
+  const [champ, setChamp] = useState(session?.championship ?? false);
+  const [half, setHalf] = useState(session?.halfPoints ?? false);
+  const [scoring, setScoring] = useState<"position" | "window">(session?.scoring ?? "position");
+  const [win, setWin] = useState(session?.windowMs != null ? String(session.windowMs / 1000) : "");
+  const winMs = win.trim() ? Math.round(Number(win.replace(",", ".")) * 1000) : null;
+  const winOk = winMs == null || (Number.isFinite(winMs) && winMs >= 1 && winMs <= 600000);
   const startsAt = fromLocalInput(start);
   const endsAt = fromLocalInput(end);
-  const ok = Number.isFinite(startsAt) && Number.isFinite(endsAt) && endsAt > startsAt;
+  const ok = Number.isFinite(startsAt) && Number.isFinite(endsAt) && endsAt > startsAt && winOk;
   const save = async () => {
     if (!ok) return;
+    const ch = { championship: type !== "practice" && champ, halfPoints: half, scoring, windowMs: scoring === "window" ? winMs : null };
     const r = session
-      ? await admin.patchSession(session.id, { name: name.trim() || session.name, type, startsAt, endsAt, selfTimed: type === "practice" && selfTimed })
-      : await admin.createSession(race.id, { name: name.trim(), type, startsAt, endsAt, selfTimed: type === "practice" && selfTimed });
+      ? await admin.patchSession(session.id, { name: name.trim() || session.name, type, startsAt, endsAt, selfTimed: type === "practice" && selfTimed, ...ch })
+      : await admin.createSession(race.id, { name: name.trim(), type, startsAt, endsAt, selfTimed: type === "practice" && selfTimed, ...ch });
     if (!r.ok) return say(r.error);
     onDone();
   };
@@ -424,6 +431,37 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
           <input className="r-field" style={{ colorScheme: "dark" }} type="datetime-local" aria-label="End" value={end} onChange={(e) => setEnd(e.target.value)} />
         </div>
       </div>
+      {type !== "practice" && (
+        <>
+          <label className="r-check">
+            <input type="checkbox" checked={champ} onChange={(e) => setChamp(e.target.checked)} />
+            <span>Championship event</span>
+          </label>
+          {champ && (
+            <div className="r-row">
+              <div className="r-form-field r-fill">
+                <span className="r-label">Points by</span>
+                <div className="r-select">
+                  <select aria-label="Points by" value={scoring} onChange={(e) => setScoring(e.target.value as "position" | "window")}>
+                    <option value="position">Finishing order</option>
+                    <option value="window">Time windows</option>
+                  </select>
+                </div>
+              </div>
+              {scoring === "window" && (
+                <div className="r-form-field" style={{ width: 130 }}>
+                  <span className="r-label">Window (s)</span>
+                  <input className="r-field" inputMode="decimal" aria-label="Window in seconds" placeholder="Default" value={win} onChange={(e) => setWin(e.target.value)} />
+                </div>
+              )}
+              <label className="r-check" style={{ alignSelf: "flex-end", minHeight: 24 }}>
+                <input type="checkbox" checked={half} onChange={(e) => setHalf(e.target.checked)} />
+                <span>Half points</span>
+              </label>
+            </div>
+          )}
+        </>
+      )}
     </Dialog>
   );
 }

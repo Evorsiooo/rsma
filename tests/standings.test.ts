@@ -5,6 +5,7 @@ import { computeStandings, DEFAULT_CONFIG, eventPoints, eventProblem, fmtPoints,
 const row = (position: number, username: string, extra: Partial<ResultRow> = {}): ResultRow => ({ position, username, teamId: null, teamName: null, timeMs: null, gapMs: null, ...extra });
 const ev = (id: string, heldAt: number, results: ResultRow[], extra: Partial<ChampEvent> = {}): ChampEvent => ({ id, name: id, heldAt, half: false, mode: "position", windowMs: null, results, ...extra });
 const cfg = { points: [25, 18, 15], windowMs: 50 };
+// Adrien's example: 1.5 s windows, points 16, 12, 10, ...
 
 test("positions score from the table, places past it score nothing", () => {
   const e = ev("a", 1, [row(1, "aaa"), row(2, "bbb"), row(3, "ccc"), row(4, "ddd")]);
@@ -20,12 +21,12 @@ test("half points halve every score", () => {
 
 test("window mode: a car within the first window scores the winner's points", () => {
   const e = ev("t", 1, [row(1, "aaa", { timeMs: 60_000 }), row(2, "bbb", { timeMs: 60_010 }), row(3, "ccc", { timeMs: 60_049 }), row(4, "ddd", { timeMs: 60_050 }), row(5, "eee", { timeMs: 60_260 })], { mode: "window" });
-  assert.deepEqual(eventPoints(e, cfg), [25, 25, 25, 18, 0]);
+  assert.deepEqual(eventPoints(e, cfg), [25, 25, 25, 25, 0]);
 });
 
 test("window mode: the event's own window width wins over the default", () => {
   const e = ev("t", 1, [row(1, "aaa", { timeMs: 60_000 }), row(2, "bbb", { timeMs: 60_150 }), row(3, "ccc", { timeMs: 60_400 })], { mode: "window", windowMs: 200 });
-  assert.deepEqual(eventPoints(e, cfg), [25, 25, 15]);
+  assert.deepEqual(eventPoints(e, cfg), [25, 25, 18]);
 });
 
 test("window mode works from intervals when times are missing", () => {
@@ -73,4 +74,23 @@ test("parsing times and intervals", () => {
   assert.equal(parseTime("abc"), null);
   assert.equal(parseGap("+0.250"), 250);
   assert.equal(parseGap("0,25"), 250);
+});
+
+test("windows are consecutive bands from the fastest time, an empty band still uses its slot", () => {
+  const c = { points: [16, 12, 10, 8, 6, 5, 4, 3, 2, 1], windowMs: 1500 };
+  const t = (n: number) => 60_000 + n;
+  const e = ev("t", 1, [row(1, "aaa", { timeMs: t(0) }), row(2, "bbb", { timeMs: t(700) }), row(3, "ccc", { timeMs: t(1500) }), row(4, "ddd", { timeMs: t(3200) }), row(5, "eee", { timeMs: t(4500) }), row(6, "fff", { timeMs: t(4501) })], { mode: "window" });
+  // 3 within 1.5 s: 16 each. Nobody in 1.5-3 s, which uses up the 12. 2 within 3-4.5 s: 10 each. 4.5 s starts the next band.
+  assert.deepEqual(eventPoints(e, c), [16, 16, 16, 10, 10, 8]);
+});
+
+test("a driver who raced for several teams: each result scores for its own team, the driver totals across teams", () => {
+  const events = [
+    ev("r1", 1, [row(1, "aaa", { teamName: "Red" }), row(2, "bbb", { teamName: "Blue" })]),
+    ev("r2", 2, [row(1, "bbb", { teamName: "Red" }), row(2, "aaa", { teamName: "Blue" })]),
+    ev("r3", 3, [row(1, "aaa")]),
+  ];
+  const s = computeStandings(events, cfg);
+  assert.deepEqual(s.drivers.map((d) => [d.name, d.points, d.team]), [["aaa", 68, "Blue"], ["bbb", 43, "Red"]]);
+  assert.deepEqual(s.teams.map((t) => [t.name, t.points]), [["Red", 50], ["Blue", 36]]);
 });

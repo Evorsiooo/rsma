@@ -1,9 +1,9 @@
 import type { RaceSummary, SessionInfo, SessionSummary } from "../shared/types";
 
-const SESSION_COLS = "id, race_id AS raceId, name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed, staging";
+const SESSION_COLS = "id, race_id AS raceId, name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed, staging, championship, half_points AS halfPoints, scoring, window_ms AS windowMs";
 
-type SessionRow = Omit<SessionSummary, "selfTimed" | "staging"> & { selfTimed: number; staging: number };
-const toSession = (r: SessionRow): SessionSummary => ({ ...r, selfTimed: !!r.selfTimed, staging: !!r.staging });
+type SessionRow = Omit<SessionSummary, "selfTimed" | "staging" | "championship" | "halfPoints"> & { selfTimed: number; staging: number; championship: number; halfPoints: number };
+const toSession = (r: SessionRow): SessionSummary => ({ ...r, selfTimed: !!r.selfTimed, staging: !!r.staging, championship: !!r.championship, halfPoints: !!r.halfPoints });
 const RACE_COLS = "id, name, expires_at AS expiresAt, (status = 'archived' OR expires_at <= ?1) AS ended";
 
 type RaceRow = Omit<RaceSummary, "ended" | "sessions"> & { ended: number };

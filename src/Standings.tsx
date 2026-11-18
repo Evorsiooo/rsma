@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { computeStandings, fmtPoints, fmtSpan, type Line, type Standings as Table, type StandingsData } from "../shared/standings";
+import { computeStandings, fmtPoints, fmtWindow, type Line, type Standings as Table, type StandingsData } from "../shared/standings";
 import { api } from "./api";
 import { Bd, Box } from "./site/parts";
 
@@ -7,7 +7,7 @@ const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", 
 
 /** How an event was scored, in words. */
 export function scoringText(e: { half: boolean; mode: "position" | "window"; windowMs: number | null }, defaultWindowMs: number): string {
-  const how = e.mode === "window" ? `Timed windows of ${fmtSpan(e.windowMs ?? defaultWindowMs)} s` : "Finishing order";
+  const how = e.mode === "window" ? `Timed windows of ${fmtWindow(e.windowMs ?? defaultWindowMs)}` : "Finishing order";
   return e.half ? `${how}, half points` : how;
 }
 
