@@ -1,6 +1,7 @@
 import type { Hono, MiddlewareHandler } from "hono";
 import type { Me } from "../shared/types";
 import type { AdminEnv } from "./admin";
+import { classify, type RaceState } from "../shared/race";
 import { cleanUsername, configProblem, DEFAULT_CONFIG, eventProblem, MAX_ROWS, type ChampEvent, type PointsConfig, type ResultRow, type StandingsData } from "../shared/standings";
 
 const KEY = "standings";
@@ -17,15 +18,30 @@ interface ResRow extends ResultRow {
   eventId: string;
 }
 
-/** Settings, events and results in one round trip to the database. */
-export async function loadStandings(db: D1Database): Promise<StandingsData> {
-  const [cfg, events, results] = await db.batch([
+interface SessionEv {
+  id: string;
+  name: string;
+  raceName: string;
+  startsAt: number;
+  halfPoints: number;
+  scoring: "position" | "window";
+  windowMs: number | null;
+}
+
+/** Settings, hand-entered events, and the sessions marked for the championship, scored from their finished runs. */
+export async function loadStandings(env: { DB: D1Database; RACE: DurableObjectNamespace }): Promise<StandingsData> {
+  const db = env.DB;
+  const [cfg, events, results, sessions] = await db.batch([
     db.prepare("SELECT value FROM settings WHERE key = ?").bind(KEY),
     db.prepare("SELECT id, name, held_at AS heldAt, half, mode, window_ms AS windowMs FROM championship_events ORDER BY held_at, name"),
     db.prepare(
       `SELECT r.event_id AS eventId, r.position, r.username, r.team_id AS teamId, COALESCE(t.name, r.team_name) AS teamName, r.time_ms AS timeMs, r.gap_ms AS gapMs
        FROM championship_results r LEFT JOIN teams t ON t.id = r.team_id ORDER BY r.event_id, r.position`,
     ),
+    db.prepare(
+      `SELECT s.id, s.name, r.name AS raceName, s.starts_at AS startsAt, s.half_points AS halfPoints, s.scoring, s.window_ms AS windowMs
+       FROM sessions s JOIN races r ON r.id = s.race_id WHERE s.championship = 1 AND s.starts_at <= ?`,
+    ).bind(Date.now()),
   ]);
   let config: PointsConfig = DEFAULT_CONFIG;
   try {
@@ -40,10 +56,31 @@ export async function loadStandings(db: D1Database): Promise<StandingsData> {
     list.push(r);
     byEvent.set(eventId, list);
   }
-  return {
-    config,
-    events: (events.results as unknown as EventRow[]).map((e) => ({ ...e, half: !!e.half, results: byEvent.get(e.id) ?? [] })),
-  };
+  const manual: ChampEvent[] = (events.results as unknown as EventRow[]).map((e) => ({ ...e, half: !!e.half, results: byEvent.get(e.id) ?? [] }));
+  const live = await Promise.all((sessions.results as unknown as SessionEv[]).map((s) => sessionEvent(env, s)));
+  return { config, events: [...manual, ...live.filter((e): e is ChampEvent => e != null)] };
+}
+
+/** One session as a scored event: its best finished run per driver, in order of final time. Null while nobody has finished. */
+async function sessionEvent(env: { RACE: DurableObjectNamespace }, s: SessionEv): Promise<ChampEvent | null> {
+  try {
+    const res = await env.RACE.get(env.RACE.idFromName(s.id)).fetch("http://do/state");
+    const { state } = (await res.json()) as { state: RaceState };
+    const rows = classify(state.runs ?? []).filter((r) => r.status === "finished" && r.rank != null && r.finalMs != null);
+    if (rows.length === 0) return null;
+    return {
+      id: s.id,
+      sessionId: s.id,
+      name: `${s.raceName} · ${s.name}`,
+      heldAt: s.startsAt,
+      half: !!s.halfPoints,
+      mode: s.scoring,
+      windowMs: s.windowMs,
+      results: rows.map((r, i) => ({ position: i + 1, username: r.name, teamId: r.team ?? null, teamName: r.teamName ?? null, timeMs: r.finalMs!, gapMs: null })),
+    };
+  } catch {
+    return null;
+  }
 }
 
 type Body = { name?: unknown; heldAt?: unknown; half?: unknown; mode?: unknown; windowMs?: unknown; results?: unknown };
@@ -89,7 +126,7 @@ const saveEvent = (db: D1Database, ev: ChampEvent, create: boolean) => [
 /** Admin routes under /api/admin/standings, behind the races role. */
 export function mountStandingsAdmin(app: Hono<{ Bindings: AdminEnv; Variables: { me: Me } }>, g: MiddlewareHandler) {
   app.get("/standings", g, async (c) => {
-    const [data, teams] = await Promise.all([loadStandings(c.env.DB), c.env.DB.prepare("SELECT name FROM teams ORDER BY lower(name)").all<{ name: string }>()]);
+    const [data, teams] = await Promise.all([loadStandings(c.env), c.env.DB.prepare("SELECT name FROM teams ORDER BY lower(name)").all<{ name: string }>()]);
     return c.json({ ...data, teams: teams.results.map((t) => t.name) });
   });
 

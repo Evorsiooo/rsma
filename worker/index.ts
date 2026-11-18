@@ -66,7 +66,7 @@ app.get("/api/races/past", async (c) =>
 );
 
 // Public: championship points table inputs (settings and every scored event).
-app.get("/api/standings", async (c) => c.json(await loadStandings(c.env.DB)));
+app.get("/api/standings", async (c) => c.json(await loadStandings(c.env)));
 
 app.get("/api/races/:id", async (c) => {
   const [race] = await loadRaces(c.env.DB, "WHERE id = ?2", c.req.param("id"));

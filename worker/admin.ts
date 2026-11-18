@@ -42,6 +42,18 @@ export async function resolveUser(c: { env: AdminEnv; json: (b: { error: string 
 const newSessionId = () => `ses_${crypto.randomUUID().replace(/-/g, "").slice(0, 12)}`;
 const SESSION_TYPES: SessionType[] = ["practice", "timed", "race"];
 
+/** Championship settings of a session from a request body, on top of the current ones. */
+function champFields(body: { championship?: unknown; halfPoints?: unknown; scoring?: unknown; windowMs?: unknown }, cur: { championship: boolean; halfPoints: boolean; scoring: string; windowMs: number | null }, type: SessionType) {
+  const win = body.windowMs === undefined ? cur.windowMs : body.windowMs === null ? null : Math.round(Number(body.windowMs));
+  const ok = type !== "practice";
+  return {
+    championship: ok && (body.championship !== undefined ? body.championship === true : cur.championship),
+    halfPoints: body.halfPoints !== undefined ? body.halfPoints === true : cur.halfPoints,
+    scoring: (body.scoring !== undefined ? body.scoring : cur.scoring) === "window" ? "window" : "position",
+    windowMs: win != null && Number.isFinite(win) && win >= 1 && win <= 600000 ? win : null,
+  };
+}
+
 const cleanName = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 60) : "");
 export const cleanUsername = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_]{3,20}$/.test(v.trim()) ? v.trim() : "");
 
@@ -242,7 +254,7 @@ async function defaultName(env: AdminEnv, raceId: string, type: SessionType) {
 
 admin.post("/races/:id/sessions", guard("races"), async (c) => {
   const raceId = c.req.param("id") ?? "";
-  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown; championship?: unknown; halfPoints?: unknown; scoring?: unknown; windowMs?: unknown };
   if (!SESSION_TYPES.includes(body.type as SessionType)) return c.json({ error: "invalid" }, 400);
   const type = body.type as SessionType;
   const startsAt = Number(body.startsAt);
@@ -252,17 +264,18 @@ admin.post("/races/:id/sessions", guard("races"), async (c) => {
   const name = cleanName(body.name) || (await defaultName(c.env, raceId, type));
   const pos = ((await c.env.DB.prepare("SELECT MAX(position) AS m FROM sessions WHERE race_id = ?").bind(raceId).first<{ m: number | null }>())?.m ?? -1) + 1;
   const id = newSessionId();
-  await c.env.DB.prepare("INSERT INTO sessions (id, race_id, name, type, position, starts_at, ends_at, created_at, self_timed) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .bind(id, raceId, name, type, pos, startsAt, endsAt, Date.now(), type === "practice" && body.selfTimed === true ? 1 : 0)
+  const ch = champFields(body, { championship: false, halfPoints: false, scoring: "position", windowMs: null }, type);
+  await c.env.DB.prepare("INSERT INTO sessions (id, race_id, name, type, position, starts_at, ends_at, created_at, self_timed, championship, half_points, scoring, window_ms) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .bind(id, raceId, name, type, pos, startsAt, endsAt, Date.now(), type === "practice" && body.selfTimed === true ? 1 : 0, ch.championship ? 1 : 0, ch.halfPoints ? 1 : 0, ch.scoring, ch.windowMs)
     .run();
   return c.json({ id });
 });
 
 admin.patch("/sessions/:id", guard("races"), async (c) => {
   const id = c.req.param("id");
-  const cur = await c.env.DB.prepare("SELECT name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed, staging FROM sessions WHERE id = ?").bind(id).first<Pick<SessionSummary, "name" | "type" | "startsAt" | "endsAt"> & { selfTimed: number; staging: number }>();
+  const cur = await c.env.DB.prepare("SELECT name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed, staging, championship, half_points AS halfPoints, scoring, window_ms AS windowMs FROM sessions WHERE id = ?").bind(id).first<Pick<SessionSummary, "name" | "type" | "startsAt" | "endsAt" | "scoring" | "windowMs"> & { selfTimed: number; staging: number; championship: number; halfPoints: number }>();
   if (!cur) return c.json({ error: "not_found" }, 404);
-  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown; staging?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown; staging?: unknown; championship?: unknown; halfPoints?: unknown; scoring?: unknown; windowMs?: unknown };
   const name = body.name !== undefined ? cleanName(body.name) : cur.name;
   const type = body.type !== undefined ? (body.type as SessionType) : cur.type;
   const startsAt = body.startsAt !== undefined ? Number(body.startsAt) : cur.startsAt;
@@ -271,7 +284,10 @@ admin.patch("/sessions/:id", guard("races"), async (c) => {
   if (!Number.isFinite(startsAt) || !Number.isFinite(endsAt) || endsAt <= startsAt) return c.json({ error: "invalid_times" }, 400);
   const staging = body.staging !== undefined ? body.staging === true : !!cur.staging;
   const selfTimed = type === "practice" && (body.selfTimed !== undefined ? body.selfTimed === true : !!cur.selfTimed);
-  await c.env.DB.prepare("UPDATE sessions SET name = ?, type = ?, starts_at = ?, ends_at = ?, self_timed = ?, staging = ? WHERE id = ?").bind(name, type, startsAt, endsAt, selfTimed ? 1 : 0, staging ? 1 : 0, id).run();
+  const ch = champFields(body, { championship: !!cur.championship, halfPoints: !!cur.halfPoints, scoring: cur.scoring, windowMs: cur.windowMs }, type);
+  await c.env.DB.prepare("UPDATE sessions SET name = ?, type = ?, starts_at = ?, ends_at = ?, self_timed = ?, staging = ?, championship = ?, half_points = ?, scoring = ?, window_ms = ? WHERE id = ?")
+    .bind(name, type, startsAt, endsAt, selfTimed ? 1 : 0, staging ? 1 : 0, ch.championship ? 1 : 0, ch.halfPoints ? 1 : 0, ch.scoring, ch.windowMs, id)
+    .run();
   return c.json({ ok: true });
 });
 

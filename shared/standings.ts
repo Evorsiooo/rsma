@@ -9,7 +9,7 @@ export interface PointsConfig {
   windowMs: number;
 }
 
-export const DEFAULT_CONFIG: PointsConfig = { points: [25, 18, 15, 12, 10, 8, 6, 4, 2, 1], windowMs: 50 };
+export const DEFAULT_CONFIG: PointsConfig = { points: [25, 18, 15, 12, 10, 8, 6, 4, 2, 1], windowMs: 1500 };
 export const MAX_PLACES = 50;
 export const MAX_ROWS = 100;
 export const MAX_WINDOW_MS = 600_000;
@@ -35,6 +35,8 @@ export interface ChampEvent {
   /** Window width of this event; null uses the default of the points settings. */
   windowMs: number | null;
   results: ResultRow[];
+  /** Scored from a session run on the website (its settings are changed there); absent for results typed in by hand. */
+  sessionId?: string;
 }
 
 export interface StandingsData {
@@ -59,13 +61,13 @@ export function offsetsOf(rows: Pick<ResultRow, "timeMs" | "gapMs">[]): number[]
   return null;
 }
 
-/** Points of each row of an event, in the order of its results. */
+/** Points of each row of an event, in the order of its results. In window mode the bands are (0, w], (w, 2w], ...: a gap of exactly w still counts as within the first window. */
 export function eventPoints(ev: Pick<ChampEvent, "half" | "mode" | "windowMs" | "results">, cfg: PointsConfig): number[] {
   const rows = [...ev.results].sort((a, b) => a.position - b.position);
   const at = (i: number) => cfg.points[i] ?? 0;
   const offsets = ev.mode === "window" ? offsetsOf(rows) : null;
   const width = ev.windowMs ?? cfg.windowMs;
-  const pts = rows.map((_, i) => (offsets && width > 0 ? at(Math.floor(offsets[i] / width)) : at(i)));
+  const pts = rows.map((_, i) => (offsets && width > 0 ? at(Math.max(0, Math.ceil(offsets[i] / width) - 1)) : at(i)));
   return pts.map((p) => (ev.half ? p / 2 : p));
 }
 
@@ -124,7 +126,7 @@ export function computeStandings(events: ChampEvent[], cfg: PointsConfig): Stand
       const d = line(drivers, r.username.toLowerCase(), r.username);
       d.cells[i] = { points: pts[j], position: r.position };
       d.points += pts[j];
-      d.team = r.teamName;
+      if (r.teamName) d.team = r.teamName;
       count(d, r.position);
       if (r.teamName) {
         const tk = r.teamId ?? `n:${r.teamName.toLowerCase()}`;
@@ -158,6 +160,9 @@ export function parseGap(v: string): number | null {
   const t = v.trim().replace(/^\+/, "");
   return parseTime(t);
 }
+
+/** A window width for display: "1.5 s". */
+export const fmtWindow = (ms: number) => `${Number((ms / 1000).toFixed(3))} s`;
 
 /** A time or interval for display: seconds under a minute, minutes and seconds above. */
 export function fmtSpan(ms: number): string {

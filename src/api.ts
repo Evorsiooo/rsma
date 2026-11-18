@@ -72,6 +72,13 @@ export const accessApi = {
   signIn: (code: string) => send("POST", "/api/auth/token", { code }),
 };
 
+export interface ChampFields {
+  championship?: boolean;
+  halfPoints?: boolean;
+  scoring?: "position" | "window";
+  windowMs?: number | null;
+}
+
 export const admin = {
   users: () => get<AdminUser[]>("/api/admin/users"),
   addUser: (username: string) => send("POST", "/api/admin/users", { username }),
@@ -82,9 +89,9 @@ export const admin = {
     send("PATCH", `/api/admin/races/${id}`, patch),
   addSteward: (raceId: string, username: string) => send("POST", `/api/admin/races/${raceId}/stewards`, { username }),
   removeSteward: (raceId: string, userId: string) => send("DELETE", `/api/admin/races/${raceId}/stewards/${userId}`),
-  createSession: (raceId: string, s: { name: string; type: SessionType; startsAt: number; endsAt: number; selfTimed?: boolean }) =>
+  createSession: (raceId: string, s: { name: string; type: SessionType; startsAt: number; endsAt: number; selfTimed?: boolean } & ChampFields) =>
     send("POST", `/api/admin/races/${raceId}/sessions`, s),
-  patchSession: (id: string, patch: { name?: string; type?: SessionType; startsAt?: number; endsAt?: number; selfTimed?: boolean; staging?: boolean }) =>
+  patchSession: (id: string, patch: { name?: string; type?: SessionType; startsAt?: number; endsAt?: number; selfTimed?: boolean; staging?: boolean } & ChampFields) =>
     send("PATCH", `/api/admin/sessions/${id}`, patch),
   deleteSession: (id: string) => send("DELETE", `/api/admin/sessions/${id}`),
   teams: () => get<AdminTeam[]>("/api/admin/teams"),

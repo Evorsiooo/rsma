@@ -58,17 +58,21 @@ export function StandingsTab() {
                   <td className="is-left">{e.name}</td>
                   <td className="is-left" style={{ color: "var(--r-text-dim)" }}>{dateFmt.format(e.heldAt)}</td>
                   <td>{e.results.length}</td>
-                  <td className="is-left" style={{ color: "var(--r-text-dim)" }}>{e.mode === "window" ? scoringText({ ...e, half: false }, data.config.windowMs) : "Finishing order"}</td>
+                  <td className="is-left" style={{ color: "var(--r-text-dim)" }}>{scoringText({ ...e, half: false }, data.config.windowMs)}</td>
                   <td>
                     <label className="r-check" style={{ justifyContent: "center" }}>
-                      <input type="checkbox" aria-label={`${e.name} half points`} checked={e.half} onChange={(ev) => toggleHalf(e, ev.target.checked)} />
+                      <input type="checkbox" aria-label={`${e.name} half points`} checked={e.half} disabled={!!e.sessionId} onChange={(ev) => toggleHalf(e, ev.target.checked)} />
                     </label>
                   </td>
                   <td style={{ padding: 2 }}>
-                    <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
-                      <button className="r-cell" onClick={() => setForm({ event: e })}>Edit</button>
-                      <button className="r-cell r-cell--red" onClick={() => setDel(e)}>Delete</button>
-                    </div>
+                    {e.sessionId ? (
+                      <span style={{ color: "var(--r-text-dim)" }}>Session</span>
+                    ) : (
+                      <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                        <button className="r-cell" onClick={() => setForm({ event: e })}>Edit</button>
+                        <button className="r-cell r-cell--red" onClick={() => setDel(e)}>Delete</button>
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -98,9 +102,9 @@ export function StandingsTab() {
 
 function PointsPanel({ data, onSaved }: { data: Data; onSaved: () => void }) {
   const [points, setPoints] = useState(data.config.points.map(fmtPoints).join(", "));
-  const [windowMs, setWindowMs] = useState(String(data.config.windowMs));
+  const [windowS, setWindowS] = useState(String(data.config.windowMs / 1000));
   const list = points.split(/[\s,;]+/).filter(Boolean).map(Number);
-  const w = Number(windowMs);
+  const w = Math.round(Number(windowS.replace(",", ".")) * 1000);
   const ok = list.length > 0 && list.length <= 50 && list.every((n) => Number.isFinite(n) && n >= 0 && n <= 1000) && Number.isInteger(w) && w >= 1 && w <= 600000;
   const changed = list.join() !== data.config.points.join() || w !== data.config.windowMs;
   const save = async () => {
@@ -118,11 +122,38 @@ function PointsPanel({ data, onSaved }: { data: Data; onSaved: () => void }) {
           <input className="r-field" aria-label="Points by place" value={points} onChange={(e) => setPoints(e.target.value)} />
         </div>
         <div className="r-form-field" style={{ width: 150 }}>
-          <span className="r-label">Window (ms)</span>
-          <input className="r-field" type="number" min={1} aria-label="Window in milliseconds" value={windowMs} onChange={(e) => setWindowMs(e.target.value)} />
+          <span className="r-label">Window (s)</span>
+          <input className="r-field" inputMode="decimal" aria-label="Window in seconds" value={windowS} onChange={(e) => setWindowS(e.target.value)} />
         </div>
         <button className="r-btn pri" style={{ width: 120 }} disabled={!ok || !changed} onClick={save}>Save</button>
       </div>
+    </div>
+  );
+}
+
+const OTHER = "\u0000other";
+
+/** Team of one result: none, one of the teams we hold, or a name typed in (for a team that no longer exists). */
+function TeamPick({ label, value, teams, onChange }: { label: string; value: string; teams: string[]; onChange: (team: string) => void }) {
+  const [other, setOther] = useState(() => !!value && !teams.includes(value));
+  return (
+    <div style={{ flex: "1 1 90px", minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+      <div className="r-select">
+        <select
+          aria-label={label}
+          value={other ? OTHER : value}
+          onChange={(e) => {
+            const v = e.target.value;
+            setOther(v === OTHER);
+            onChange(v === OTHER ? (teams.includes(value) ? "" : value) : v);
+          }}
+        >
+          <option value="">No team</option>
+          {teams.map((t) => <option key={t} value={t}>{t}</option>)}
+          <option value={OTHER}>Other...</option>
+        </select>
+      </div>
+      {other && <input className="r-field" style={{ width: "auto", minWidth: 0 }} aria-label={`${label} name`} placeholder="Team name" maxLength={60} value={value} onChange={(e) => onChange(e.target.value)} />}
     </div>
   );
 }
@@ -141,7 +172,7 @@ function EventForm({ data, event, onDone, onClose }: { data: Data; event?: Champ
   const [when, setWhen] = useState(() => toLocalInput(event?.heldAt ?? Date.now()));
   const [mode, setMode] = useState<ScoringMode>(event?.mode ?? "position");
   const [half, setHalf] = useState(event?.half ?? false);
-  const [window_, setWindow] = useState(event?.windowMs != null ? String(event.windowMs) : "");
+  const [window_, setWindow] = useState(event?.windowMs != null ? String(event.windowMs / 1000) : "");
   const [rows, setRows] = useState<FormRow[]>(() =>
     event ? [...event.results].sort((a, b) => a.position - b.position).map((r) => ({ username: r.username, team: r.teamName ?? "", time: spanText(r.timeMs), gap: spanText(r.gapMs) })) : [blank(), blank(), blank()],
   );
@@ -163,7 +194,7 @@ function EventForm({ data, event, onDone, onClose }: { data: Data; event?: Champ
     timeMs: r.time.trim() ? parseTime(r.time) : null,
     gapMs: r.gap.trim() ? parseGap(r.gap) : null,
   }));
-  const windowMs = window_.trim() ? Number(window_) : null;
+  const windowMs = window_.trim() ? Math.round(Number(window_.replace(",", ".")) * 1000) : null;
   const heldAt = new Date(when).getTime();
   const problem = bad ? `${bad.username}: use a time such as 1:23.456 and an interval such as 0.250.` : eventProblem({ name, heldAt, mode, windowMs, results });
   const save = async () => {
@@ -216,8 +247,8 @@ function EventForm({ data, event, onDone, onClose }: { data: Data; event?: Champ
         </div>
         {mode === "window" && (
           <div className="r-form-field" style={{ width: 150 }}>
-            <span className="r-label">Window (ms)</span>
-            <input className="r-field" type="number" min={1} aria-label="Window in milliseconds" placeholder={String(data.config.windowMs)} value={window_} onChange={(e) => setWindow(e.target.value)} />
+            <span className="r-label">Window (s)</span>
+            <input className="r-field" inputMode="decimal" aria-label="Window in seconds" placeholder={String(data.config.windowMs / 1000)} value={window_} onChange={(e) => setWindow(e.target.value)} />
           </div>
         )}
         <label className="r-check" style={{ alignSelf: "flex-end", minHeight: 24 }}>
@@ -226,13 +257,12 @@ function EventForm({ data, event, onDone, onClose }: { data: Data; event?: Champ
         </label>
       </div>
       {mode === "window" && <div className="note">The fastest time scores first-place points, and so does everyone within one window of it. Each further window scores the next place. Needs a time for every driver, or an interval for every driver after the winner.</div>}
-      <datalist id="standings-teams">{data.teams.map((t) => <option key={t} value={t} />)}</datalist>
       <div className="r-stack">
         {rows.map((r, i) => (
           <div className="r-row" key={i}>
             <span style={{ width: 22, textAlign: "center", fontWeight: "bold" }}>{r.username.trim() ? rows.slice(0, i).filter((x) => x.username.trim()).length + 1 : ""}</span>
             <input className="r-field" style={{ flex: "1 1 90px", width: "auto", minWidth: 0 }} aria-label={`Driver ${i + 1}`} placeholder="Driver" maxLength={20} value={r.username} onChange={(e) => set(i, { username: e.target.value })} onPaste={(e) => paste(i, e.clipboardData.getData("text")) && e.preventDefault()} />
-            <input className="r-field" style={{ flex: "1 1 90px", width: "auto", minWidth: 0 }} aria-label={`Team ${i + 1}`} placeholder="Team" list="standings-teams" maxLength={60} value={r.team} onChange={(e) => set(i, { team: e.target.value })} />
+            <TeamPick label={`Team ${i + 1}`} value={r.team} teams={data.teams} onChange={(team) => set(i, { team })} />
             <input className="r-field" style={{ flex: "0 1 84px", width: "auto", minWidth: 0 }} aria-label={`Time ${i + 1}`} placeholder="Time" value={r.time} onChange={(e) => set(i, { time: e.target.value })} />
             <input className="r-field" style={{ flex: "0 1 70px", width: "auto", minWidth: 0 }} aria-label={`Interval ${i + 1}`} placeholder="Interval" value={r.gap} onChange={(e) => set(i, { gap: e.target.value })} />
             <div className="r-grid" style={{ flexWrap: "nowrap" }}>
