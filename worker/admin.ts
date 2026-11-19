@@ -224,6 +224,26 @@ admin.patch("/races/:id", guard("races"), async (c) => {
   return res.meta.changes ? c.json({ ok: true }) : c.json({ error: "not_found" }, 404);
 });
 
+/** Deletes an archived race with everything under it: sessions, registrations, picks, stewards and the live results of each session. */
+admin.delete("/races/:id", guard("races"), async (c) => {
+  const id = c.req.param("id") ?? "";
+  const race = await c.env.DB.prepare("SELECT status FROM races WHERE id = ?").bind(id).first<{ status: string }>();
+  if (!race) return c.json({ error: "not_found" }, 404);
+  if (race.status !== "archived") return c.json({ error: "not_archived" }, 409);
+  const ids = (await c.env.DB.prepare("SELECT id FROM sessions WHERE race_id = ?").bind(id).all<{ id: string }>()).results.map((r) => r.id);
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM session_picks WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
+    c.env.DB.prepare("DELETE FROM registrations WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
+    c.env.DB.prepare("DELETE FROM session_registration WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
+    c.env.DB.prepare("DELETE FROM race_stewards WHERE race_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM sessions WHERE race_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM races WHERE id = ?").bind(id),
+  ]);
+  // The live results are stored per session; clear them too.
+  await Promise.all(ids.map((sid) => c.env.RACE.get(c.env.RACE.idFromName(sid)).fetch("http://do/wipe", { method: "POST" }).catch(() => null)));
+  return c.json({ ok: true });
+});
+
 admin.post("/races/:id/stewards", guard("races"), async (c) => {
   const id = c.req.param("id");
   const body = (await c.req.json().catch(() => ({}))) as { username?: unknown };

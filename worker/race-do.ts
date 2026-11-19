@@ -77,6 +77,13 @@ export class RaceDO extends DurableObject {
       this.broadcast(result.state);
       return Response.json({ ok: true });
     }
+    if (url.pathname === "/wipe" && req.method === "POST") {
+      // The session was deleted: drop its results and disconnect everyone watching.
+      for (const ws of this.ctx.getWebSockets()) ws.close(1000, "deleted");
+      await this.ctx.storage.deleteAll();
+      this.state = null;
+      return Response.json({ ok: true });
+    }
     return new Response("Not found", { status: 404 });
   }
 
