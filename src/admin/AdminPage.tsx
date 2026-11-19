@@ -23,6 +23,7 @@ const ERRORS: Record<string, string> = {
   last_admin: "There must be at least one admin.",
   forbidden: "Not allowed.",
   not_found: "Not found.",
+  not_archived: "Archive the race before deleting it.",
   name_taken: "That name is already used.",
   invalid_times: "The end must be after the start.",
   invalid_link: "That session cannot be linked: it must be in this event and not follow this session.",
@@ -205,7 +206,7 @@ function Registrations() {
 
 // ---- Races ------------------------------------------------------------------
 
-type RaceDialog = { kind: "stewards" | "expiry" | "sessions"; raceId: string } | null;
+type RaceDialog = { kind: "stewards" | "expiry" | "sessions" | "delete"; raceId: string } | null;
 
 function Races() {
   const nav = useNavigate();
@@ -284,6 +285,7 @@ function Races() {
                         <button className="r-cell" onClick={() => setStatus(r, r.status === "archived" ? "active" : "archived")}>
                           {r.status === "archived" ? "Restore" : "Archive"}
                         </button>
+                        {r.status === "archived" && <button className="r-cell" onClick={() => setDialog({ kind: "delete", raceId: r.id })}>Delete</button>}
                       </div>
                     </td>
                   </tr>
@@ -295,6 +297,32 @@ function Races() {
       </div>
       {dialog?.kind === "sessions" && dialogRace && <SessionsDialog race={dialogRace} onChange={reload} onClose={() => setDialog(null)} />}
       {dialog?.kind === "stewards" && dialogRace && <StewardsDialog race={dialogRace} onChange={reload} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "delete" && dialogRace && (
+        <Dialog
+          title="Delete race"
+          size="s"
+          onClose={() => setDialog(null)}
+          foot={
+            <>
+              <button className="r-btn" onClick={() => setDialog(null)}>Cancel</button>
+              <button
+                className="r-btn"
+                onClick={async () => {
+                  const res = await admin.deleteRace(dialogRace.id);
+                  if (!res.ok) say(res.error);
+                  else toast("Race deleted.", "green");
+                  setDialog(null);
+                  reload();
+                }}
+              >
+                Delete
+              </button>
+            </>
+          }
+        >
+          <div>{dialogRace.name} is deleted for good, with its sessions, registrations and results. This cannot be undone.</div>
+        </Dialog>
+      )}
       {dialog?.kind === "expiry" && dialogRace && <ExpiryDialog race={dialogRace} onDone={() => { setDialog(null); reload(); }} onClose={() => setDialog(null)} />}
     </>
   );
