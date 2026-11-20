@@ -150,7 +150,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
         : undefined;
       const prefix = targetDriver ? `${targetDriver}: ` : "";
       if (m.say) return `${prefix}${m.say}`;
-      if (m.to === "stewards" && m.teamName) return `${m.teamName} to stewards: ${m.text}`;
+      if (m.to === "stewards") return `${m.teamName ?? m.from} to stewards: ${m.text}`;
       return `${prefix}${m.text}`;
     },
   });

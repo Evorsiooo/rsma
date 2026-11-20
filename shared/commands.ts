@@ -209,13 +209,20 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
     }
     case "driverRadio": {
       const text = clean(cmd.text, 200);
-      const mine = s.runs.filter((r) => r.name.toLowerCase() === ctx.actor.toLowerCase() && r.team);
-      const r = mine.find((x) => x.status === "onstage") ?? mine.find((x) => x.status === "queued") ?? mine[mine.length - 1];
+      const mine = s.runs.filter((r) => r.name.toLowerCase() === ctx.actor.toLowerCase());
+      const pick = (l: typeof mine) => l.find((x) => x.status === "onstage") ?? l.find((x) => x.status === "queued") ?? l[l.length - 1];
       if (!text) return { error: "invalid" };
-      if (!r) return { error: "no_team" };
-      s.radio.push({ id: ctx.newId(), at: ctx.now, to: "team", team: r.team, teamName: r.teamName, text, from: ctx.actor });
+      const r = pick(mine.filter((x) => x.team)) ?? pick(mine);
+      if (!r) return { error: "no_run" };
+      if (r.team) {
+        s.radio.push({ id: ctx.newId(), at: ctx.now, to: "team", team: r.team, teamName: r.teamName, text, from: ctx.actor });
+        note(`${ctx.actor} to ${r.teamName ?? r.team}: ${text}`, "teal");
+      } else {
+        // An independent driver has no team: the message goes to the stewards.
+        s.radio.push({ id: ctx.newId(), at: ctx.now, to: "stewards", text, from: ctx.actor, tone: "teal" });
+        note(`To stewards: ${text}`, "teal");
+      }
       if (s.radio.length > MAX_RADIO) s.radio.splice(0, s.radio.length - MAX_RADIO);
-      note(`${ctx.actor} to ${r.teamName ?? r.team}: ${text}`, "teal");
       break;
     }
     case "teamMove": {

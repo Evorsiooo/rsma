@@ -130,12 +130,12 @@ export function DriverPage() {
   if (info === null) return <NotFound />;
   const hasRun = !!state?.runs.some((r) => r.name.toLowerCase() === name.toLowerCase());
   const hasTeam = !!state?.runs.some((r) => r.team && r.name.toLowerCase() === name.toLowerCase());
-  const questions = messages.filter((m) => m.ask && !m.ask.answered);
+    const questions = messages.filter((m) => m.ask && !m.ask.answered);
   const sendChat = async () => {
     const t = chat.trim();
     if (!t) return;
     const err = await driverRadio(id, t);
-    if (err) toast(err === "no_team" ? "Messages need a team." : "Message not sent.");
+    if (err) toast(err === "no_run" ? "You are not entered in this session." : "Message not sent.");
     else setChat("");
   };
   const queuePos = me?.status === "queued" ? state!.runs.filter((r) => r.status === "queued").indexOf(me) + 1 : 0;
@@ -305,8 +305,8 @@ export function DriverPage() {
         </div>
         {user && (
           <div className="r-row" style={{ padding: 4 }}>
-            <input className="r-field r-fill" aria-label="Message to team" disabled={!hasTeam} placeholder={hasTeam ? undefined : hasRun ? "Independent drivers have no team to message" : "You are not entered in this session"} maxLength={200} value={chat} onChange={(e) => setChat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendChat()} />
-            <button className="r-btn" style={{ width: 90 }} disabled={!hasTeam || !chat.trim()} onClick={sendChat}>Send</button>
+            <input className="r-field r-fill" aria-label={hasTeam ? "Message to team" : "Message to stewards"} disabled={!hasRun} placeholder={hasRun ? undefined : "You are not entered in this session"} maxLength={200} value={chat} onChange={(e) => setChat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && sendChat()} />
+            <button className="r-btn" style={{ width: 90 }} disabled={!hasRun || !chat.trim()} onClick={sendChat}>Send</button>
           </div>
         )}
       </div>

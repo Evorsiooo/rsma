@@ -46,7 +46,7 @@ export interface RadioMsg {
   id: string;
   at: number;
   /**
-   * "all"; "team" (to the team's channel, see `team`); "stewards" (from a team, see `team`);
+   * "all"; "team" (to the team's channel, see `team`); "stewards" (from a team, see `team`, or from an independent driver, see `from`);
    * or the ids of the runs addressed.
    */
   to: "all" | "team" | "stewards" | string[];
@@ -161,7 +161,7 @@ export function viewFor(s: RaceState, v: Viewer): RaceState {
   base.radio = s.radio.filter((m) => {
     if (m.to === "all") return true;
     if (m.to === "team") return !!m.team && (v.teams.includes(m.team) || mine.some((r) => r.team === m.team));
-    if (m.to === "stewards") return !!m.team && v.teams.includes(m.team);
+    if (m.to === "stewards") return m.from.toLowerCase() === v.user || (!!m.team && v.teams.includes(m.team));
     // Addressed to drivers: the driver, and the panel of the team they race for.
     return m.to.some((id) => mine.some((r) => r.id === id) || v.teams.includes(teamOf(id) ?? ""));
   });
