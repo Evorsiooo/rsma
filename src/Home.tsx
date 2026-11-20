@@ -9,6 +9,7 @@ import { useBootData } from "./Layouts";
 import { useMe } from "./me";
 import { ownedTeams, registerPath } from "./regUi";
 import { Bd, Box } from "./site/parts";
+import { useClock } from "./ui";
 
 const AUTH_ERRORS: Record<string, string> = {
   denied: "Sign-in was cancelled.",
@@ -26,13 +27,17 @@ const fmt = new Intl.DateTimeFormat("en-GB", {
 });
 
 function EventRows({ races, label, primary, until }: { races: RaceSummary[]; label: string; primary?: boolean; until?: boolean }) {
+  const now = useClock(0);
   return (
     <table className="t">
       <tbody>
         {races.map((r) => (
           <tr key={r.id}>
             <td><b>{r.name}</b></td>
-            <td>{until ? "Until " : ""}{fmt.format(r.expiresAt)}</td>
+            <td>
+              {until && r.sessions.some((x) => x.startsAt <= now && now < x.endsAt) && <b>Live now &middot; </b>}
+              {until ? "Until " : ""}{fmt.format(r.expiresAt)}
+            </td>
             <td className="n"><Link className={`btn sm${primary ? " pri" : ""}`} to={`/race/${r.id}`}>{label}</Link></td>
           </tr>
         ))}
@@ -65,6 +70,36 @@ function About() {
 
 const dateOnly = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "long", year: "numeric" });
 const when = new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", hour: "2-digit", minute: "2-digit" });
+
+const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit" });
+
+/** Sessions running right now, with a Timing button. Shown only while something is live. */
+function LiveNow({ races }: { races: RaceSummary[] }) {
+  const now = useClock(0);
+  const live = races
+    .filter((r) => !r.ended)
+    .flatMap((race) => race.sessions.filter((s) => s.startsAt <= now && now < s.endsAt).map((session) => ({ race, session })))
+    .sort((a, b) => a.session.startsAt - b.session.startsAt);
+  if (live.length === 0) return null;
+  return (
+    <Box title="Live Now">
+      {live.map(({ race, session }) => (
+        <Bd key={session.id}>
+          <div className="bar between">
+            <span>
+              <b>{race.name} &middot; {session.name}</b>
+              <br />
+              <span className="mute">Until {clock.format(session.endsAt)}</span>
+            </span>
+            <span className="bar">
+              <Link className="btn" to={`/session/${session.id}`}>Timing</Link>
+            </span>
+          </div>
+        </Bd>
+      ))}
+    </Box>
+  );
+}
 
 /** The next session that has not started, with a Register button while its registration is open. */
 function NextEvent({ races, regs }: { races: RaceSummary[]; regs: RegSummary[] }) {
@@ -158,6 +193,7 @@ export function Home() {
     <>
       {authError && <div className="err">{authError}</div>}
       <About />
+      <LiveNow races={races} />
       <NextEvent races={races} regs={regs} />
       <Box title="Events">
         <Bd flush>{races.length === 0 ? <div className="bd note">No active events.</div> : <EventRows races={races} label="Timing" primary until />}</Bd>
