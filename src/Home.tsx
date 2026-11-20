@@ -83,19 +83,20 @@ function LiveNow({ races }: { races: RaceSummary[] }) {
   if (live.length === 0) return null;
   return (
     <Box title="Live Now">
-      <Bd flush>
-        <table className="t">
-          <tbody>
-            {live.map(({ race, session }) => (
-              <tr key={session.id}>
-                <td><b>{race.name} &middot; {session.name}</b></td>
-                <td className="mute">Until {clock.format(session.endsAt)}</td>
-                <td className="n"><Link className="btn pri sm" to={`/session/${session.id}`}>Timing</Link></td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </Bd>
+      {live.map(({ race, session }) => (
+        <Bd key={session.id}>
+          <div className="bar between">
+            <span>
+              <b>{race.name} &middot; {session.name}</b>
+              <br />
+              <span className="mute">Until {clock.format(session.endsAt)}</span>
+            </span>
+            <span className="bar">
+              <Link className="btn" to={`/session/${session.id}`}>Timing</Link>
+            </span>
+          </div>
+        </Bd>
+      ))}
     </Box>
   );
 }
