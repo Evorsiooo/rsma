@@ -173,7 +173,8 @@ app.post("/api/sessions/:id/cmd", async (c) => {
     method: "POST",
     body: JSON.stringify({ cmd, actor: me.username }),
   });
-  if (doRes.ok && (cmd.type === "radio" || cmd.type === "radioTeams") && typeof cmd.text === "string" && cmd.text.trim()) {
+  // Discord gets only the messages to everyone; messages to teams or to chosen drivers stay on the radio.
+  if (doRes.ok && cmd.type === "radio" && cmd.to === "all" && typeof cmd.text === "string" && cmd.text.trim()) {
     const p = notifyStewardMessage(c.env.DB, cmd.text.trim());
     if (c.executionCtx?.waitUntil) {
       c.executionCtx.waitUntil(p);
