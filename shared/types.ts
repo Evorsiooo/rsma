@@ -98,6 +98,8 @@ export interface SystemInfo {
   robloxConfigured: boolean;
   /** Everything except the admin panel signs in with access codes. */
   tokenMode: boolean;
+  /** Drivers, stewards and teams may pick the AI voice; off leaves only the standard voice. */
+  aiVoice: boolean;
   discordWebhook?: string;
 }
 

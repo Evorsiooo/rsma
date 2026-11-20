@@ -1,4 +1,4 @@
-import { tokenMode } from "./access-codes";
+import { aiVoiceOn, tokenMode } from "./access-codes";
 import { Hono, type Context } from "hono";
 import type { Me } from "../shared/types";
 import { auth, getMe, hasRole, type AuthEnv } from "./auth";
@@ -48,7 +48,10 @@ app.route("/api/admin", admin);
 app.route("/api/my-teams", myTeams);
 app.route("/api/registration", registration);
 
-app.get("/api/config", async (c) => c.json({ tokenMode: await tokenMode(c.env.DB) }));
+app.get("/api/config", async (c) => {
+  const [token, aiVoice] = await Promise.all([tokenMode(c.env.DB), aiVoiceOn(c.env.DB)]);
+  return c.json({ tokenMode: token, aiVoice });
+});
 
 app.get("/api/me", async (c) => c.json(await getMe(c.env, getCookie(c, SESSION_COOKIE))));
 

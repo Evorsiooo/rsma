@@ -68,7 +68,7 @@ async function send(method: string, path: string, body?: unknown): Promise<{ ok:
 }
 
 export const accessApi = {
-  config: () => get<{ tokenMode: boolean }>("/api/config"),
+  config: () => get<{ tokenMode: boolean; aiVoice: boolean }>("/api/config"),
   signIn: (code: string) => send("POST", "/api/auth/token", { code }),
 };
 
@@ -111,6 +111,7 @@ export const admin = {
   setHalf: (id: string, half: boolean) => send("PATCH", `/api/admin/standings/events/${id}`, { half }),
   deleteEvent: (id: string) => send("DELETE", `/api/admin/standings/events/${id}`),
   system: () => get<SystemInfo>("/api/admin/system"),
+  setAiVoice: (on: boolean) => send("PUT", "/api/admin/system/ai-voice", { on }),
   setTokenMode: (on: boolean) => send("PUT", "/api/admin/system/token-mode", { on }),
   setDiscordWebhook: (url: string) => send("PUT", "/api/admin/system/discord-webhook", { url }),
   testDiscordWebhook: (url?: string) => send("POST", "/api/admin/system/discord-webhook/test", { url }),

@@ -812,7 +812,7 @@ function System() {
       )}
       {data && (
         <>
-          <label className="r-check" style={{ padding: 4 }}>
+          <label className="r-check" style={{ padding: 4, display: "flex" }}>
             <input
               type="checkbox"
               checked={data.tokenMode}
@@ -823,6 +823,18 @@ function System() {
               }}
             />
             <span>Access code sign-in (everything except this admin panel)</span>
+          </label>
+          <label className="r-check" style={{ padding: 4, display: "flex" }}>
+            <input
+              type="checkbox"
+              checked={data.aiVoice}
+              onChange={async (e) => {
+                const r = await admin.setAiVoice(e.target.checked);
+                if (!r.ok) say(r.error);
+                reload();
+              }}
+            />
+            <span>AI voice option for drivers, stewards and teams</span>
           </label>
           <div className="r-header" style={{ marginTop: 12 }}>Discord Webhook</div>
           <div style={{ padding: 4 }}>

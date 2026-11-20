@@ -375,7 +375,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
 
           <div className="r-stack r-fill">
             <div className="r-panel r-fill" style={{ overflow: "auto" }}>
-              <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} modeLabel={rows.some((r) => r.mode === "long") ? modeText : undefined} />
+              <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} modeLabel={rows.some((r) => r.mode === "long") ? modeText : undefined} onRadio={state.onRadio} />
             </div>
 
             <div className="r-row" style={{ height: 270, flex: "none" }}>
@@ -503,6 +503,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
       )}
       {audio.settingsOpen && (
         <AudioSettingsDialog
+          aiAllowed={audio.aiAllowed}
           onClose={() => audio.setSettingsOpen(false)}
           audioOn={audio.audioOn}
           onEnable={audio.enable}
