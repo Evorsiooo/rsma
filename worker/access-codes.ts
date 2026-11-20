@@ -101,3 +101,11 @@ export async function canIssueFor(
   if (teams.length) return false;
   return !!(await db.prepare("SELECT 1 FROM registrations WHERE session_id = ? AND roblox_id = ?").bind(scope.registered, target).first());
 }
+
+/** AI voice is offered unless an admin switched it off in the system settings. */
+export async function aiVoiceOn(db: D1Database): Promise<boolean> {
+  return (await db.prepare("SELECT value FROM settings WHERE key = 'ai_voice_off'").first<{ value: string }>())?.value !== "1";
+}
+
+export const setAiVoice = (db: D1Database, on: boolean) =>
+  db.prepare("INSERT INTO settings (key, value) VALUES ('ai_voice_off', ?1) ON CONFLICT(key) DO UPDATE SET value = ?1").bind(on ? "0" : "1").run();

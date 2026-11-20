@@ -10,7 +10,7 @@ import { AI_VOICES, aiStatus, DEFAULT_AI_VOICE, loadAi, onAiStatus, preloadVoice
 import { useMe } from "./me";
 import { sessionCountdown, toast, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
-import { AudioSettingsDialog, audioStore as store } from "./AudioSettings";
+import { AudioSettingsDialog, audioStore as store, useAiVoiceAllowed } from "./AudioSettings";
 
 const FLAG: Record<Flag, { label: string; tone: string }> = {
   green: { label: "Green flag", tone: " is-green" },
@@ -39,7 +39,9 @@ export function DriverPage() {
   const [vol, setVol] = useState(() => Number(store.get("vol") ?? 100));
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURI] = useState(() => store.get("voice") ?? "");
-  const [engine, setEngine] = useState<"standard" | "ai">(() => (store.get("engine") === "ai" ? "ai" : "standard"));
+  const [savedEngine, setEngine] = useState<"standard" | "ai">(() => (store.get("engine") === "ai" ? "ai" : "standard"));
+  const aiAllowed = useAiVoiceAllowed();
+  const engine = aiAllowed ? savedEngine : "standard";
   const [aiVoice, setAiVoice] = useState(() => store.get("aivoice") ?? DEFAULT_AI_VOICE);
   const [ai, setAi] = useState<AiStatus>(aiStatus());
   const [rx, setRx] = useState(false);
@@ -142,6 +144,7 @@ export function DriverPage() {
 
   const settingsModal = settings && (
     <AudioSettingsDialog
+      aiAllowed={aiAllowed}
       onClose={() => setSettings(false)}
       audioOn={audioOn}
       onEnable={async () => {

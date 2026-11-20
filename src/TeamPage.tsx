@@ -470,6 +470,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
       {asking && <AskDialog sessionId={sessionId} teamId={team.id} drivers={drivers} onClose={() => setAsking(false)} />}
       {audio.settingsOpen && (
         <AudioSettingsDialog
+          aiAllowed={audio.aiAllowed}
           onClose={() => audio.setSettingsOpen(false)}
           audioOn={audio.audioOn}
           onEnable={audio.enable}

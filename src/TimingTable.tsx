@@ -57,7 +57,7 @@ export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeL
             <td className="is-left">{r.number ?? ""}</td>
             <td className="is-left" style={mine?.(r) ? { color: "var(--r-teal)" } : undefined}>
               {r.name}
-              {mine?.(r) && onRadio && (
+              {onRadio && (!mine || mine(r)) && (
                 <span
                   className={`r-tag${onRadio.includes(r.name.toLowerCase()) ? " is-green" : ""}`}
                   style={{ marginLeft: 6 }}

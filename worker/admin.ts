@@ -8,7 +8,7 @@ import { sessionsOf } from "./sessions";
 import { resolveUserId } from "./roblox-users";
 import { rootOf } from "./registration";
 import { regSessionsOf, syncRegistered, syncSessions } from "./stage";
-import { issueCode, revokeCode, setTokenMode, tokenMode } from "./access-codes";
+import { aiVoiceOn, issueCode, revokeCode, setAiVoice, setTokenMode, tokenMode } from "./access-codes";
 import { mountStandingsAdmin } from "./standings";
 import { formatDiscordStewardMessage, getDiscordWebhook, sendDiscordWebhook, setDiscordWebhook } from "./discord";
 
@@ -89,6 +89,13 @@ admin.put("/system/token-mode", guard("admin"), async (c) => {
   const body = (await c.req.json().catch(() => ({}))) as { on?: unknown };
   if (typeof body.on !== "boolean") return c.json({ error: "invalid" }, 400);
   await setTokenMode(c.env.DB, body.on);
+  return c.json({ ok: true });
+});
+
+admin.put("/system/ai-voice", guard("admin"), async (c) => {
+  const body = (await c.req.json().catch(() => ({}))) as { on?: unknown };
+  if (typeof body.on !== "boolean") return c.json({ error: "invalid" }, 400);
+  await setAiVoice(c.env.DB, body.on);
   return c.json({ ok: true });
 });
 
@@ -513,6 +520,7 @@ admin.get("/system", guard("admin"), async (c) => {
     expiredRaces: await n("SELECT COUNT(*) AS n FROM races WHERE status = 'active' AND expires_at <= ?", now),
     archivedRaces: await n("SELECT COUNT(*) AS n FROM races WHERE status = 'archived'"),
     tokenMode: await tokenMode(c.env.DB),
+    aiVoice: await aiVoiceOn(c.env.DB),
     discordWebhook: (await getDiscordWebhook(c.env.DB)) ?? "",
     robloxConfigured: !!(c.env.ROBLOX_CLIENT_ID && c.env.ROBLOX_CLIENT_SECRET && c.env.SESSION_SECRET),
   });

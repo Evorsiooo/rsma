@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { enableAudio, setVolume, speak, startBeeps } from "./audio";
 import { AI_VOICES, aiStatus, DEFAULT_AI_VOICE, loadAi, onAiStatus, preloadVoice, speakAi, type AiStatus } from "./tts";
+import { accessApi } from "./api";
 import { Dialog } from "./ui";
 import type { RadioMsg } from "../shared/race";
 
@@ -22,7 +23,20 @@ export const audioStore = {
   },
 };
 
+let aiConfig: Promise<boolean> | null = null;
+/** Whether the AI voice is offered at all; false until the server says so, and when an admin switched it off. */
+export function useAiVoiceAllowed(): boolean {
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    aiConfig ??= accessApi.config().then((c) => c.aiVoice, () => false);
+    aiConfig.then(setOn);
+  }, []);
+  return on;
+}
+
 export interface AudioSettingsDialogProps {
+  /** AI voice is switched off: only the standard voice is offered. */
+  aiAllowed?: boolean;
   onClose: () => void;
   audioOn: boolean;
   onEnable: () => Promise<unknown> | void;
@@ -43,6 +57,7 @@ export interface AudioSettingsDialogProps {
 }
 
 export function AudioSettingsDialog({
+  aiAllowed = true,
   onClose,
   audioOn,
   onEnable,
@@ -102,6 +117,7 @@ export function AudioSettingsDialog({
           />
         </div>
 
+        {aiAllowed && (
         <div className="r-form-field">
           <span className="r-label">Voice type</span>
           <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
@@ -117,8 +133,9 @@ export function AudioSettingsDialog({
             ))}
           </div>
         </div>
+        )}
 
-        {engine === "standard" ? (
+        {engine === "standard" || !aiAllowed ? (
           <div className="r-form-field">
             <span className="r-label">Voice</span>
             <div className="r-select">
@@ -200,7 +217,9 @@ export function useRadioTTS(options: UseRadioTTSOptions = {}) {
   const [vol, setVolState] = useState(() => Number(audioStore.get("vol") ?? 100));
   const [voices, setVoices] = useState<SpeechSynthesisVoice[]>([]);
   const [voiceURI, setVoiceURIState] = useState(() => audioStore.get("voice") ?? "");
-  const [engine, setEngineState] = useState<"standard" | "ai">(() => (audioStore.get("engine") === "ai" ? "ai" : "standard"));
+  const [savedEngine, setEngineState] = useState<"standard" | "ai">(() => (audioStore.get("engine") === "ai" ? "ai" : "standard"));
+  const aiAllowed = useAiVoiceAllowed();
+  const engine = aiAllowed ? savedEngine : "standard";
   const [aiVoice, setAiVoiceState] = useState(() => audioStore.get("aivoice") ?? DEFAULT_AI_VOICE);
   const [ai, setAi] = useState<AiStatus>(aiStatus());
   const [rx, setRx] = useState(false);
@@ -315,6 +334,7 @@ export function useRadioTTS(options: UseRadioTTSOptions = {}) {
     setVoiceURI,
     engine,
     setEngine,
+    aiAllowed,
     aiVoice,
     setAiVoice,
     ai,
