@@ -226,6 +226,20 @@ test("team asks a driver, the driver answers, and chat reaches the team", () => 
   assert.ok("error" in applyCommand(s, { type: "driverRadio", text: "hi" }, { ...ctx(30), actor: "nobody" }));
 });
 
+test("an independent driver's radio message goes to the stewards and shows to that driver only", () => {
+  let s = emptyState();
+  s = run(s, { type: "add", name: "Ind", plate: "i-1" }, 0);
+  s = run(s, { type: "add", name: "bob", plate: "b-1", team: { id: "t2", name: "Blue" } }, 0);
+  const c = applyCommand(s, { type: "driverRadio", text: "Car stuck" }, { ...ctx(30), actor: "ind" });
+  assert.ok("state" in c);
+  const m = c.state.radio.at(-1)!;
+  assert.equal(m.to, "stewards");
+  assert.equal(m.from, "ind");
+  assert.ok(viewFor(c.state, { staff: true, teams: [] }).radio.some((x) => x.id === m.id));
+  assert.ok(viewFor(c.state, { staff: false, user: "ind", teams: [] }).radio.some((x) => x.id === m.id));
+  assert.ok(!viewFor(c.state, { staff: false, user: "bob", teams: ["t2"] }).radio.some((x) => x.id === m.id));
+});
+
 test("a team reorders only its own queued cars; cars carry the team's car", () => {
   let s = emptyState();
   const red = { id: "t1", name: "Red", car: "GT3" };
