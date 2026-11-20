@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { classify } from "../shared/race";
 import { eventPoints } from "../shared/standings";
 import type { SessionInfo } from "../shared/types";
-import { api } from "./api";
+import { api, raceAccess } from "./api";
+import { useMe } from "./me";
 import { NotFound } from "./NotFound";
 import { Bd, Box, FlagBar, ResultsTable } from "./site/parts";
 import { SessionSelect } from "./SessionSelect";
@@ -16,11 +17,19 @@ export function RacePage() {
   const { state, live, offset } = useRaceLive(id);
   const [points, setPoints] = useState<Map<string, number> | undefined>();
   const now = useClock(offset);
+  const { me } = useMe();
+  const [steward, setSteward] = useState(false);
 
   useEffect(() => {
     setInfo(undefined);
     api.session(id).then(setInfo, () => setInfo(null));
   }, [id]);
+
+  // The server decides who stewards this race (admins, the global steward role, the race's steward list).
+  useEffect(() => {
+    setSteward(false);
+    if (me) raceAccess(id).then((a) => setSteward(a.steward), () => {});
+  }, [id, me]);
 
   // A championship session shows the points each driver is awarded.
   const finishedN = state ? state.runs.filter((r) => r.status === "finished").length : 0;
@@ -52,14 +61,17 @@ export function RacePage() {
             {info && <SessionSelect sessions={info.race.sessions} current={info.session.id} />}
             {cd && !race?.ended && <b>{cd.phase === "ended" ? "Session ended" : `${cd.label} ${cd.value}`}</b>}
           </span>
-          {!race?.ended && (
-            <button
-              className="btn"
-              onClick={() => window.open(`/session/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}
-            >
-              Radio
-            </button>
-          )}
+          <span className="bar">
+            {steward && <Link className="btn" to={`/session/${id}/steward`}>Stewards</Link>}
+            {!race?.ended && (
+              <button
+                className="btn"
+                onClick={() => window.open(`/session/${id}/driver`, `flagman-radio-${id}`, "popup,width=340,height=640")}
+              >
+                Radio
+              </button>
+            )}
+          </span>
         </div>
       )}
       <FlagBar flag={state?.flag} ended={race?.ended} live={live} />
