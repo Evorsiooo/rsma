@@ -3,6 +3,7 @@ import {
   classify,
   fmtPenalty,
   fmtTime,
+  releasable,
   spokenTime,
   type Flag,
   type RaceState,
@@ -23,9 +24,13 @@ export type Command =
   | { type: "noteDel"; id: string }
   | { type: "teamNote"; team: string; runId: string; text: string }
   | { type: "teamNoteDel"; team: string; id: string }
-  | { type: "pitAdd"; team: string; teamName: string; fromMs: number; toMs: number; lengthMs: number }
+  | { type: "pitAdd"; team: string; teamName: string; fromMs: number; toMs: number; lengthMs: number; entry?: string }
+  | { type: "planAdd"; team: string; teamName: string; entry: string; driver: string; fromMs: number; lengthMs: number }
+  | { type: "planDel"; team: string; id: string }
+  | { type: "nextDriver"; runId: string; team?: string }
+  | { type: "swapDriver"; runId: string; team?: string }
   | { type: "pitDel"; team: string; id: string }
-  | { type: "syncReg"; drivers: { name: string; team?: { id: string; name: string; car?: string } }[] }
+  | { type: "syncReg"; drivers: { name: string; team?: { id: string; name: string; car?: string }; entry?: { id: string; number?: string; plate?: string } }[] }
   | { type: "remove"; runId: string }
   | { type: "move"; runId: string; dir: -1 | 1 }
   | { type: "go" }
@@ -75,6 +80,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
   };
   s.notes ??= [];
   s.pitWindows ??= [];
+  s.plan ??= [];
   const auto = (to: "all" | string[], text: string, say?: string, tone?: Tone, team?: string, teamName?: string) => {
     s.radio.push({ id: ctx.newId(), at: ctx.now, to, text, say, from: "Race control", auto: true, tone, team, teamName });
   };
@@ -130,13 +136,33 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
         return true;
       });
       const have = new Set(s.runs.map((r) => r.name.toLowerCase()));
+      const carInfo = (d: (typeof cmd.drivers)[number]) => {
+        const id = clean(d.entry?.id, 60);
+        return id ? { id, number: clean(d.entry?.number, 4) || undefined, plate: clean(d.entry?.plate, 12).toUpperCase() } : undefined;
+      };
+      let changed = 0;
       for (const [key, d] of want) {
-        if (have.has(key)) continue;
+        const car = carInfo(d);
+        if (have.has(key)) {
+          // A car's number and plate follow the car record; a driver moved to another car follows it while still queued.
+          for (const r of s.runs.filter((x) => x.name.toLowerCase() === key)) {
+            if (!car) continue;
+            const moved = r.entry !== car.id;
+            if (moved && r.status !== "queued") continue;
+            if (moved || r.number !== car.number || r.plate !== car.plate) {
+              r.entry = car.id;
+              r.number = car.number;
+              r.plate = car.plate;
+              changed++;
+            }
+          }
+          continue;
+        }
         const team = d.team && clean(d.team.id, 60) && clean(d.team.name, 40) ? { id: clean(d.team.id, 60), name: clean(d.team.name, 40) } : undefined;
-        s.runs.push({ id: ctx.newId(), name: clean(d.name, 40), plate: "", reg: true, status: "queued", penalties: [], penaltyMs: 0, team: team?.id, teamName: team?.name, car: team ? clean(d.team?.car, 40) || undefined : undefined });
+        s.runs.push({ id: ctx.newId(), name: clean(d.name, 40), plate: car?.plate ?? "", number: car?.number, entry: car?.id, reg: true, status: "queued", penalties: [], penaltyMs: 0, team: team?.id, teamName: team?.name, car: team ? clean(d.team?.car, 40) || undefined : undefined });
         added++;
       }
-      if (!added && !removed) return { error: "nothing_to_add" };
+      if (!added && !removed && !changed) return { error: "nothing_to_add" };
       if (added) note(`${added} driver${added === 1 ? "" : "s"} staged from registration`);
       if (removed) note(`${removed} driver${removed === 1 ? "" : "s"} removed from the queue by registration`);
       break;
@@ -161,8 +187,8 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       break;
     }
     case "go": {
-      const next = s.runs.find((r) => r.status === "queued");
-      if (!next) return { error: "no_queue" };
+      const next = releasable(s.runs);
+      if (!next) return { error: s.runs.some((r) => r.status === "queued") ? "car_busy" : "no_queue" };
       next.status = "onstage";
       next.startedAt = ctx.now + COUNTDOWN_MS;
       s.lastReleaseAt = ctx.now;
@@ -241,8 +267,8 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       break;
     }
     case "teamGo": {
-      const next = s.runs.find((r) => r.status === "queued" && r.team === cmd.team);
-      if (!next) return { error: "no_queue" };
+      const next = releasable(s.runs, cmd.team);
+      if (!next) return { error: s.runs.some((r) => r.status === "queued" && r.team === cmd.team) ? "car_busy" : "no_queue" };
       next.status = "onstage";
       next.startedAt = ctx.now + COUNTDOWN_MS;
       s.lastReleaseAt = ctx.now;
@@ -286,6 +312,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
         teamName: r.teamName,
         car: r.car,
         number: r.number,
+        entry: r.entry,
         reg: r.reg,
         mode: r.mode,
       });
@@ -383,10 +410,13 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const plate = clean(cmd.plate, 12).toUpperCase();
       const number = clean(cmd.number, 4) || undefined;
       if (!plate && !number) return { error: "invalid" };
-      r.plate = plate;
-      r.number = number;
+      // In an endurance event the number and plate belong to the car, so every driver of it changes.
+      for (const x of r.entry ? s.runs.filter((y) => y.entry === r.entry) : [r]) {
+        x.plate = plate;
+        x.number = number;
+      }
       const idStr = [number ? `#${number}` : "", plate].filter(Boolean).join(" ");
-      note(`Info updated for ${r.name}: ${idStr}`);
+      note(r.entry ? `Info updated for the car of ${r.name}: ${idStr}` : `Info updated for ${r.name}: ${idStr}`);
       break;
     }
     case "setTime": {
@@ -529,7 +559,9 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const { fromMs, toMs, lengthMs } = cmd;
       if (!team || ![fromMs, toMs, lengthMs].every(Number.isFinite) || fromMs < 0 || toMs <= fromMs || toMs > lengthMs) return { error: "invalid" };
       if (s.pitWindows.filter((w) => w.team === team).length >= 20) return { error: "too_many" };
-      s.pitWindows.push({ id: ctx.newId(), team, teamName: clean(cmd.teamName, 40), fromMs, toMs });
+      const entry = clean(cmd.entry, 60) || undefined;
+      if (entry && !s.runs.some((r) => r.entry === entry && r.team === team)) return { error: "not_found" };
+      s.pitWindows.push({ id: ctx.newId(), team, teamName: clean(cmd.teamName, 40), fromMs, toMs, entry });
       s.pitWindows.sort((a, b) => a.fromMs - b.fromMs);
       note(`Pit window, ${clean(cmd.teamName, 40) || team}: ${fmtClockMs(fromMs)} to ${fmtClockMs(toMs)}`, "teal");
       break;
@@ -539,6 +571,65 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       if (!w) return { error: "not_found" };
       s.pitWindows = s.pitWindows.filter((x) => x !== w);
       note(`Pit window removed, ${w.teamName || w.team}: ${fmtClockMs(w.fromMs)} to ${fmtClockMs(w.toMs)}`, "teal");
+      break;
+    }
+    case "planAdd": {
+      // Who drives a car from a given time. The same time replaces the driver already planned there.
+      const team = clean(cmd.team, 60);
+      const entry = clean(cmd.entry, 60);
+      const driver = clean(cmd.driver, 40);
+      const { fromMs, lengthMs } = cmd;
+      if (!team || !entry || !driver || ![fromMs, lengthMs].every(Number.isFinite) || fromMs < 0 || fromMs >= lengthMs) return { error: "invalid" };
+      if (!s.runs.some((r) => r.entry === entry && r.team === team && r.name.toLowerCase() === driver.toLowerCase())) return { error: "not_found" };
+      s.plan = s.plan.filter((p) => !(p.entry === entry && p.fromMs === fromMs));
+      if (s.plan.filter((p) => p.team === team).length >= 40) return { error: "too_many" };
+      s.plan.push({ id: ctx.newId(), team, teamName: clean(cmd.teamName, 40), entry, driver, fromMs });
+      s.plan.sort((a, b) => a.fromMs - b.fromMs);
+      note(`Driver plan, ${clean(cmd.teamName, 40) || team}: ${driver} from ${fmtClockMs(fromMs)}`, "teal");
+      break;
+    }
+    case "planDel": {
+      const p = s.plan.find((x) => x.id === cmd.id && x.team === cmd.team);
+      if (!p) return { error: "not_found" };
+      s.plan = s.plan.filter((x) => x !== p);
+      note(`Driver plan removed, ${p.teamName || p.team}: ${p.driver} from ${fmtClockMs(p.fromMs)}`, "teal");
+      break;
+    }
+    case "nextDriver": {
+      // The next driver of a car goes to the front of its queue, and the driver on track and the next one are told.
+      const r = run(cmd.runId);
+      if (!r || !r.entry || (cmd.team && r.team !== cmd.team)) return { error: "not_found" };
+      if (r.status !== "queued") return { error: "not_queued" };
+      const queue = s.runs.filter((x) => x.entry === r.entry && x.status === "queued");
+      if (queue[0] !== r) {
+        const a = s.runs.indexOf(queue[0]);
+        const b = s.runs.indexOf(r);
+        [s.runs[a], s.runs[b]] = [s.runs[b], s.runs[a]];
+      }
+      const current = s.runs.find((x) => x.entry === r.entry && x.status === "onstage");
+      const car = r.number ? `#${r.number}` : r.plate || "the car";
+      if (current) auto([current.id], `Box this lap, ${r.name} takes over.`, undefined, "teal", current.team, current.teamName);
+      auto([r.id], `You are next in ${car}, get ready.`, undefined, "teal", r.team, r.teamName);
+      note(`Next driver of ${car}: ${r.name}`, "teal");
+      break;
+    }
+    case "swapDriver": {
+      // The driver on track hands over: their run ends with their best lap and the next driver starts at once.
+      const next = run(cmd.runId);
+      if (!next || !next.entry || (cmd.team && next.team !== cmd.team)) return { error: "not_found" };
+      if (next.status !== "queued") return { error: "not_queued" };
+      const cur = s.runs.find((x) => x.entry === next.entry && x.status === "onstage");
+      if (!cur || cur.startedAt == null || cur.startedAt > ctx.now) return { error: "not_running" };
+      if (cur.mode !== "long") return { error: "swap_long_run" };
+      complete(cur);
+      next.status = "onstage";
+      next.mode = "long";
+      next.startedAt = ctx.now;
+      next.lapAt = undefined;
+      s.lastReleaseAt = ctx.now;
+      const car = next.number ? `#${next.number}` : next.plate || "the car";
+      auto([next.id], `You are on track in ${car}.`, undefined, "green", next.team, next.teamName);
+      note(`Swap in ${car}: ${cur.name} to ${next.name}`, "green");
       break;
     }
     case "reset": {

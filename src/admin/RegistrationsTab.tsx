@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
-import { inGroup, spotsLine, statusText, REG_KIND_LABEL, REG_KINDS, type GroupStatus, type RegKind, type Registration, type RegistrationView } from "../../shared/registration";
+import { carName, driverUnit, inGroup, lineupLine, spotsLine, statusText, CUT_LABEL, REG_KIND_LABEL, REG_KINDS, type Car, type GroupStatus, type RegKind, type Registration, type RegistrationView } from "../../shared/registration";
 import type { AdminRace } from "../../shared/types";
-import { api, registrationApi } from "../api";
+import { api, attendanceApi, registrationApi } from "../api";
+import { ATTENDANCE_LABEL, type AttendanceStatus, type AttendanceView } from "../../shared/attendance";
 import { CodeDialog, useTokenMode } from "../access";
 import { Dialog, toast } from "../ui";
 
@@ -11,6 +12,12 @@ const ERRORS: Record<string, string> = {
   lookup_failed: "Could not reach Roblox. Try again in a moment.",
   invalid: "Invalid value.",
   forbidden: "Not allowed.",
+  car_limit: "That team has entered all the cars it is allowed.",
+  number_taken: "Another car has that number.",
+  not_registered: "Only drivers the team has registered can be in a car.",
+  in_other_car: "A driver can only be in one car.",
+  too_many: "Too many drivers in one car.",
+  not_endurance: "This event is not an endurance event.",
 };
 const clip = { overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } as const;
 const say = (e: string) => toast(ERRORS[e] ?? "Request failed.");
@@ -56,16 +63,85 @@ export function RegistrationsTab({ races }: { races: AdminRace[] }) {
             <tbody>
               {REG_KINDS.map((k) => (
                 <tr key={k}>
-                  <td className="is-left">{REG_KIND_LABEL[k]}s</td>
-                  <td>{spotsLine(view.counts[k])}</td>
+                  <td className="is-left">{k === "driver" && view.settings?.endurance ? "Cars" : `${REG_KIND_LABEL[k]}s`}</td>
+                  <td>{spotsLine(view.counts[k], k === "driver" ? (view.settings?.endurance ? driverUnit(view.settings) : "") : "")}</td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
       )}
+      {view?.settings?.endurance && <CarsSection view={view} sid={current} act={act} />}
+      {view && <AttendancePanel group={view.group} root={current} />}
       {view && <StaffSection view={view} sid={current} act={act} />}
     </>
+  );
+}
+
+/** Attendance of one session of the group: who confirmed, and staff overrides. Hidden while no session of the group takes attendance. */
+function AttendancePanel({ group, root }: { group: RegistrationView["group"]; root: string }) {
+  const [sid, setSid] = useState(root);
+  const [v, setV] = useState<AttendanceView | null>(null);
+  const [any, setAny] = useState<boolean | null>(null);
+  useEffect(() => setSid(root), [root]);
+  const load = useCallback(() => attendanceApi.get(sid).then(setV, () => setV(null)), [sid]);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load]);
+  useEffect(() => {
+    Promise.all(group.map((m) => attendanceApi.get(m.id).then((a) => a.enabled, () => false))).then((l) => setAny(l.some(Boolean)));
+  }, [group.map((m) => m.id).join()]);
+  const set = async (uid: string, status: AttendanceStatus | null) => {
+    const r = await attendanceApi.staffSet(sid, uid, status);
+    if (!r.ok) say(r.error);
+    load();
+  };
+  if (!any) return null;
+  return (
+    <div className="r-panel">
+      <div className="r-header">Attendance</div>
+      {group.length > 1 && (
+        <div className="r-select" style={{ margin: 4 }}>
+          <select aria-label="Attendance session" value={sid} onChange={(e) => setSid(e.target.value)}>
+            {group.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+      )}
+      {v && !v.enabled && <div className="r-empty">This session does not take attendance.</div>}
+      {v?.enabled && v.rows.length === 0 && <div className="r-empty">No driver is In for this session.</div>}
+      {v?.enabled && v.rows.length > 0 && (
+        <table className="r-table">
+          <thead>
+            <tr>
+              <th className="is-left">Driver</th>
+              <th className="is-left" style={{ width: 140 }}>Team</th>
+              <th style={{ width: 150 }}>Answer</th>
+              <th className="is-left" style={{ width: 110 }}>Set by</th>
+              <th style={{ width: 240 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {v.rows.map((r) => (
+              <tr key={r.userId}>
+                <td className="is-left" style={clip}>{r.username}</td>
+                <td className="is-left" style={clip}>{r.teamName ?? "Independent"}</td>
+                <td style={{ color: r.status === "present" ? "var(--r-green)" : r.status === "absent" ? "var(--r-red)" : undefined }}>{ATTENDANCE_LABEL[r.status ?? "none"]}</td>
+                <td className="is-left" style={{ ...dim, ...clip }}>{r.by ?? ""}</td>
+                <td style={{ padding: 2 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
+                    <button className="r-cell" disabled={r.status === "present"} onClick={() => set(r.userId, "present")}>Present</button>
+                    <button className="r-cell" disabled={r.status === "absent"} onClick={() => set(r.userId, "absent")}>Absent</button>
+                    <button className="r-cell" disabled={r.status === null} onClick={() => set(r.userId, null)}>Clear</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 
@@ -79,6 +155,13 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
     api.teams().then(setTeams, () => {});
   }, []);
   const order = { in: 0, out: 1, waitlist: 2, denied: 3 } as const;
+  const endurance = !!view.settings?.endurance;
+  const cars = new Map(view.cars.map((c) => [c.id, c]));
+  const carOf = (r: Registration) => {
+    if (r.kind !== "driver" || !r.teamId) return "";
+    const c = r.carId ? cars.get(r.carId) : null;
+    return c ? `${carName(c)} · ${r.rank! <= c.seats ? `Race ${r.rank}` : `Reserve ${r.rank! - c.seats}`}` : "No car";
+  };
   const rows = [...view.registrations].sort((a, b) => REG_KINDS.indexOf(a.kind) - REG_KINDS.indexOf(b.kind) || order[a.cut] - order[b.cut] || a.at - b.at);
   return (
     <div className="r-panel">
@@ -92,6 +175,7 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
               <th className="is-left">Name</th>
               <th className="is-left" style={{ width: 80 }}>Type</th>
               <th className="is-left" style={{ width: 140 }}>Team</th>
+              {endurance && <th className="is-left" style={{ width: 150 }}>Car</th>}
               <th className="is-left" style={{ width: 120 }}>Discord</th>
               <th style={{ width: 100 }}>Group</th>
               <th style={{ width: 150 }}>Status</th>
@@ -104,6 +188,7 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
                 <td className="is-left" style={clip}>{r.username}</td>
                 <td className="is-left" style={clip}>{REG_KIND_LABEL[r.kind]}</td>
                 <td className="is-left" style={clip}>{r.teamName ?? "Independent"}</td>
+                {endurance && <td className="is-left" style={{ ...dim, ...clip }}>{carOf(r)}</td>}
                 <td className="is-left" style={{ ...dim, ...clip }}>{r.discord ?? ""}</td>
                 <td>{r.kind === "driver" ? (inGroup(r.group) ? "In group" : "Not in group") : ""}</td>
                 <td>{statusText(r)}</td>
@@ -178,6 +263,141 @@ function PersonDialog({ title, teams, initial, onSave, onClose }: { title: strin
         <span>Joined the RSMA Roblox group or request pending</span>
       </label>
       <input className="r-field" placeholder="Discord username" aria-label="Discord username" value={v.discord} onChange={(e) => setV({ ...v, discord: e.target.value })} />
+    </Dialog>
+  );
+}
+
+type Res2 = { ok: true } | { ok: false; error: string };
+
+/** Endurance events: the cars teams have entered, with their ranked drivers. Staff add, change and remove them. */
+function CarsSection({ view, sid, act }: { view: RegistrationView; sid: string; act: (p: Promise<Res2>) => Promise<boolean> }) {
+  const [edit, setEdit] = useState<Car | "new" | null>(null);
+  const s = view.settings!;
+  const rows = [...view.cars].sort((a, b) => a.teamName.localeCompare(b.teamName) || a.at - b.at);
+  return (
+    <div className="r-panel">
+      <div className="r-header">Cars</div>
+      {rows.length === 0 ? (
+        <div className="r-empty">No car entered yet. Up to {s.carsPerTeam} per team, {s.seatsPerCar} drivers racing in each.</div>
+      ) : (
+        <table className="r-table">
+          <thead>
+            <tr>
+              <th className="is-left" style={{ width: 140 }}>Team</th>
+              <th className="is-left" style={{ width: 170 }}>Car</th>
+              <th className="is-left">Drivers, in rank order</th>
+              <th style={{ width: 150 }}>Status</th>
+              <th style={{ width: 160 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((c) => (
+              <tr key={c.id}>
+                <td className="is-left" style={clip}>{c.teamName}</td>
+                <td className="is-left" style={clip}>{carName(c)}</td>
+                <td className="is-left" style={clip}>{c.drivers.length ? `${c.drivers.map((d) => (d.race ? d.username : `${d.username} (reserve)`)).join(", ")}` : <span style={dim}>No drivers</span>}</td>
+                <td>{c.drivers.length === 0 ? CUT_LABEL.waitlist : c.cut === "waitlist" && c.waitPos ? `Waiting, position ${c.waitPos}` : c.cut === "in" ? "In" : "Waiting"}</td>
+                <td style={{ padding: 2 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                    <button className="r-cell" onClick={() => setEdit(c)}>Edit</button>
+                    <button className="r-cell r-cell--red" onClick={() => act(registrationApi.carRemove(sid, c.id))}>Remove</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div style={{ padding: 4 }}>
+        <button className="r-btn" style={{ width: 160 }} onClick={() => setEdit("new")}>Add a car</button>
+      </div>
+      {edit && <CarDialog view={view} car={edit === "new" ? null : edit} onClose={() => setEdit(null)} onSave={(b, teamId) => act(edit === "new" ? registrationApi.carAdd(sid, { ...b, teamId: teamId! }) : registrationApi.carEdit(sid, edit.id, b))} />}
+    </div>
+  );
+}
+
+function CarDialog({ view, car, onSave, onClose }: { view: RegistrationView; car: Car | null; onSave: (b: { label: string; number: string; plate: string; seats: number; drivers: string[] }, teamId: string | null) => Promise<boolean>; onClose: () => void }) {
+  const s = view.settings!;
+  const [teams, setTeams] = useState<{ id: string; name: string }[]>([]);
+  useEffect(() => {
+    api.teams().then(setTeams, () => {});
+  }, []);
+  const [teamId, setTeamId] = useState<string>(car?.teamId ?? "");
+  const [v, setV] = useState({ label: car?.label ?? "", number: car?.number ?? "", plate: car?.plate ?? "", seats: String(car?.seats ?? s.seatsPerCar) });
+  const [drivers, setDrivers] = useState<string[]>(car?.drivers.map((d) => d.userId) ?? []);
+  const [add, setAdd] = useState("");
+  const team = car?.teamId ?? teamId;
+  // The team's registered drivers who are not in another car.
+  const name = new Map(view.registrations.map((r) => [r.userId, r.username]));
+  const free = view.registrations.filter((r) => r.kind === "driver" && r.teamId === team && !r.denied && !drivers.includes(r.userId) && (!r.carId || r.carId === car?.id));
+  const seats = /^\d+$/.test(v.seats) ? Number(v.seats) : NaN;
+  const move = (i: number, by: number) => setDrivers((l) => {
+    const next = [...l];
+    [next[i], next[i + by]] = [next[i + by], next[i]];
+    return next;
+  });
+  const ok = !!team && seats >= 1 && seats <= Math.max(s.seatsPerCar, car?.seats ?? 0);
+  return (
+    <Dialog
+      title={car ? `Edit ${carName(car)}` : "Add a car"}
+      size="l"
+      onClose={onClose}
+      foot={
+        <>
+          <button className="r-btn" onClick={onClose}>Cancel</button>
+          <button className="r-btn pri" disabled={!ok} onClick={async () => { if (await onSave({ label: v.label, number: v.number, plate: v.plate, seats, drivers }, car ? null : teamId)) onClose(); }}>Save</button>
+        </>
+      }
+    >
+      {!car && (
+        <div className="r-select">
+          <select aria-label="Team" value={teamId} onChange={(e) => { setTeamId(e.target.value); setDrivers([]); setAdd(""); }}>
+            <option value="">Choose a team</option>
+            {teams.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
+          </select>
+        </div>
+      )}
+      <input className="r-field" placeholder="Car name" aria-label="Car name" value={v.label} onChange={(e) => setV({ ...v, label: e.target.value })} />
+      <div className="r-row">
+        <input className="r-field r-fill" placeholder="Number" aria-label="Car number" value={v.number} onChange={(e) => setV({ ...v, number: e.target.value })} />
+        <input className="r-field r-fill" placeholder="Plate" aria-label="Plate" value={v.plate} onChange={(e) => setV({ ...v, plate: e.target.value })} />
+      </div>
+      <label className="r-row" style={{ alignItems: "center" }}>
+        <span style={{ width: 240, flex: "none" }}>Drivers racing (at most {s.seatsPerCar})</span>
+        <input className="r-field r-fill" inputMode="numeric" aria-label="Drivers racing" value={v.seats} onChange={(e) => setV({ ...v, seats: e.target.value })} />
+      </label>
+      <div style={dim}>Drivers, in rank order</div>
+      {drivers.length === 0 ? (
+        <div className="r-empty">No drivers yet.</div>
+      ) : (
+        <table className="r-table">
+          <tbody>
+            {drivers.map((u, i) => (
+              <tr key={u}>
+                <td style={{ width: 90 }} className="is-left">{i < (seats || 0) ? "Race" : "Reserve"}</td>
+                <td className="is-left" style={clip}>{name.get(u) ?? u}</td>
+                <td style={{ width: 210, padding: 2 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
+                    <button className="r-cell" disabled={i === 0} onClick={() => move(i, -1)}>Up</button>
+                    <button className="r-cell" disabled={i === drivers.length - 1} onClick={() => move(i, 1)}>Down</button>
+                    <button className="r-cell r-cell--red" onClick={() => setDrivers((l) => l.filter((x) => x !== u))}>Remove</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+      <div style={{ color: "var(--r-text-dim)" }}>{lineupLine(drivers.length, seats || 0)}</div>
+      <div className="r-row">
+        <div className="r-select r-fill">
+          <select aria-label="Add a driver" value={add} onChange={(e) => setAdd(e.target.value)} disabled={!team}>
+            <option value="">{team ? (free.length ? "Choose a driver" : "No driver left to add") : "Choose a team first"}</option>
+            {free.map((r) => <option key={r.userId} value={r.userId}>{r.username}</option>)}
+          </select>
+        </div>
+        <button className="r-btn" style={{ width: 160 }} disabled={!add} onClick={() => { setDrivers((l) => [...l, add]); setAdd(""); }}>Add driver</button>
+      </div>
     </Dialog>
   );
 }

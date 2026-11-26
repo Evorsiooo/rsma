@@ -1,4 +1,4 @@
-import { fmtPenalty, fmtTime, type Row } from "../shared/race";
+import { carText, fmtPenalty, fmtTime, type Row } from "../shared/race";
 import { fmtLive } from "./ui";
 
 const STATUS_TEXT = { queued: "Queued", onstage: "On stage", finished: "Finished", dnf: "DNF" } as const;
@@ -25,16 +25,28 @@ interface Props {
 
 /** Timing table shared by the steward and team panels. */
 export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeLabel, onRadio }: Props) {
+  // Endurance: the car comes first (team and car), then the person driving it.
+  const endurance = rows.some((r) => r.entry);
   return (
     <table className="r-table">
       <thead>
         <tr>
           <th className="is-left" style={{ width: 28 }}>P</th>
           <th className="is-left" style={{ width: 36 }}>No</th>
-          <th className="is-left" style={{ width: 170 }}>Driver</th>
-          <th className="is-left" style={{ width: 100 }}>Plate</th>
-          <th className="is-left">Team</th>
-          <th className="is-left">Car</th>
+          {endurance ? (
+            <>
+              <th className="is-left" style={{ width: 180 }}>Car</th>
+              <th className="is-left">Driving</th>
+              <th className="is-left" style={{ width: 80 }}>Plate</th>
+            </>
+          ) : (
+            <>
+              <th className="is-left" style={{ width: 170 }}>Driver</th>
+              <th className="is-left" style={{ width: 100 }}>Plate</th>
+              <th className="is-left">Team</th>
+              <th className="is-left">Car</th>
+            </>
+          )}
           <th className="is-left" style={{ width: 80 }}>Status</th>
           {modeLabel && <th className="is-left" style={{ width: 120 }}>Mode</th>}
           <th style={{ width: 90 }}>Time</th>
@@ -55,21 +67,42 @@ export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeL
           >
             <td className="is-left" style={{ color: "var(--r-teal)" }}>{r.rank ?? ""}</td>
             <td className="is-left">{r.number ?? ""}</td>
-            <td className="is-left" style={mine?.(r) ? { color: "var(--r-teal)" } : undefined}>
-              {r.name}
-              {onRadio && (!mine || mine(r)) && (
-                <span
-                  className={`r-tag${onRadio.includes(r.name.toLowerCase()) ? " is-green" : ""}`}
-                  style={{ marginLeft: 6 }}
-                  title={onRadio.includes(r.name.toLowerCase()) ? "Driver is on the radio" : "Driver is not on the radio"}
-                >
-                  RD
-                </span>
-              )}
-            </td>
-            <td className="is-left" style={{ color: "var(--r-red)" }}>{r.plate}</td>
-            <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.teamName ?? ""}</td>
-            <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.car ?? ""}</td>
+            {endurance ? (
+              <>
+                <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis", ...(mine?.(r) ? { color: "var(--r-teal)" } : undefined) }}>{carText(r)}</td>
+                <td className="is-left" style={mine?.(r) ? { color: "var(--r-teal)" } : undefined}>
+                  {r.name}
+                  {onRadio && (!mine || mine(r)) && (
+                    <span
+                      className={`r-tag${onRadio.includes(r.name.toLowerCase()) ? " is-green" : ""}`}
+                      style={{ marginLeft: 6 }}
+                      title={onRadio.includes(r.name.toLowerCase()) ? "Driver is on the radio" : "Driver is not on the radio"}
+                    >
+                      RD
+                    </span>
+                  )}
+                </td>
+                <td className="is-left" style={{ color: "var(--r-red)" }}>{r.plate}</td>
+              </>
+            ) : (
+              <>
+                <td className="is-left" style={mine?.(r) ? { color: "var(--r-teal)" } : undefined}>
+                  {r.name}
+                  {onRadio && (!mine || mine(r)) && (
+                    <span
+                      className={`r-tag${onRadio.includes(r.name.toLowerCase()) ? " is-green" : ""}`}
+                      style={{ marginLeft: 6 }}
+                      title={onRadio.includes(r.name.toLowerCase()) ? "Driver is on the radio" : "Driver is not on the radio"}
+                    >
+                      RD
+                    </span>
+                  )}
+                </td>
+                <td className="is-left" style={{ color: "var(--r-red)" }}>{r.plate}</td>
+                <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.teamName ?? ""}</td>
+                <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis" }}>{r.car ?? ""}</td>
+              </>
+            )}
             <td className="is-left" style={{ color: STATUS_COLOR[r.status] }}>{STATUS_TEXT[r.status]}</td>
             {modeLabel && <td className="is-left" style={{ color: "var(--r-text-dim)" }}>{modeLabel(r)}</td>}
             <td style={{ color: "var(--r-yellow)" }}>

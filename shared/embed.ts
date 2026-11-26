@@ -14,6 +14,8 @@ export const THEME_COLOR = "#0031a7";
 
 export const DEFAULT_EMBED: Embed = { title: "Ro-State Motorsport Association", description: "", image: "default" };
 
+const ATTENDANCE_EMBED: Embed = { title: "Confirm attendance", description: "Sign in with Roblox and confirm you are here for the session.", image: "driver" };
+
 const STATIC: Record<string, Embed> = {
   "/": { title: "Ro-State Motorsport Association", description: "Live timing, results and registration for RSMA events.", image: "home" },
   "/schedule": { title: "Schedule", description: "Upcoming RSMA races and sessions, with start times in your own time zone.", image: "home" },
@@ -48,6 +50,7 @@ export function routeOf(pathname: string): EmbedRoute {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
   const fixed = STATIC[path] ?? (path.startsWith("/standings/") ? STATIC["/standings"] : undefined);
   if (fixed) return { kind: "static", embed: fixed };
+  if (/^\/attend\/[^/]+$/.test(path)) return { kind: "static", embed: ATTENDANCE_EMBED };
   const s = path.match(/^\/session\/([^/]+)$/);
   if (s) return { kind: "session", id: decodeURIComponent(s[1]) };
   const r = path.match(/^\/race\/([^/]+)$/);

@@ -1,7 +1,8 @@
+import type { AttendanceStatus, AttendanceView } from "../shared/attendance";
 import type { EventView, GroupStatus, RegKind, RegSettings, RegSummary, RegistrationView } from "../shared/registration";
 import type { TeamRole } from "../shared/teams";
 import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
-import type { StandingsData, PointsConfig } from "../shared/standings";
+import type { StandingsData, PointsConfig, ResultRow } from "../shared/standings";
 import type { Command } from "../shared/commands";
 import type { RaceState } from "../shared/race";
 
@@ -110,6 +111,9 @@ export const admin = {
   saveEvent: (id: string, e: object) => send("PUT", `/api/admin/standings/events/${id}`, e),
   setHalf: (id: string, half: boolean) => send("PATCH", `/api/admin/standings/events/${id}`, { half }),
   deleteEvent: (id: string) => send("DELETE", `/api/admin/standings/events/${id}`),
+  sessionResults: (sid: string) => get<{ results: ResultRow[] }>(`/api/admin/sessions/${sid}/results`),
+  saveSessionResults: (sid: string, results: object[]) => send("PUT", `/api/admin/sessions/${sid}/results`, { results }),
+  clearSessionResults: (sid: string) => send("DELETE", `/api/admin/sessions/${sid}/results`),
   system: () => get<SystemInfo>("/api/admin/system"),
   setAiVoice: (on: boolean) => send("PUT", "/api/admin/system/ai-voice", { on }),
   setTokenMode: (on: boolean) => send("PUT", "/api/admin/system/token-mode", { on }),
@@ -129,8 +133,14 @@ async function teamCall(method: string, path: string, body?: unknown): Promise<s
   return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? "failed";
 }
 
-export const addPitWindow = (sessionId: string, teamId: string, fromMs: number, toMs: number) =>
-  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/pit`, { fromMs, toMs });
+export const addPitWindow = (sessionId: string, teamId: string, fromMs: number, toMs: number, entry?: string) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/pit`, { fromMs, toMs, entry });
+export const addPlanDriver = (sessionId: string, teamId: string, entry: string, driver: string, fromMs: number) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/plan`, { entry, driver, fromMs });
+export const removePlanDriver = (sessionId: string, teamId: string, planId: string) =>
+  teamCall("DELETE", `/api/sessions/${sessionId}/team/${teamId}/plan/${planId}`);
+export const teamDriver = (sessionId: string, teamId: string, action: "next" | "swap", runId: string) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/driver`, { action, runId });
 export const removePitWindow = (sessionId: string, teamId: string, windowId: string) =>
   teamCall("DELETE", `/api/sessions/${sessionId}/team/${teamId}/pit/${windowId}`);
 export const moveOwnCar = (sessionId: string, teamId: string, runId: string, dir: -1 | 1) =>
@@ -163,6 +173,12 @@ export const myTeam = {
 };
 
 const reg = (sid: string, path = "") => `/api/registration/${sid}${path}`;
+export const attendanceApi = {
+  get: (sid: string) => get<AttendanceView>(`/api/attendance/${sid}`),
+  answer: (sid: string, status: AttendanceStatus) => send("PUT", `/api/attendance/${sid}`, { status }),
+  staffSet: (sid: string, userId: string, status: AttendanceStatus | null) => send("PUT", `/api/attendance/${sid}/${userId}`, { status }),
+};
+
 export const registrationApi = {
   list: () => get<RegSummary[]>("/api/registration"),
   get: (sid: string) => get<RegistrationView>(reg(sid)),
@@ -178,4 +194,19 @@ export const registrationApi = {
   staffEdit: (sid: string, userId: string, b: { denied?: boolean; teamId?: string | null; group?: GroupStatus; kind?: RegKind; discord?: string }) => send("PUT", reg(sid, `/staff/${userId}`), b),
   staffCode: (sid: string, userId: string) => send("POST", reg(sid, `/staff/${userId}/code`)),
   staffRemove: (sid: string, userId: string) => send("DELETE", reg(sid, `/staff/${userId}`)),
+  teamCarAdd: (sid: string, teamId: string, b: CarFields) => send("POST", reg(sid, `/team/${teamId}/cars`), b),
+  teamCarEdit: (sid: string, teamId: string, carId: string, b: CarFields) => send("PUT", reg(sid, `/team/${teamId}/cars/${carId}`), b),
+  teamCarRemove: (sid: string, teamId: string, carId: string) => send("DELETE", reg(sid, `/team/${teamId}/cars/${carId}`)),
+  carAdd: (sid: string, b: CarFields & { teamId: string }) => send("POST", reg(sid, "/cars"), b),
+  carEdit: (sid: string, carId: string, b: CarFields) => send("PUT", reg(sid, `/cars/${carId}`), b),
+  carRemove: (sid: string, carId: string) => send("DELETE", reg(sid, `/cars/${carId}`)),
 };
+
+/** What staff set on a car; `drivers` is the whole ranked lineup (user ids). */
+export interface CarFields {
+  label?: string;
+  number?: string;
+  plate?: string;
+  seats?: number;
+  drivers?: string[];
+}

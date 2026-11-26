@@ -118,6 +118,12 @@
 .r-timeline{position:relative;height:24px}
 .r-timeline__window{position:absolute;top:2px;bottom:2px;left:var(--from,0%);width:var(--len,0%);background:repeating-linear-gradient(135deg,var(--r-yellow) 0 4px,var(--r-panel) 4px 8px)}
 .r-timeline__now{position:absolute;top:0;bottom:0;left:var(--at,0%);width:2px;background:var(--r-green)}
+/* r-timeline__driver: endurance pit plan, one block per driver stint on the lane (with r-timeline--drivers) */
+.r-timeline--drivers{height:32px}
+.r-timeline__driver{--tone:var(--r-green);position:absolute;top:0;bottom:0;left:var(--from,0%);width:var(--len,0%);box-sizing:border-box;border:1px solid var(--tone);color:var(--tone);background:var(--r-panel);display:flex;align-items:flex-end;padding:0 4px 3px;overflow:hidden;white-space:nowrap;text-transform:uppercase;font:400 var(--r-size-pixel)/1 var(--r-font-pixel)}
+.r-timeline__driver.is-yellow{--tone:var(--r-yellow)} .r-timeline__driver.is-teal{--tone:var(--r-teal)} .r-timeline__driver.is-magenta{--tone:var(--r-magenta)}
+.r-timeline--drivers .r-timeline__window{top:0;bottom:auto;height:10px;z-index:1}
+.r-timeline--drivers .r-timeline__now{z-index:2}
 .r-legend{display:flex;justify-content:space-between;font:700 var(--r-size-label) var(--r-font-label);text-transform:uppercase;letter-spacing:.04em;color:var(--r-text-dim)}
 .r-popout{width:300px}
 

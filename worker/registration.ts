@@ -22,9 +22,10 @@ import {
 import { hasAny, MANAGER_ROLES, PANEL_ROLES, parseRoles } from "../shared/teams";
 import { getMe, hasRole } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
+import { pruneStatements } from "./entries";
 import { syncRegistered } from "./stage";
 import { cleanUsername, resolveUser, type AdminEnv } from "./admin";
-import { eventIn, loadEventData, managedTeams, pickUntilIn, rootIn, settingsIn, viewIn, type EventData } from "./reg-data";
+import { eventIn, loadEventData, lineupLockIn, managedTeams, pickUntilIn, rootIn, settingsIn, viewIn, type EntryRow, type EventData } from "./reg-data";
 
 type E = { Bindings: AdminEnv; Variables: { me: Me | null } };
 type C = Context<E>;
@@ -50,6 +51,12 @@ interface SettingsRow {
   teamLimit: number | null;
   pickCutoff: number | null;
   follows: string | null;
+  endurance: number;
+  carsPerTeam: number;
+  seatsPerCar: number;
+  attendance: number;
+  attendanceOpens: number;
+  attendanceCloses: number;
 }
 
 /** The session whose registration a session shares: itself, or the first of the sessions it follows. */
@@ -74,7 +81,7 @@ export async function rootOf(env: AdminEnv, sid: string): Promise<string> {
 export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSettings | null> {
   const [r, root] = await Promise.all([
     env.DB.prepare(
-      `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows
+      `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows, endurance, cars_per_team AS carsPerTeam, seats_per_car AS seatsPerCar, attendance, attendance_opens AS attendanceOpens, attendance_closes AS attendanceCloses
        FROM session_registration WHERE session_id = ?`,
     )
       .bind(sid)
@@ -85,13 +92,14 @@ export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSetti
   if (root !== sid) {
     // A linked session shares the first session's window and numbers; only its independents setting is its own.
     const w = await env.DB.prepare(
-      "SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, team_cap AS teamCap FROM session_registration WHERE session_id = ?",
+      "SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, team_cap AS teamCap, endurance, cars_per_team AS carsPerTeam, seats_per_car AS seatsPerCar FROM session_registration WHERE session_id = ?",
     )
       .bind(root)
-      .first<Omit<SettingsRow, "independents" | "follows" | "teamLimit" | "pickCutoff">>();
+      .first<Omit<SettingsRow, "independents" | "follows" | "teamLimit" | "pickCutoff" | "attendance" | "attendanceOpens" | "attendanceCloses">>();
     if (w) Object.assign(r, w);
   }
-  return { ...r, independents: !!r.independents, follows: root === sid ? null : r.follows };
+  const out = { ...r, independents: !!r.independents, endurance: !!r.endurance, attendance: !!r.attendance, follows: root === sid ? null : r.follows };
+  return out.endurance ? { ...out, teamLimit: null, pickCutoff: null } : out;
 }
 
 /** The sessions one registration covers, in start order, and the session where it is stored. */
@@ -130,12 +138,12 @@ async function pickUntil(env: AdminEnv, sid: string, s: RegSettings): Promise<nu
 registration.get("/", async (c) => {
   const now = Date.now();
   const { results } = await c.env.DB.prepare(
-    `SELECT r.session_id AS sessionId, r.opens_at AS opensAt, r.deadline, r.independents, r.follows, r.team_limit AS teamLimit, r.pick_cutoff AS pickCutoff, s.starts_at AS startsAt, s.ends_at AS endsAt
+    `SELECT r.session_id AS sessionId, r.opens_at AS opensAt, r.deadline, r.independents, r.follows, r.team_limit AS teamLimit, r.pick_cutoff AS pickCutoff, r.endurance, s.starts_at AS startsAt, s.ends_at AS endsAt
      FROM session_registration r JOIN sessions s ON s.id = r.session_id JOIN races a ON a.id = s.race_id
      WHERE a.status = 'active' AND a.expires_at > ?`,
   )
     .bind(now)
-    .all<{ sessionId: string; opensAt: number; deadline: number; independents: number; follows: string | null; teamLimit: number | null; pickCutoff: number | null; startsAt: number; endsAt: number }>();
+    .all<{ sessionId: string; opensAt: number; deadline: number; independents: number; follows: string | null; teamLimit: number | null; pickCutoff: number | null; endurance: number; startsAt: number; endsAt: number }>();
   const by = new Map(results.map((r) => [r.sessionId, r]));
   const rootOfRow = (r: (typeof results)[number]) => {
     let cur = r;
@@ -159,8 +167,9 @@ registration.get("/", async (c) => {
           independents: anyIndependents.get(root.sessionId) ?? false,
           root: root.sessionId,
           teamsOnly: (groupSize.get(root.sessionId) ?? 1) > 1 && !r.independents,
-          teamLimit: r.teamLimit,
-          pickUntil: r.teamLimit === null ? null : (r.pickCutoff ?? r.startsAt),
+          // The lineups of an endurance event replace the per-team driver limit.
+          teamLimit: root.endurance ? null : r.teamLimit,
+          pickUntil: r.teamLimit === null || root.endurance ? null : (r.pickCutoff ?? r.startsAt),
         };
       }) satisfies RegSummary[],
   );
@@ -291,7 +300,7 @@ registration.delete("/:sid/team/:teamId/:uid", async (c) => {
   const uid = c.req.param("uid");
   const held = d.regs.some((r) => r.sessionId === root && r.userId === uid && r.teamId === team.id);
   if (!held) return done(c, d);
-  await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ?").bind(root, uid, team.id).run();
+  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ?").bind(root, uid, team.id), ...pruneStatements(c.env.DB)]);
   d.regs = d.regs.filter((r) => !(r.sessionId === root && r.userId === uid && r.teamId === team.id));
   syncLater(c, sid);
   return done(c, d);
@@ -435,9 +444,10 @@ registration.put("/:sid/staff/:uid", async (c) => {
   const discord = body.discord === undefined ? cur.discord : cleanDiscord(body.discord);
   if (!kind || !group || !(await teamOk(c, teamId))) return c.json({ error: "invalid" }, 400);
   const denied = body.denied === undefined ? cur.denied : body.denied ? 1 : 0;
-  await c.env.DB.prepare("UPDATE registrations SET kind = ?, team_id = ?, grp = ?, denied = ?, discord = ? WHERE session_id = ? AND roblox_id = ?")
-    .bind(kind, teamId, group, denied, discord, sid, uid)
-    .run();
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE registrations SET kind = ?, team_id = ?, grp = ?, denied = ?, discord = ? WHERE session_id = ? AND roblox_id = ?").bind(kind, teamId, group, denied, discord, sid, uid),
+    ...pruneStatements(c.env.DB),
+  ]);
   syncLater(c, c.req.param("sid"));
   return c.json({ ok: true });
 });
@@ -453,7 +463,159 @@ registration.post("/:sid/staff/:uid/code", async (c) => {
 registration.delete("/:sid/staff/:uid", async (c) => {
   const me = await staff(c);
   if (me instanceof Response) return me;
-  await c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ?").bind(await rootOf(c.env, c.req.param("sid")), c.req.param("uid")).run();
+  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ?").bind(await rootOf(c.env, c.req.param("sid")), c.req.param("uid")), ...pruneStatements(c.env.DB)]);
   syncLater(c, c.req.param("sid"));
   return c.json({ ok: true });
+});
+
+// ---- Cars (endurance events) ------------------------------------------------------
+
+/** What a staff member sends for a car: the fields are optional, the lineup is the whole ranked list of user ids. */
+interface CarBody {
+  teamId?: unknown;
+  label?: unknown;
+  number?: unknown;
+  plate?: unknown;
+  seats?: unknown;
+  drivers?: unknown;
+}
+
+const MAX_LINEUP = 30;
+const cleanText = (v: unknown, max: number, pattern: RegExp): string | null | undefined =>
+  v === undefined ? undefined : v === null || (typeof v === "string" && v.trim() === "") ? null : typeof v === "string" && v.trim().length <= max && pattern.test(v.trim()) ? v.trim() : undefined;
+
+/** Checks a ranked lineup against the team's registered drivers and the other cars; the error code, or the cleaned ids. */
+function checkLineup(d: EventData, root: string, teamId: string, entryId: string | null, v: unknown): string[] | string {
+  if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) return "invalid";
+  const ids = [...new Set(v as string[])];
+  if (ids.length > MAX_LINEUP) return "too_many";
+  const mine = new Set(d.regs.filter((r) => r.sessionId === root && r.teamId === teamId && r.kind === "driver" && !r.denied).map((r) => r.userId));
+  if (ids.some((u) => !mine.has(u))) return "not_registered";
+  const taken = new Set(d.lineups.filter((l) => l.entryId !== entryId).map((l) => l.userId));
+  if (ids.some((u) => taken.has(u))) return "in_other_car";
+  return ids;
+}
+
+async function carGate(c: C): Promise<{ me: Me; d: EventData; root: string; s: RegSettings } | Response> {
+  const me = await staff(c);
+  if (me instanceof Response) return me;
+  const sid = c.req.param("sid") ?? "";
+  const d = await loadEventData(c.env, c, { sessionId: sid });
+  const s = settingsIn(d, sid);
+  if (!s) return c.json({ error: "no_registration" }, 404);
+  if (!s.endurance) return c.json({ error: "not_endurance" }, 409);
+  return { me, d, root: rootIn(d, sid), s };
+}
+
+const lineupStatements = (c: C, root: string, entryId: string, ids: string[]) => [
+  c.env.DB.prepare("DELETE FROM entry_drivers WHERE entry_id = ?").bind(entryId),
+  ...ids.map((u, i) => c.env.DB.prepare("INSERT INTO entry_drivers (entry_id, root_session, roblox_id, rank) VALUES (?, ?, ?, ?)").bind(entryId, root, u, i + 1)),
+];
+
+/** The event as it is after a change to the cars; staging follows in the background, like a registration change. */
+async function carsDone(c: C) {
+  const sid = c.req.param("sid") ?? "";
+  syncLater(c, sid);
+  return done(c, await loadEventData(c.env, c, { sessionId: sid }));
+}
+
+/** Enters a car for a team, up to the event's cars per team. Used by staff and by the team's managers. */
+async function addCar(c: C, d: EventData, root: string, s: RegSettings, teamId: string, b: CarBody) {
+  const own = d.entries.filter((e) => e.rootSession === root && e.teamId === teamId);
+  if (own.length >= s.carsPerTeam) return c.json({ error: "car_limit" }, 409);
+  const label = cleanText(b.label, 40, /^[^\n]+$/) ?? `Car ${own.length + 1}`;
+  const number = b.number === undefined ? null : cleanText(b.number, 4, /^[A-Za-z0-9]+$/);
+  const plate = b.plate === undefined ? null : cleanText(b.plate, 12, /^[A-Za-z0-9 -]+$/);
+  const seats = b.seats === undefined ? s.seatsPerCar : b.seats;
+  if (number === undefined || plate === undefined || !Number.isInteger(seats) || (seats as number) < 1 || (seats as number) > s.seatsPerCar) return c.json({ error: "invalid" }, 400);
+  if (number && d.entries.some((e) => e.rootSession === root && e.number === number)) return c.json({ error: "number_taken" }, 409);
+  const ids = b.drivers === undefined ? [] : checkLineup(d, root, teamId, null, b.drivers);
+  if (typeof ids === "string") return c.json({ error: ids }, ids === "in_other_car" ? 409 : 400);
+  const id = crypto.randomUUID();
+  await c.env.DB.batch([
+    c.env.DB.prepare("INSERT INTO entries (id, root_session, team_id, label, number, plate, seats, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, root, teamId, label, number, plate, seats, Date.now()),
+    ...lineupStatements(c, root, id, ids).slice(1),
+  ]);
+  return carsDone(c);
+}
+
+/** Changes a car's label, number, plate, race seats or its whole ranked lineup. */
+async function editCar(c: C, d: EventData, root: string, s: RegSettings, cur: EntryRow, b: CarBody) {
+  const label = cleanText(b.label, 40, /^[^\n]+$/);
+  const number = cleanText(b.number, 4, /^[A-Za-z0-9]+$/);
+  const plate = cleanText(b.plate, 12, /^[A-Za-z0-9 -]+$/);
+  const seats = b.seats === undefined ? cur.seats : b.seats;
+  if (label === null || number === undefined && b.number !== undefined || plate === undefined && b.plate !== undefined || !Number.isInteger(seats) || (seats as number) < 1 || (seats as number) > Math.max(s.seatsPerCar, cur.seats)) return c.json({ error: "invalid" }, 400);
+  if (number && d.entries.some((e) => e.rootSession === root && e.id !== cur.id && e.number === number)) return c.json({ error: "number_taken" }, 409);
+  const ids = b.drivers === undefined ? null : checkLineup(d, root, cur.teamId, cur.id, b.drivers);
+  if (typeof ids === "string") return c.json({ error: ids }, ids === "in_other_car" ? 409 : 400);
+  await c.env.DB.batch([
+    c.env.DB.prepare("UPDATE entries SET label = ?, number = ?, plate = ?, seats = ? WHERE id = ?").bind(label ?? cur.label, b.number === undefined ? cur.number : number, b.plate === undefined ? cur.plate : plate, seats, cur.id),
+    ...(ids ? lineupStatements(c, root, cur.id, ids) : []),
+  ]);
+  return carsDone(c);
+}
+
+const removeCar = async (c: C, root: string, id: string) => {
+  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM entry_drivers WHERE entry_id = ?").bind(id), c.env.DB.prepare("DELETE FROM entries WHERE id = ? AND root_session = ?").bind(id, root)]);
+  return carsDone(c);
+};
+
+/** Staff enter a car for a team. Staff can change cars at any time, also after the lineups lock. */
+registration.post("/:sid/cars", async (c) => {
+  const gate = await carGate(c);
+  if (gate instanceof Response) return gate;
+  const b = (await c.req.json().catch(() => ({}))) as CarBody;
+  if (typeof b.teamId !== "string" || !(await teamOk(c, b.teamId))) return c.json({ error: "invalid" }, 400);
+  return addCar(c, gate.d, gate.root, gate.s, b.teamId, b);
+});
+
+registration.put("/:sid/cars/:id", async (c) => {
+  const gate = await carGate(c);
+  if (gate instanceof Response) return gate;
+  const cur = gate.d.entries.find((e) => e.id === c.req.param("id") && e.rootSession === gate.root);
+  if (!cur) return c.json({ error: "not_found" }, 404);
+  return editCar(c, gate.d, gate.root, gate.s, cur, (await c.req.json().catch(() => ({}))) as CarBody);
+});
+
+registration.delete("/:sid/cars/:id", async (c) => {
+  const gate = await carGate(c);
+  if (gate instanceof Response) return gate;
+  return removeCar(c, gate.root, c.req.param("id"));
+});
+
+/** Loads the event and checks the caller manages the team, the event is an endurance event and the lineups are not locked. */
+async function lineupGate(c: C): Promise<{ d: EventData; team: { id: string; name: string }; root: string; s: RegSettings } | Response> {
+  const gate = await teamGate(c);
+  if (gate instanceof Response) return gate;
+  const { d, team, sid } = gate;
+  const s = settingsIn(d, sid);
+  if (!s) return c.json({ error: "no_registration" }, 404);
+  if (!s.endurance) return c.json({ error: "not_endurance" }, 409);
+  const lock = lineupLockIn(d, sid);
+  if (lock !== null && Date.now() > lock) return c.json({ error: "lineup_locked" }, 409);
+  return { d, team, root: rootIn(d, sid), s };
+}
+
+/** A team's managers enter a car and rank its drivers until the lineups lock; after that only staff change them. */
+registration.post("/:sid/team/:teamId/cars", async (c) => {
+  const g = await lineupGate(c);
+  if (g instanceof Response) return g;
+  return addCar(c, g.d, g.root, g.s, g.team.id, (await c.req.json().catch(() => ({}))) as CarBody);
+});
+
+registration.put("/:sid/team/:teamId/cars/:id", async (c) => {
+  const g = await lineupGate(c);
+  if (g instanceof Response) return g;
+  const cur = g.d.entries.find((e) => e.id === c.req.param("id") && e.rootSession === g.root && e.teamId === g.team.id);
+  if (!cur) return c.json({ error: "not_found" }, 404);
+  return editCar(c, g.d, g.root, g.s, cur, (await c.req.json().catch(() => ({}))) as CarBody);
+});
+
+registration.delete("/:sid/team/:teamId/cars/:id", async (c) => {
+  const g = await lineupGate(c);
+  if (g instanceof Response) return g;
+  const cur = g.d.entries.find((e) => e.id === c.req.param("id") && e.rootSession === g.root && e.teamId === g.team.id);
+  if (!cur) return carsDone(c);
+  return removeCar(c, g.root, cur.id);
 });

@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { currentSession } from "../../shared/sessions";
 import type { AdminRace, AdminTeam, AdminUser, Role, SessionSummary, SessionType, SystemInfo } from "../../shared/types";
 import { admin, registrationApi } from "../api";
+import { ATTENDANCE_DEFAULT_CLOSES, ATTENDANCE_DEFAULT_OPENS, ATTENDANCE_MAX_MINUTES } from "../../shared/attendance";
 import type { RegSettings } from "../../shared/registration";
 import { useMe } from "../me";
 import { VERSION } from "../Shell";
@@ -11,6 +12,7 @@ import { NotFound } from "../NotFound";
 import { AddMember, MemberTable } from "../TeamMembers";
 import { StandingsTab } from "./StandingsTab";
 import { RegistrationsTab } from "./RegistrationsTab";
+import { ResultsDialog } from "./ResultsDialog";
 import { CodeDialog, useTokenMode } from "../access";
 
 type Tab = "users" | "races" | "registrations" | "standings" | "teams" | "system";
@@ -28,6 +30,7 @@ const ERRORS: Record<string, string> = {
   invalid_times: "The end must be after the start.",
   invalid_link: "That session cannot be linked: it must be in this event and not follow this session.",
   has_registrations: "This session has registrations of its own. Remove them before linking it.",
+  has_cars: "Cars are entered. Remove them before turning endurance off.",
   has_principal: "This team already has a Team Principal.",
   invalid_roles: "Pick at least one role.",
   has_customers: "Customer teams still run this factory team's car.",
@@ -334,10 +337,12 @@ function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
   const [form, setForm] = useState<{ session?: SessionSummary } | null>(null);
   const [del, setDel] = useState<SessionSummary | null>(null);
   const [regFor, setRegFor] = useState<SessionSummary | null>(null);
+  const [resFor, setResFor] = useState<SessionSummary | null>(null);
   return (
     <>
+      {resFor && <ResultsDialog session={resFor} onClose={() => setResFor(null)} />}
       {regFor && <RegistrationDialog session={regFor} sessions={race.sessions} onClose={() => { setRegFor(null); onChange(); }} />}
-      {!form && !del && !regFor && (
+      {!form && !del && !regFor && !resFor && (
       <Dialog title={`Sessions: ${race.name}`} size="l" onClose={onClose} foot={<><button className="r-btn" onClick={() => setForm({})}>Add session</button><button className="r-btn" onClick={onClose}>Close</button></>}>
         {race.sessions.length === 0 ? (
           <div className="r-empty">No sessions.</div>
@@ -358,10 +363,11 @@ function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
                     <div>{dateFmt.format(s.startsAt)}</div>
                     <div style={{ color: "var(--r-text-dim)" }}>{dateFmt.format(s.endsAt)}</div>
                   </td>
-                  <td style={{ width: 260, padding: 2 }}>
-                    <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
+                  <td style={{ width: 340, padding: 2 }}>
+                    <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
                       <button className="r-cell" onClick={() => setForm({ session: s })}>Edit</button>
                       <button className="r-cell" onClick={() => setRegFor(s)}>Registration</button>
+                      <button className="r-cell" onClick={() => setResFor(s)}>Results</button>
                       <button className="r-cell r-cell--red" onClick={() => setDel(s)}>Delete</button>
                     </div>
                   </td>
@@ -899,6 +905,11 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
   const [teamCap, setTeamCap] = useState("");
   const [teamLimit, setTeamLimit] = useState("");
   const [pickCutoff, setPickCutoff] = useState("");
+  const [endurance, setEndurance] = useState(false);
+  const [cars, setCars] = useState({ carsPerTeam: "2", seatsPerCar: "3" });
+  const [attend, setAttend] = useState(false);
+  const [attendOpens, setAttendOpens] = useState(String(ATTENDANCE_DEFAULT_OPENS));
+  const [attendCloses, setAttendCloses] = useState(String(ATTENDANCE_DEFAULT_CLOSES));
   useEffect(() => {
     const others = sessions.filter((o) => o.id !== session.id);
     Promise.all(others.map((o) => registrationApi.get(o.id).then((v) => (v.settings ? o : null), () => null))).then((l) =>
@@ -917,6 +928,11 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
         setDeadline(toLocalInput(s.deadline));
         setN({ drivers: String(s.drivers), employees: String(s.employees), spectators: String(s.spectators), factoryReserved: String(s.factoryReserved) });
         setIndependents(s.independents);
+        setEndurance(s.endurance);
+        if (s.endurance) setCars({ carsPerTeam: String(s.carsPerTeam), seatsPerCar: String(s.seatsPerCar) });
+        setAttend(s.attendance);
+        setAttendOpens(String(s.attendanceOpens));
+        setAttendCloses(String(s.attendanceCloses));
       }
       setLoaded(true);
     }, () => setLoaded(true));
@@ -932,10 +948,16 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
     independents,
     teamCap: teamCap.trim() === "" ? null : num(teamCap),
     teamLimit: teamLimit.trim() === "" ? null : num(teamLimit),
-    pickCutoff: teamLimit.trim() === "" || pickCutoff === "" ? null : fromLocalInput(pickCutoff),
+    pickCutoff: (!endurance && teamLimit.trim() === "") || pickCutoff === "" ? null : fromLocalInput(pickCutoff),
     follows,
+    endurance,
+    attendance: attend,
+    attendanceOpens: num(attendOpens),
+    attendanceCloses: num(attendCloses),
+    carsPerTeam: endurance ? num(cars.carsPerTeam) : 0,
+    seatsPerCar: endurance ? num(cars.seatsPerCar) : 0,
   };
-  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt);
+  const valid = [settings.attendanceOpens, settings.attendanceCloses].every((m) => Number.isFinite(m) && m <= ATTENDANCE_MAX_MINUTES) && [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt) && (!endurance || follows !== null || (settings.carsPerTeam >= 1 && settings.seatsPerCar >= 1));
   const save = async () => {
     const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
     if (!r.ok) return say(r.error);
@@ -997,20 +1019,42 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
             <input className="r-field r-fill" type="datetime-local" aria-label="Registration deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
           </label></>}
           {follows === null && <>
-          {field("Driver spots", "drivers")}
+          {field(endurance ? "Car spots" : "Driver spots", "drivers")}
           {field("Reserved per factory team", "factoryReserved")}
           <label className="r-row" style={{ alignItems: "center" }}>
-            <span style={{ width: 240, flex: "none" }}>Team driver cap (blank for none)</span>
+            <span style={{ width: 240, flex: "none" }}>{endurance ? "Team car cap (blank for none)" : "Team driver cap (blank for none)"}</span>
             <input className="r-field r-fill" inputMode="numeric" aria-label="Team driver cap" value={teamCap} onChange={(e) => setTeamCap(e.target.value)} />
           </label>
           {field("Employee spots", "employees")}
           {field("Spectator spots", "spectators")}
+          <label className="r-check">
+            <input type="checkbox" checked={endurance} onChange={(e) => setEndurance(e.target.checked)} />
+            <span>Endurance event: teams enter cars with several drivers</span>
+          </label>
+          {endurance && (
+            <>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Cars per team</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Cars per team" value={cars.carsPerTeam} onChange={(e) => setCars({ ...cars, carsPerTeam: e.target.value })} />
+              </label>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Drivers racing per car</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Drivers racing per car" value={cars.seatsPerCar} onChange={(e) => setCars({ ...cars, seatsPerCar: e.target.value })} />
+              </label>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Lineups lock (blank for session start)</span>
+                <input className="r-field r-fill" type="datetime-local" aria-label="Lineups lock" value={pickCutoff} onChange={(e) => setPickCutoff(e.target.value)} />
+              </label>
+              <div style={{ color: "var(--r-text-dim)" }}>The driver spots above count cars, and so does the team cap. A team ranks as many drivers as it wants on each car: the top ones race and the rest are reserve. Team managers change lineups until the lock; after it only staff can. The same limits apply to every team. Existing team drivers stay unassigned until they are put in a car.</div>
+            </>
+          )}
           </>}
-          <label className="r-row" style={{ alignItems: "center" }}>
+          {follows !== null && endurance && <div style={{ color: "var(--r-text-dim)" }}>Endurance event, set by the linked session: spots count cars.</div>}
+          {!endurance && <label className="r-row" style={{ alignItems: "center" }}>
             <span style={{ width: 240, flex: "none" }}>Drivers per team in this session (blank for no limit)</span>
             <input className="r-field r-fill" inputMode="numeric" aria-label="Drivers per team in this session" value={teamLimit} onChange={(e) => setTeamLimit(e.target.value)} />
-          </label>
-          {teamLimit.trim() !== "" && (
+          </label>}
+          {!endurance && teamLimit.trim() !== "" && (
             <>
               <label className="r-row" style={{ alignItems: "center" }}>
                 <span style={{ width: 240, flex: "none" }}>Teams choose until (blank for session start)</span>
@@ -1023,6 +1067,25 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
             <input type="checkbox" checked={independents} onChange={(e) => setIndependents(e.target.checked)} />
             <span>{follows !== null ? "Independent drivers can take part in this session" : "Independent drivers can register"}</span>
           </label>
+          <label className="r-check">
+            <input type="checkbox" checked={attend} onChange={(e) => setAttend(e.target.checked)} />
+            <span>Take attendance for this session (only drivers who confirm are staged)</span>
+          </label>
+          {attend && (
+            <>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Link opens, minutes before the start</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance opens, minutes before the start" value={attendOpens} onChange={(e) => setAttendOpens(e.target.value)} />
+              </label>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Closes, minutes after the start</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance closes, minutes after the start" value={attendCloses} onChange={(e) => setAttendCloses(e.target.value)} />
+              </label>
+              <div style={{ color: "var(--r-text-dim)" }}>
+                Link: <b>{location.origin}/attend/{session.id}</b>. Drivers sign in with Roblox and confirm. Nobody who has not confirmed is staged. Staff can mark anyone present or absent under Registrations.
+              </div>
+            </>
+          )}
         </>
       )}
       <label className="r-check">

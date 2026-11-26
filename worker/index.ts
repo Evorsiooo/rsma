@@ -6,9 +6,11 @@ import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE } from "./auth/session";
 import { admin } from "./admin";
 import { myTeams } from "./my-team";
+import { attendance } from "./attendance";
 import { registration } from "./registration";
 import { syncRegistered, teamWithCar } from "./stage";
-import { loadStandings } from "./standings";
+import { loadConfig, loadStandings } from "./standings";
+import { publicResults } from "./session-results";
 import { loadRaces, loadSession } from "./sessions";
 import { notifyStewardMessage } from "./discord";
 import { timedDb, waitedMs, type DbStats } from "./db-timing";
@@ -47,6 +49,7 @@ app.route("/api/auth", auth);
 app.route("/api/admin", admin);
 app.route("/api/my-teams", myTeams);
 app.route("/api/registration", registration);
+app.route("/api/attendance", attendance);
 
 app.get("/api/config", async (c) => {
   const [token, aiVoice] = await Promise.all([tokenMode(c.env.DB), aiVoiceOn(c.env.DB)]);
@@ -76,12 +79,28 @@ app.get("/api/races/:id", async (c) => {
   return race ? c.json(race) : c.json({ error: "not_found" }, 404);
 });
 
+// Public: the results typed in for a session, with the points when it counts for the championship.
+app.get("/api/sessions/:id/results", async (c) => {
+  return c.json(await publicResults(c.env.DB, c.req.param("id"), await loadConfig(c.env.DB)));
+});
+
 app.get("/api/sessions/:id", async (c) => {
   const info = await loadSession(c.env.DB, c.req.param("id"));
   return info ? c.json(info) : c.json({ error: "not_found" }, 404);
 });
 
 const doOf = (env: Env, sessionId: string) => env.RACE.get(env.RACE.idFromName(sessionId));
+
+/** The car (and the registration group's root) a run belongs to, when it is a run of an endurance car. */
+async function entryOfRun(env: Env, sessionId: string, runId: unknown): Promise<{ entry: string; root: string } | null> {
+  if (typeof runId !== "string") return null;
+  const res = await doOf(env, sessionId).fetch("http://do/state", new Request("http://do/state", { headers: { "x-staff": "1" } }));
+  const { state } = (await res.json()) as { state: { runs: { id: string; entry?: string }[] } };
+  const entry = state.runs.find((r) => r.id === runId)?.entry;
+  if (!entry) return null;
+  const row = await env.DB.prepare("SELECT root_session AS root FROM entries WHERE id = ?").bind(entry).first<{ root: string }>();
+  return row ? { entry, root: row.root } : null;
+}
 
 // Registrations made before a session's queue existed (or before this worker version) are brought in once per isolate.
 const synced = new Set<string>();
@@ -140,7 +159,7 @@ app.get("/api/sessions/:id/ws", async (c) => {
 });
 
 // Steward commands. The role check happens here; the Durable Object validates and applies.
-const RACE_TIMING_CMDS = ["go", "finish", "assign", "discard", "lap", "setTime", "unattribute", "reattribute", "dnf", "undnf", "setMode", "penalty", "teamGo", "teamFinish", "teamMove", "queueAgain"];
+const RACE_TIMING_CMDS = ["go", "finish", "assign", "discard", "lap", "setTime", "unattribute", "reattribute", "dnf", "undnf", "setMode", "penalty", "teamGo", "teamFinish", "teamMove", "queueAgain", "nextDriver", "swapDriver"];
 
 app.post("/api/sessions/:id/cmd", async (c) => {
   const id = c.req.param("id");
@@ -153,7 +172,7 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
   // Team commands only come through the team routes; self-timed sessions have no steward Go or Stop.
-  if (["teamGo", "teamFinish", "teamMove", "teamNote", "teamNoteDel", "syncReg", "ask", "answer", "driverRadio"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
+  if (["teamGo", "teamFinish", "teamMove", "teamNote", "teamNoteDel", "syncReg", "ask", "answer", "driverRadio", "planAdd", "planDel"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
   if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish" || cmd.type === "queueAgain")) return c.json({ error: "self_timed" }, 409);
   // Races are run differently for now: no live timing.
   if (info.session.type === "race" && RACE_TIMING_CMDS.includes(cmd.type)) return c.json({ error: "race_timing_off" }, 409);
@@ -169,10 +188,23 @@ app.post("/api/sessions/:id/cmd", async (c) => {
     const known = (await c.env.DB.prepare("SELECT id, name FROM teams ORDER BY lower(name)").all<{ id: string; name: string }>()).results;
     cmd.teams = known.filter((t) => ids.includes(t.id));
   }
+  // In an endurance event the number and plate belong to the car record: a clash is refused before anything changes.
+  let carOfEdit: { entry: string; root: string } | null = null;
+  if (cmd.type === "editInfo") {
+    carOfEdit = await entryOfRun(c.env, id, cmd.runId);
+    const number = typeof cmd.number === "string" ? cmd.number.trim().slice(0, 4) : "";
+    if (carOfEdit && number && (await c.env.DB.prepare("SELECT 1 FROM entries WHERE root_session = ? AND number = ? AND id != ?").bind(carOfEdit.root, number, carOfEdit.entry).first())) return c.json({ error: "number_taken" }, 409);
+  }
   const doRes = await doOf(c.env, id).fetch("http://do/cmd", {
     method: "POST",
     body: JSON.stringify({ cmd, actor: me.username }),
   });
+  if (doRes.ok && carOfEdit) {
+    const number = typeof cmd.number === "string" ? cmd.number.trim().slice(0, 4) : "";
+    const plate = typeof cmd.plate === "string" ? cmd.plate.trim().slice(0, 12).toUpperCase() : "";
+    await c.env.DB.prepare("UPDATE entries SET number = ?, plate = ? WHERE id = ?").bind(number || null, plate || null, carOfEdit.entry).run();
+    c.executionCtx.waitUntil(syncRegistered(c.env, id).catch((e) => console.error("syncRegistered failed", e)));
+  }
   // Discord gets only the messages to everyone; messages to teams or to chosen drivers stay on the radio.
   if (doRes.ok && cmd.type === "radio" && cmd.to === "all" && typeof cmd.text === "string" && cmd.text.trim()) {
     const p = notifyStewardMessage(c.env.DB, cmd.text.trim());
@@ -228,8 +260,8 @@ async function teamSession(c: Context<{ Bindings: Env }>) {
 app.post("/api/sessions/:id/team/:teamId/pit", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;
-  const body = (await c.req.json().catch(() => ({}))) as { fromMs?: unknown; toMs?: unknown };
-  const cmd = { type: "pitAdd", team: r.team.id, teamName: r.team.name, fromMs: Number(body.fromMs), toMs: Number(body.toMs), lengthMs: r.info.session.endsAt - r.info.session.startsAt };
+  const body = (await c.req.json().catch(() => ({}))) as { fromMs?: unknown; toMs?: unknown; entry?: unknown };
+  const cmd = { type: "pitAdd", team: r.team.id, teamName: r.team.name, entry: typeof body.entry === "string" ? body.entry : undefined, fromMs: Number(body.fromMs), toMs: Number(body.toMs), lengthMs: r.info.session.endsAt - r.info.session.startsAt };
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 
@@ -333,6 +365,47 @@ app.post("/api/sessions/:id/team/:teamId/timing", async (c) => {
         ? { type: "teamFinish", team: r.team.id, runId: typeof body.runId === "string" ? body.runId : undefined }
         : null;
   if (!cmd) return c.json({ error: "invalid" }, 400);
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+// Endurance: who drives a car and when (the plan under the pit windows).
+app.post("/api/sessions/:id/team/:teamId/plan", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  const body = (await c.req.json().catch(() => ({}))) as { entry?: unknown; driver?: unknown; fromMs?: unknown };
+  const cmd = {
+    type: "planAdd",
+    team: r.team.id,
+    teamName: r.team.name,
+    entry: typeof body.entry === "string" ? body.entry : "",
+    driver: typeof body.driver === "string" ? body.driver : "",
+    fromMs: Number(body.fromMs),
+    lengthMs: r.info.session.endsAt - r.info.session.startsAt,
+  };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+app.delete("/api/sessions/:id/team/:teamId/plan/:pid", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  const cmd = { type: "planDel", team: r.team.id, id: c.req.param("pid") };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+// Endurance: the team picks a car's next driver (any timed session), or swaps the driver on track for the next one (self-timed).
+app.post("/api/sessions/:id/team/:teamId/driver", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  if (r.info.session.type === "race") return c.json({ error: "race_timing_off" }, 409);
+  const body = (await c.req.json().catch(() => ({}))) as { action?: unknown; runId?: unknown };
+  if (body.action !== "next" && body.action !== "swap") return c.json({ error: "invalid" }, 400);
+  if (body.action === "swap") {
+    if (!r.info.session.selfTimed) return c.json({ error: "not_self_timed" }, 409);
+    const now = Date.now();
+    if (now < r.info.session.startsAt) return c.json({ error: "not_started" }, 409);
+    if (now >= r.info.session.endsAt) return c.json({ error: "session_ended" }, 409);
+  }
+  const cmd = { type: body.action === "swap" ? "swapDriver" : "nextDriver", team: r.team.id, runId: typeof body.runId === "string" ? body.runId : "" };
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 

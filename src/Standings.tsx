@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { computeStandings, eventPoints, fmtPoints, fmtSpan, fmtWindow, offsetsOf, type Line, type Standings as Table, type StandingsData } from "../shared/standings";
-import { fmtTime } from "../shared/race";
+import { computeStandings, eventPoints, fmtPoints, fmtWindow, type Line, type Standings as Table, type StandingsData } from "../shared/standings";
 import { api } from "./api";
 import { Bd, Box } from "./site/parts";
+import { EnteredResults } from "./EnteredResults";
 
 const date = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric" });
 
@@ -14,7 +14,7 @@ export function scoringText(e: { half: boolean; mode: "position" | "window"; win
 }
 
 /** The results page of a round: the timing page for a session run on the site, the results list for one typed in by hand. */
-const roundPath = (e: { id: string; sessionId?: string }) => (e.sessionId ? `/session/${e.sessionId}` : `/standings/event/${e.id}`);
+const roundPath = (e: { id: string; sessionId?: string; entered?: boolean }) => (e.sessionId && !e.entered ? `/session/${e.sessionId}` : `/standings/event/${e.id}`);
 
 function Cells({ line, rounds }: { line: Line; rounds: Table["rounds"] }) {
   return (
@@ -152,9 +152,6 @@ export function StandingsEvent() {
   if (!data || !ev) return <Box title="Results"><Bd><div className="note">No such event. <Link to="/standings">Back to the standings</Link>.</div></Bd></Box>;
   const rows = [...ev.results].sort((a, b) => a.position - b.position);
   const pts = eventPoints(ev, data.config);
-  const offsets = offsetsOf(rows);
-  const teams = rows.some((r) => r.teamName);
-  const times = rows.some((r) => r.timeMs != null);
   return (
     <>
       <div className="bar between">
@@ -163,30 +160,7 @@ export function StandingsEvent() {
       </div>
       <Box title={ev.name}>
         <Bd flush>
-          <table className="t">
-            <thead>
-              <tr>
-                <th className="pos">Pos</th>
-                <th>Driver</th>
-                {teams && <th>Team</th>}
-                {times && <th className="n">Time</th>}
-                {offsets && <th className="n">Gap</th>}
-                <th className="n">Points</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r, i) => (
-                <tr key={r.username}>
-                  <td className="pos">{r.position}</td>
-                  <td><b>{r.username}</b></td>
-                  {teams && <td>{r.teamName ?? <span className="mute">–</span>}</td>}
-                  {times && <td className="n">{r.timeMs != null ? fmtTime(r.timeMs) : "–"}</td>}
-                  {offsets && <td className="n">{i === 0 ? "–" : `+${fmtSpan(offsets[i])}`}</td>}
-                  <td className="n fin">{fmtPoints(pts[i])}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <EnteredResults results={rows} points={pts} />
         </Bd>
       </Box>
     </>

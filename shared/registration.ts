@@ -26,6 +26,18 @@ export interface RegSettings {
   pickCutoff: number | null;
   /** Session whose registration this one shares (the window is that session's); null when it has its own. */
   follows: string | null;
+  /** Endurance event: teams enter cars with ranked drivers, and the driver spots count cars. Shared with the group. */
+  endurance: boolean;
+  /** Most cars one team can enter (endurance only). Shared with the group. */
+  carsPerTeam: number;
+  /** Most drivers that race in one car; the rest of the lineup is reserve (endurance only). Shared with the group. */
+  seatsPerCar: number;
+  /** Drivers confirm attendance through a link before the session; only those present are staged. Per session, not shared by a link. */
+  attendance: boolean;
+  /** Minutes before the session starts that the attendance link opens. */
+  attendanceOpens: number;
+  /** Minutes after the session starts that attendance closes. */
+  attendanceCloses: number;
 }
 
 export interface RegSummary {
@@ -80,8 +92,29 @@ export interface Registration {
   denied: boolean;
   at: number;
   cut: Cut;
-  /** Place on the waiting list, 1 is next to move up. Only for people who are Waiting. */
+  /** Place on the waiting list, 1 is next to move up. Only for people who are Waiting. In an endurance event a car's drivers share the car's place. */
   waitPos: number | null;
+  /** Endurance: the car the driver is in and their rank in it (1 is first); null when not in a car. */
+  carId: string | null;
+  rank: number | null;
+}
+
+/** A car a team enters in an endurance event, with its ranked drivers. */
+export interface Car {
+  id: string;
+  teamId: string;
+  teamName: string;
+  label: string;
+  number: string | null;
+  plate: string | null;
+  /** How many of its drivers race; the rest are reserve. */
+  seats: number;
+  at: number;
+  /** "in" or "waitlist"; a car without a registered driver is Waiting. */
+  cut: "in" | "waitlist";
+  waitPos: number | null;
+  /** In rank order. */
+  drivers: { userId: string; username: string; rank: number; race: boolean }[];
 }
 
 export interface RegTeam {
@@ -106,6 +139,10 @@ export interface RegistrationView {
   teams: RegTeam[];
   /** Staff see everyone, team managers their teams, an independent their own. */
   registrations: Registration[];
+  /** Endurance events only: the cars entered, for staff all of them, for team managers their teams' cars. */
+  cars: Car[];
+  /** Endurance events only: until when team managers can change their lineups. Staff can change them after. */
+  lineupLock: number | null;
   /** The viewer's own registration, if any. */
   self: Registration | null;
 }
@@ -187,6 +224,80 @@ export function computeCut(regs: CutInput[], s: RegSettings, factoryIds: Set<str
   return out;
 }
 
+// ---- Endurance: spots count cars --------------------------------------------------------------
+
+/** A car as the cut sees it: its team, when it was created, and its ranked drivers (user ids). */
+export interface EntryInput {
+  id: string;
+  teamId: string;
+  at: number;
+  drivers: string[];
+}
+
+/** A car's drivers that are really in it: registered by the same team, not denied, and in no earlier car. Ranks close up. */
+export function lineupOf(entries: EntryInput[], regs: { userId: string; kind: RegKind; teamId: string | null; denied: boolean }[]): Map<string, string[]> {
+  const ok = new Map(regs.filter((r) => r.kind === "driver" && r.teamId && !r.denied).map((r) => [r.userId, r.teamId]));
+  const seen = new Set<string>();
+  const out = new Map<string, string[]>();
+  for (const e of [...entries].sort((a, b) => a.at - b.at)) {
+    const list = e.drivers.filter((u) => ok.get(u) === e.teamId && !seen.has(u));
+    for (const u of list) seen.add(u);
+    out.set(e.id, list);
+  }
+  return out;
+}
+
+/**
+ * The seat rule: the first `seats` drivers by rank race and the rest are reserve. With attendance, drivers who are not
+ * present are skipped, so everyone below moves up. Without it (`present` is null) the lineup is taken as ranked.
+ */
+export function raceDrivers(lineup: string[], seats: number, present: Set<string> | null = null): string[] {
+  return (present ? lineup.filter((u) => present.has(u)) : lineup).slice(0, Math.max(0, seats));
+}
+
+/**
+ * Who is In when the driver spots are cars. A car with at least one registered driver is one unit, in the order the car
+ * was created, and each independent driver is a one-driver car. The rest works as for drivers: reserved spots per factory
+ * team, the team cap, the waiting list. Every driver of a car has the car's result. A team driver who is in no car is "out".
+ */
+export function computeEnduranceCut(
+  regs: CutInput[],
+  entries: EntryInput[],
+  s: RegSettings,
+  factoryIds: Set<string>,
+  hold = true,
+): { cut: Map<string, Cut>; carCut: Map<string, "in" | "waitlist">; held: number; driverWait: Map<string, number>; carWait: Map<string, number> } {
+  const lineups = lineupOf(entries, regs);
+  const unitOf = new Map<string, string>();
+  const units: CutInput[] = [];
+  for (const e of entries) {
+    const list = lineups.get(e.id) ?? [];
+    for (const u of list) unitOf.set(u, `car:${e.id}`);
+    if (list.length) units.push({ userId: `car:${e.id}`, kind: "driver", teamId: e.teamId, denied: false, at: e.at });
+  }
+  for (const r of regs) if (r.kind === "driver" && !r.teamId) units.push(r);
+  const others = regs.filter((r) => r.kind !== "driver");
+  const base = computeCut([...units, ...others], s, factoryIds, hold);
+  const cut = new Map<string, Cut>();
+  for (const r of regs) {
+    if (r.denied) cut.set(r.userId, "denied");
+    else if (r.kind !== "driver" || !r.teamId) cut.set(r.userId, base.get(r.userId) ?? "waitlist");
+    else cut.set(r.userId, base.get(unitOf.get(r.userId) ?? "") ?? "out");
+  }
+  const carCut = new Map<string, "in" | "waitlist">();
+  for (const e of entries) carCut.set(e.id, base.get(`car:${e.id}`) === "in" ? "in" : "waitlist");
+  // Place on the waiting list, per car (or independent), in the order cars were created.
+  const waiting = units.filter((u) => base.get(u.userId) === "waitlist").sort((a, b) => a.at - b.at);
+  const driverWait = new Map<string, number>();
+  const carWait = new Map<string, number>();
+  waiting.forEach((u, i) => {
+    if (u.userId.startsWith("car:")) carWait.set(u.userId.slice(4), i + 1);
+    else driverWait.set(u.userId, i + 1);
+  });
+  for (const [u, unit] of unitOf) if (unit.startsWith("car:") && carWait.has(unit.slice(4))) driverWait.set(u, carWait.get(unit.slice(4))!);
+  return { cut, carCut, held: heldSpots(units, s, factoryIds), driverWait, carWait };
+}
+
 /** Place on the waiting list of each person who is Waiting, per kind, in registration order. */
 export function waitPositions(regs: { userId: string; kind: RegKind; at: number; cut: Cut }[]): Map<string, number> {
   const out = new Map<string, number>();
@@ -214,9 +325,9 @@ export function orderRule(s: Pick<RegSettings, "factoryReserved">): string {
 }
 
 /** "8 of 10 taken, 2 waiting" for one kind of spot. */
-export function spotsLine(c: SpotCount): string {
+export function spotsLine(c: SpotCount, unit = ""): string {
   const free = Math.max(0, c.spots - c.taken - c.held);
-  return `${c.taken} of ${c.spots} taken${c.held > 0 ? `, ${c.held} held for factory teams` : ""}${free > 0 ? `, ${free} free` : ""}${c.waiting > 0 ? `, ${c.waiting} waiting` : ""}`;
+  return `${c.taken} of ${c.spots}${unit ? ` ${unit}` : ""} taken${c.held > 0 ? `, ${c.held} held for factory teams` : ""}${free > 0 ? `, ${free} free` : ""}${c.waiting > 0 ? `, ${c.waiting} waiting` : ""}`;
 }
 
 /** What is said before registering while no spot is free. Null while one is free. `team` words it for a team registering drivers. */
@@ -227,6 +338,29 @@ export function fullNotice(c: SpotCount, noun: string, opts: { ownReserved?: boo
     ? `${spots} A driver you register now will be Waiting, from position ${c.waiting + 1}, and moves up when someone ahead withdraws or is denied.`
     : `${spots} If you register now you will be Waiting, position ${c.waiting + 1}, and you move up when someone ahead of you withdraws or is denied.`;
 }
+
+/** What the driver spots are called: "cars" in an endurance event, "drivers" otherwise. */
+export const driverUnit = (s: Pick<RegSettings, "endurance"> | null | undefined) => (s?.endurance ? "cars" : "drivers");
+
+/** "Race: 3 · Reserve: 2" for a car's lineup. */
+export function lineupLine(drivers: number, seats: number): string {
+  return `Race: ${Math.min(drivers, seats)} · Reserve: ${Math.max(0, drivers - seats)}`;
+}
+
+/** When a team's lineups lock: the first session's pick cutoff, or its start when none is set. */
+export const lineupLockAt = (pickCutoff: number | null, startsAt: number | null): number | null => pickCutoff ?? startsAt;
+
+/** Moves one entry of a ranked list up (-1) or down (1); the list as it is when the move would leave it. */
+export function moveRank<T>(list: T[], i: number, by: -1 | 1): T[] {
+  const j = i + by;
+  if (i < 0 || i >= list.length || j < 0 || j >= list.length) return list;
+  const next = [...list];
+  [next[i], next[j]] = [next[j], next[i]];
+  return next;
+}
+
+/** The car as the team and staff name it: "#12 Team car". */
+export const carName = (c: { label: string; number: string | null }) => (c.number ? `#${c.number} ${c.label}` : c.label);
 
 const list = (names: string[]) => (names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : (names[0] ?? ""));
 
