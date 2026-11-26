@@ -17,6 +17,7 @@ import {
   turnsOf,
   withLine,
   MAX_POINTS,
+  MAX_POIS,
   MAX_SPLITS,
   MAX_TURNS,
   type Pt,
@@ -25,9 +26,9 @@ import {
 import { admin } from "../api";
 import { Dialog, toast } from "../ui";
 
-const STEPS = ["Image", "Trace", "Pit lane", "Start and direction", "Turns", "Segments"] as const;
-type Step = 0 | 1 | 2 | 3 | 4 | 5;
-type Sel = { kind: "pt" | "pit" | "turn" | "split" | "in" | "out"; i: number } | null;
+const STEPS = ["Image", "Trace", "Pit lane", "Start and direction", "Turns", "Segments", "Points of interest"] as const;
+type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+type Sel = { kind: "pt" | "pit" | "turn" | "split" | "in" | "out" | "poi"; i: number } | null;
 /** Add places things, Delete removes whatever is clicked; Entry and Exit place the pit lane's ends on the lap. */
 type Tool = "add" | "delete" | "entry" | "exit";
 
@@ -38,6 +39,7 @@ const MAX_IMAGE_CHARS = 650_000;
 const TEAL = "#3fd0b0";
 const YELLOW = "#e8d44d";
 const RED = "#e63a2e";
+const POI = "#5b9bff";
 const wrap1 = (x: number) => ((x % 1) + 1) % 1;
 
 interface Snap {
@@ -225,6 +227,10 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
       if (g.turns.length >= MAX_TURNS) return toast("Too many turns.");
       commit({ ...g, turns: [...g.turns, n.u] });
       setSel({ kind: "turn", i: g.turns.length });
+    } else if (step === 6) {
+      if ((g.pois?.length ?? 0) >= MAX_POIS) return toast("Too many points of interest.");
+      commit({ ...g, pois: [...(g.pois ?? []), { id: splitId(), x, y, label: "NEW" }] });
+      setSel({ kind: "poi", i: g.pois?.length ?? 0 });
     } else if (step === 5) {
       const n = onLine(x, y, 24);
       if (!n) return;
@@ -284,6 +290,8 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
       setG(withLine(b, b.line.map((q, i) => (i === s.i ? { ...q, x: p.x, y: p.y } : q))));
     } else if (s.kind === "pit" && b.pit) {
       setG({ ...b, pit: { ...b.pit, line: b.pit.line.map((q, i) => (i === s.i ? { ...q, x: p.x, y: p.y } : q)) } });
+    } else if (s.kind === "poi") {
+      setG({ ...b, pois: (b.pois ?? []).map((q, i) => (i === s.i ? { ...q, x: p.x, y: p.y } : q)) });
     } else if (s.kind === "in" || s.kind === "out") {
       const u = nearest(sample(b.line, true), p.x, p.y).u;
       if (b.pit) setG({ ...b, pit: { ...b.pit, [s.kind === "in" ? "inU" : "outU"]: u } });
@@ -311,6 +319,7 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
       commit({ ...g, pit: line.length ? { ...g.pit, line } : null });
     } else if (target.kind === "turn") commit({ ...g, turns: g.turns.filter((_, i) => i !== target.i) });
     else if (target.kind === "split") commit({ ...g, splits: g.splits.filter((_, i) => i !== target.i) });
+    else if (target.kind === "poi") commit({ ...g, pois: (g.pois ?? []).filter((_, i) => i !== target.i) });
     setSel(null);
     setHot(null);
   };
@@ -579,6 +588,19 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
                 </g>
               );
             })}
+            {(g.pois ?? []).map((q, i) => {
+              const key = `poi${i}`;
+              const on = (sel?.kind === "poi" && sel.i === i) || hot === key;
+              return (
+                <g key={q.id} onPointerDown={step === 6 ? (e) => grab(e, { kind: "poi", i }) : undefined} onPointerEnter={() => setHot(key)} onPointerLeave={() => setHot((h) => (h === key ? null : h))} style={{ cursor: step === 6 ? (del ? "pointer" : "grab") : undefined, pointerEvents: step === 6 ? undefined : "none" }}>
+                  <circle cx={q.x} cy={q.y} r={px(11)} fill="transparent" />
+                  <circle cx={q.x} cy={q.y} r={px(4)} fill={on ? (del ? RED : "#f0f0e8") : POI} />
+                  <text x={q.x + (q.x < g.w / 2 ? px(8) : -px(8))} y={q.y + px(5.5)} textAnchor={q.x < g.w / 2 ? "start" : "end"} fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill="#f0f0e8" style={{ pointerEvents: "none" }}>
+                    {q.label}
+                  </text>
+                </g>
+              );
+            })}
             {step === 1 && g.line.map((p, i) => handle(p, `p${i}`, sel?.kind === "pt" && sel.i === i, (e) => grab(e, { kind: "pt", i })))}
             {step === 2 && g.line.map((p, i) => handle(p, `q${i}`, false, () => {}, { dim: true, inert: true }))}
             {step === 2 && g.pit?.line.map((p, i) => handle(p, `pit${i}`, sel?.kind === "pit" && sel.i === i, (e) => grab(e, { kind: "pit", i }), { inert: tool === "entry" || tool === "exit" }))}
@@ -625,6 +647,13 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
             <>
               {addDelete("Add split", "Delete segment")}
               {row(btn("From turns", defaultSegments, { disabled: g.turns.length < 2 }), btn("Clear splits", () => commit({ ...g, splits: [] }), { disabled: g.splits.length === 0 }))}
+            </>
+          )}
+          {step === 6 && (
+            <>
+              {addDelete("Add point of interest", "Delete point of interest")}
+              <input className="r-field" aria-label="Label" placeholder={sel?.kind === "poi" ? "Label" : "Select a point to name it"} maxLength={16} disabled={sel?.kind !== "poi"} value={sel?.kind === "poi" ? g.pois?.[sel.i]?.label ?? "" : ""} onChange={(e) => sel?.kind === "poi" && (setDirty(true), setG({ ...g, pois: (g.pois ?? []).map((q, i) => (i === sel.i ? { ...q, label: e.target.value.toUpperCase() } : q)) }))} />
+              {btn("Clear points of interest", () => commit({ ...g, pois: [] }), { disabled: !g.pois?.length })}
             </>
           )}
           {needsLine && <div className="r-text">Close the loop in Trace first.</div>}

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { at, autoSplits, placeLabels, withLine, drawnDirection, emptyGeometry, lapT, nearest, sample, segmentLabel, segmentsOf, setDirection, slice, turnsOf, validateGeometry, type TrackGeometry } from "../shared/track.ts";
+import { at, autoSplits, placeLabels, withLine, drawnDirection, emptyGeometry, lapT, nearest, sample, segmentLabel, segmentsOf, setDirection, slice, turnsOf, validateGeometry, MAX_POIS, type TrackGeometry } from "../shared/track.ts";
 
 // A square-ish loop drawn clockwise on screen (y down): top, right, bottom, left.
 const square = [
@@ -140,4 +140,14 @@ test("labels that would overlap are moved apart, labels that fit stay put", () =
   }
   assert.equal(near[0].d, 15);
   assert.ok(near[1].y > 100); // the second goes to the inner side
+});
+
+test("points of interest are cleaned, capped and optional", () => {
+  const g = geo();
+  const ok = validateGeometry({ ...g, pois: [{ id: "a1", x: 10.04, y: 20, label: "  lake " }, { id: "b2", x: 5, y: 5, label: "   " }] });
+  assert.deepEqual(ok?.pois, [{ id: "a1", x: 10, y: 20, label: "LAKE" }]);
+  assert.equal(validateGeometry(g)?.pois, undefined);
+  assert.equal(validateGeometry({ ...g, pois: Array.from({ length: MAX_POIS + 1 }, (_, i) => ({ id: `p${i}`, x: 1, y: 1, label: "X" })) }), null);
+  assert.equal(validateGeometry({ ...g, pois: [{ id: "BAD ID", x: 1, y: 1, label: "X" }] }), null);
+  assert.equal(validateGeometry({ ...g, pois: "no" }), null);
 });

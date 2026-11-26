@@ -28,6 +28,14 @@ export interface PitLane {
   outU: number;
 }
 
+/** A labelled point of interest beside the circuit ("CITY", "LAKE"), at a place in the drawing. */
+export interface Poi {
+  id: string;
+  x: number;
+  y: number;
+  label: string;
+}
+
 export interface TrackGeometry {
   /** Size of the drawing space (the imported image, shrunk). */
   w: number;
@@ -41,6 +49,8 @@ export interface TrackGeometry {
   turns: number[];
   splits: Split[];
   pit: PitLane | null;
+  /** Points of interest, shown on every map. Older tracks have none. */
+  pois?: Poi[];
 }
 
 export interface TrackSegment {
@@ -56,6 +66,7 @@ export interface TrackSegment {
 export const MAX_POINTS = 400;
 export const MAX_TURNS = 60;
 export const MAX_SPLITS = 60;
+export const MAX_POIS = 30;
 export const MAX_SIZE = 4000;
 export const PIT_ID = "pit";
 
@@ -367,7 +378,18 @@ export function validateGeometry(v: unknown): TrackGeometry | null {
     if (!pl || inU == null || outU == null) return null;
     pit = { line: pl, inU: roundU(inU), outU: roundU(outU) };
   }
-  return { w, h, line, direction: o.direction, start: roundU(start), turns, splits, pit };
+  const pois: Poi[] = [];
+  if (o.pois != null) {
+    if (!Array.isArray(o.pois) || o.pois.length > MAX_POIS) return null;
+    for (const q of o.pois as { id?: unknown; x?: unknown; y?: unknown; label?: unknown }[]) {
+      const x = num(q?.x, -MAX_SIZE, 2 * MAX_SIZE);
+      const y = num(q?.y, -MAX_SIZE, 2 * MAX_SIZE);
+      if (x == null || y == null || typeof q.id !== "string" || !/^[a-z0-9]{1,12}$/.test(q.id) || typeof q.label !== "string") return null;
+      const label = q.label.trim().toUpperCase().slice(0, 16);
+      if (label) pois.push({ id: q.id, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, label });
+    }
+  }
+  return { w, h, line, direction: o.direction, start: roundU(start), turns, splits, pit, ...(pois.length ? { pois } : {}) };
 }
 
 /** What the public API returns for one track. */

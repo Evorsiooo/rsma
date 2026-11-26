@@ -27,8 +27,8 @@ export interface TrackMapProps {
 }
 
 const COLORS = {
-  dark: { track: "#6f7679", pit: "#55595d", text: "#f0f0e8", dim: "#8d9396", yellow: "#e8d44d", red: "#e63a2e", edge: "#0a0b0b", hover: "#3fd0b0" },
-  light: { track: "#8c97b8", pit: "#b4bdd6", text: "#00206b", dim: "#6a76a0", yellow: "#f5c400", red: "#d62e24", edge: "#7a5f00", hover: "#3a63c8" },
+  dark: { track: "#6f7679", pit: "#55595d", text: "#f0f0e8", dim: "#8d9396", yellow: "#e8d44d", red: "#e63a2e", edge: "#0a0b0b", hover: "#3fd0b0", poi: "#5b9bff" },
+  light: { track: "#8c97b8", pit: "#b4bdd6", text: "#00206b", dim: "#6a76a0", yellow: "#f5c400", red: "#d62e24", edge: "#7a5f00", hover: "#3a63c8", poi: "#0031a7" },
 } as const;
 
 const GAP = 0.003;
@@ -60,7 +60,7 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
     const lap = sample(g.line, true);
     const pit: Sampled | null = g.pit ? sample(g.pit.line, false) : null;
     const segs = segmentsOf(g);
-    const pts = [...lap.pts, ...(pit?.pts ?? [])];
+    const pts = [...lap.pts, ...(pit?.pts ?? []), ...(g.pois ?? []).map((q): [number, number] => [q.x, q.y])];
     let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
     for (const [x, y] of pts) {
       x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
@@ -174,6 +174,14 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
               </text>
             );
           })}
+      {(g.pois ?? []).map((q) => (
+        <g key={q.id} style={{ pointerEvents: "none" }}>
+          <circle cx={q.x} cy={q.y} r={3.5 * k} fill={c.poi} />
+          <text x={q.x + (q.x < cx ? 7 : -7) * k} y={q.y + fs * 0.35} textAnchor={q.x < cx ? "start" : "end"} fontFamily="PerfectDOSVGA, monospace" fontSize={fs} fill={c.text}>
+            {q.label}
+          </text>
+        </g>
+      ))}
       {turnLabels.map((t) => (
         <g key={t.n}>
           {t.d > 15 * k + 0.01 && <line x1={t.ax} y1={t.ay} x2={t.x - t.ux * fs * 0.55} y2={t.y - t.uy * fs * 0.55} stroke={c.dim} strokeWidth={1} vectorEffect="non-scaling-stroke" />}
