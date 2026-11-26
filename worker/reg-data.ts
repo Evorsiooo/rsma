@@ -3,6 +3,7 @@ import {
   applyTeamLimit,
   computeCut,
   computeEnduranceCut,
+  lineupLockAt,
   lineupOf,
   raceDrivers,
   type Car,
@@ -292,6 +293,14 @@ export function pickUntilIn(d: EventData, sid: string, s: RegSettings): number |
   return s.pickCutoff ?? d.race?.sessions.find((x) => x.id === sid)?.startsAt ?? null;
 }
 
+/** Until when team managers change their lineups: the group's first session's pick cutoff, or its start. Null outside endurance. */
+export function lineupLockIn(d: EventData, sid: string): number | null {
+  const root = rootIn(d, sid);
+  const row = d.settings.get(root);
+  if (!row?.endurance) return null;
+  return lineupLockAt(row.pickCutoff, d.race?.sessions.find((x) => x.id === root)?.startsAt ?? null);
+}
+
 /** What /api/registration/:sid answers for one session. */
 export function viewIn(d: EventData, sid: string, now = Date.now()): RegistrationView {
   const me = d.me;
@@ -307,6 +316,7 @@ export function viewIn(d: EventData, sid: string, now = Date.now()): Registratio
     teams: [],
     registrations: [],
     cars: [],
+    lineupLock: null,
     self: null,
   };
   if (!settings) return view;
@@ -316,7 +326,8 @@ export function viewIn(d: EventData, sid: string, now = Date.now()): Registratio
   const g = groupRegs(d, group);
   view.pickUntil = pickUntilIn(d, sid, settings);
   view.group = group.members.map(({ id, name, teamsOnly }) => ({ id, name, teamsOnly }));
-  view.cars = view.staff ? g.cars : [];
+  view.cars = view.staff ? g.cars : g.cars.filter((c) => managed.some((t) => t.id === c.teamId));
+  view.lineupLock = lineupLockIn(d, sid);
   const gs = g.settings ?? settings;
   const spots = { driver: gs.drivers, employee: gs.employees, spectator: gs.spectators };
   // Everyone sees the spots, the people who are In and the waiting list, counted over the whole group.

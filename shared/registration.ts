@@ -133,8 +133,10 @@ export interface RegistrationView {
   teams: RegTeam[];
   /** Staff see everyone, team managers their teams, an independent their own. */
   registrations: Registration[];
-  /** Endurance events only: the cars entered, for staff. */
+  /** Endurance events only: the cars entered, for staff all of them, for team managers their teams' cars. */
   cars: Car[];
+  /** Endurance events only: until when team managers can change their lineups. Staff can change them after. */
+  lineupLock: number | null;
   /** The viewer's own registration, if any. */
   self: Registration | null;
 }
@@ -337,6 +339,18 @@ export const driverUnit = (s: Pick<RegSettings, "endurance"> | null | undefined)
 /** "Race: 3 · Reserve: 2" for a car's lineup. */
 export function lineupLine(drivers: number, seats: number): string {
   return `Race: ${Math.min(drivers, seats)} · Reserve: ${Math.max(0, drivers - seats)}`;
+}
+
+/** When a team's lineups lock: the first session's pick cutoff, or its start when none is set. */
+export const lineupLockAt = (pickCutoff: number | null, startsAt: number | null): number | null => pickCutoff ?? startsAt;
+
+/** Moves one entry of a ranked list up (-1) or down (1); the list as it is when the move would leave it. */
+export function moveRank<T>(list: T[], i: number, by: -1 | 1): T[] {
+  const j = i + by;
+  if (i < 0 || i >= list.length || j < 0 || j >= list.length) return list;
+  const next = [...list];
+  [next[i], next[j]] = [next[j], next[i]];
+  return next;
 }
 
 /** The car as the team and staff name it: "#12 Team car". */

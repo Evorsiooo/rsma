@@ -937,7 +937,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
     independents,
     teamCap: teamCap.trim() === "" ? null : num(teamCap),
     teamLimit: teamLimit.trim() === "" ? null : num(teamLimit),
-    pickCutoff: teamLimit.trim() === "" || pickCutoff === "" ? null : fromLocalInput(pickCutoff),
+    pickCutoff: (!endurance && teamLimit.trim() === "") || pickCutoff === "" ? null : fromLocalInput(pickCutoff),
     follows,
     endurance,
     carsPerTeam: endurance ? num(cars.carsPerTeam) : 0,
@@ -1027,7 +1027,11 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
                 <span style={{ width: 240, flex: "none" }}>Drivers racing per car</span>
                 <input className="r-field r-fill" inputMode="numeric" aria-label="Drivers racing per car" value={cars.seatsPerCar} onChange={(e) => setCars({ ...cars, seatsPerCar: e.target.value })} />
               </label>
-              <div style={{ color: "var(--r-text-dim)" }}>The driver spots above count cars, and so does the team cap. A team ranks as many drivers as it wants on each car: the top ones race and the rest are reserve. The same limits apply to every team. Existing team drivers stay unassigned until they are put in a car.</div>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Lineups lock (blank for session start)</span>
+                <input className="r-field r-fill" type="datetime-local" aria-label="Lineups lock" value={pickCutoff} onChange={(e) => setPickCutoff(e.target.value)} />
+              </label>
+              <div style={{ color: "var(--r-text-dim)" }}>The driver spots above count cars, and so does the team cap. A team ranks as many drivers as it wants on each car: the top ones race and the rest are reserve. Team managers change lineups until the lock; after it only staff can. The same limits apply to every team. Existing team drivers stay unassigned until they are put in a car.</div>
             </>
           )}
           </>}
