@@ -1074,15 +1074,15 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
           {attend && (
             <>
               <label className="r-row" style={{ alignItems: "center" }}>
-                <span style={{ width: 240, flex: "none" }}>Link opens, minutes before the start</span>
-                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance opens, minutes before the start" value={attendOpens} onChange={(e) => setAttendOpens(e.target.value)} />
+                <span style={{ width: 240, flex: "none" }}>Link opens (minutes before the session starts)</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance opens, minutes before the session starts" value={attendOpens} onChange={(e) => setAttendOpens(e.target.value)} />
               </label>
               <label className="r-row" style={{ alignItems: "center" }}>
-                <span style={{ width: 240, flex: "none" }}>Closes, minutes after the start</span>
-                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance closes, minutes after the start" value={attendCloses} onChange={(e) => setAttendCloses(e.target.value)} />
+                <span style={{ width: 240, flex: "none" }}>Link closes (minutes after the session starts)</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance closes, minutes after the session starts" value={attendCloses} onChange={(e) => setAttendCloses(e.target.value)} />
               </label>
               <div style={{ color: "var(--r-text-dim)" }}>
-                Link: <b>{location.origin}/attend/{session.id}</b>. Drivers sign in with Roblox and confirm. Nobody who has not confirmed is staged. Staff can mark anyone present or absent under Registrations.
+                Link: <b>{location.origin}/attend/{session.id}</b>. Closes at the session start with 0; a higher number keeps it open that many minutes into the session, for late drivers. Drivers sign in with Roblox and confirm. Nobody who has not confirmed is staged. Staff can mark anyone present or absent under Registrations.
               </div>
             </>
           )}
