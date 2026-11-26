@@ -190,6 +190,14 @@ export function slice(s: Sampled, u0: number, u1: number, step = 0.004): [number
 
 export const polyD = (pts: [number, number][]) => pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
 
+/** A box by its centre. */
+export interface Box {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 /** A label to place beside a point of the lap: the point, the unit normal pointing away from the circuit's centre, the text width. */
 export interface LabelSpot {
   x: number;
@@ -206,7 +214,7 @@ export interface LabelSpot {
  * outer side, then the inner side, then one `step` further out, and so on; the first free spot wins. `d` tells how far
  * from its point a label ended up, so the caller can draw a leader line when it had to move.
  */
-export function placeLabels(items: LabelSpot[], o: { h: number; base: number; step: number; tries?: number; gap?: number }): { x: number; y: number; d: number }[] {
+export function placeLabels(items: LabelSpot[], o: { h: number; base: number; step: number; tries?: number; gap?: number; avoid?: Box[] }): { x: number; y: number; d: number }[] {
   const tries = o.tries ?? 6;
   const gap = o.gap ?? o.h * 0.15;
   const out: { x: number; y: number; d: number }[] = [];
@@ -217,7 +225,9 @@ export function placeLabels(items: LabelSpot[], o: { h: number; base: number; st
       for (const side of [1, -1]) {
         const x = it.x + it.nx * side * d;
         const y = it.y + it.ny * side * d;
-        const clash = out.some((q, i) => Math.abs(q.x - x) < (items[i].w + it.w) / 2 + gap && Math.abs(q.y - y) < o.h + gap);
+        const clash =
+          out.some((q, i) => Math.abs(q.x - x) < (items[i].w + it.w) / 2 + gap && Math.abs(q.y - y) < o.h + gap) ||
+          (o.avoid ?? []).some((b) => Math.abs(b.x - x) < (b.w + it.w) / 2 + gap && Math.abs(b.y - y) < (b.h + o.h) / 2 + gap);
         if (!clash) {
           best = { x, y, d };
           break search;
@@ -227,6 +237,107 @@ export function placeLabels(items: LabelSpot[], o: { h: number; base: number; st
     out.push(best ?? { x: it.x + it.nx * (it.base ?? o.base), y: it.y + it.ny * (it.base ?? o.base), d: it.base ?? o.base });
   }
   return out;
+}
+
+/** Where each label of a map goes: turn numbers (and any `extra` labels on the lap), then the points of interest. */
+export interface MapLabels {
+  turns: { n: number; ax: number; ay: number; x: number; y: number; d: number; ux: number; uy: number }[];
+  extra: { key: string; ax: number; ay: number; x: number; y: number; d: number; ux: number; uy: number }[];
+  pois: { id: string; label: string; x: number; y: number; tx: number; ty: number; anchor: "start" | "middle" | "end" }[];
+}
+
+/** Width of one character of the map's pixel font, in em. */
+export const CHAR_EM = 0.58;
+
+/**
+ * Lays out the text of a map. A point of interest's label goes first, on the side of its dot (towards the middle first)
+ * that overlaps the track, the other dots and labels, and the edge of the map least. Turn numbers (and any `extra`
+ * labels on the lap) then sit beside the lap, spread apart when close and kept clear of the dots and labels.
+ * `k` is drawing units per pixel, `fs` the font size in drawing units and `bounds` the drawing's visible area.
+ */
+export function layoutLabels(
+  g: TrackGeometry,
+  lap: Sampled,
+  pit: Sampled | null,
+  o: { cx: number; cy: number; k: number; fs: number; bounds: { x0: number; y0: number; x1: number; y1: number }; turnBase?: number; extra?: { key: string; u: number; chars: number; base: number; inward?: boolean }[] },
+): MapLabels {
+  const { k, fs, bounds } = o;
+  const cw = fs * CHAR_EM;
+  const pois = g.pois ?? [];
+  const dots: Box[] = pois.map((q) => ({ x: q.x, y: q.y, w: 8 * k, h: 8 * k }));
+  const track = [...lap.pts, ...(pit?.pts ?? [])];
+  const near = 4 * k;
+  const overlap = (a: Box, b: Box) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 && Math.abs(a.y - b.y) < (a.h + b.h) / 2;
+
+  // Points of interest.
+  const poiBoxes: Box[] = [];
+  const poiOut: MapLabels["pois"] = [];
+  for (const q of pois) {
+    const w = q.label.length * cw;
+    const toward = q.x < o.cx ? 1 : -1;
+    const gx = 7 * k;
+    const gy = fs * 0.5 + 5 * k;
+    const a: "start" | "end" = toward > 0 ? "start" : "end";
+    const b: "start" | "end" = toward > 0 ? "end" : "start";
+    const cands: { x: number; y: number; anchor: "start" | "middle" | "end" }[] = [];
+    for (const m of [1, 1.8]) {
+      cands.push({ x: q.x + toward * gx * m, y: q.y, anchor: a });
+      cands.push({ x: q.x - toward * gx * m, y: q.y, anchor: b });
+      cands.push({ x: q.x, y: q.y - gy * m, anchor: "middle" });
+      cands.push({ x: q.x, y: q.y + gy * m, anchor: "middle" });
+      cands.push({ x: q.x + toward * gx * m, y: q.y - gy * m, anchor: a });
+      cands.push({ x: q.x + toward * gx * m, y: q.y + gy * m, anchor: a });
+      cands.push({ x: q.x - toward * gx * m, y: q.y - gy * m, anchor: b });
+      cands.push({ x: q.x - toward * gx * m, y: q.y + gy * m, anchor: b });
+    }
+    let best = cands[0];
+    let bestBox: Box = { x: 0, y: 0, w, h: fs };
+    let bestScore = Infinity;
+    for (const c of cands) {
+      const box: Box = { x: c.anchor === "start" ? c.x + w / 2 : c.anchor === "end" ? c.x - w / 2 : c.x, y: c.y, w, h: fs };
+      const grown = { ...box, w: box.w + 2 * k, h: box.h + 2 * k };
+      let score = [...dots, ...poiBoxes].filter((d) => overlap(grown, d)).length * 1000;
+      if (box.x - w / 2 < bounds.x0 || box.x + w / 2 > bounds.x1 || box.y - fs / 2 < bounds.y0 || box.y + fs / 2 > bounds.y1) score += 1000;
+      score += track.filter(([x, y]) => Math.abs(x - box.x) < w / 2 + near && Math.abs(y - box.y) < fs / 2 + near).length * 5;
+      if (score < bestScore) {
+        bestScore = score;
+        best = c;
+        bestBox = box;
+        if (score === 0) break;
+      }
+    }
+    poiOut.push({ id: q.id, label: q.label, x: q.x, y: q.y, tx: best.x, ty: best.y, anchor: best.anchor });
+    poiBoxes.push(bestBox);
+  }
+
+  // Turn numbers and other labels beside the lap.
+  const normal = (u: number, inward = false) => {
+    const p = at(lap, u);
+    const nx = p.ty;
+    const ny = -p.tx;
+    const out = (nx * (p.x - o.cx) + ny * (p.y - o.cy) > 0 ? 1 : -1) * (inward ? -1 : 1);
+    return { p, nx: nx * out, ny: ny * out };
+  };
+  const spots = [
+    ...turnsOf(g).map((t) => ({ t: t.n, u: t.u, chars: String(t.n).length, base: o.turnBase ?? 15 * k, inward: false })),
+    ...(o.extra ?? []).map((e) => ({ t: e.key, u: e.u, chars: e.chars, base: e.base, inward: !!e.inward })),
+  ].map((s) => {
+    const { p, nx, ny } = normal(s.u, s.inward);
+    return { s, p, nx, ny, w: s.chars * cw };
+  });
+  const placed = placeLabels(spots.map((q) => ({ x: q.p.x, y: q.p.y, nx: q.nx, ny: q.ny, w: q.w, base: q.s.base })), { h: fs, base: o.turnBase ?? 15 * k, step: fs * 0.95, avoid: [...dots, ...poiBoxes] });
+  const out = spots.map((q, i) => {
+    const dx = placed[i].x - q.p.x;
+    const dy = placed[i].y - q.p.y;
+    const len = Math.hypot(dx, dy) || 1;
+    return { t: q.s.t, ax: q.p.x, ay: q.p.y, x: placed[i].x, y: placed[i].y, d: placed[i].d, ux: dx / len, uy: dy / len };
+  });
+  const nTurns = turnsOf(g).length;
+  return {
+    turns: out.slice(0, nTurns).map((q) => ({ ...q, n: q.t as number })),
+    extra: out.slice(nTurns).map((q) => ({ ...q, key: q.t as string })),
+    pois: poiOut,
+  };
 }
 
 // ---- Turns and segments ---------------------------------------------------------

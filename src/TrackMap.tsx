@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { PointerEvent } from "react";
-import { at, placeLabels, polyD, sample, segmentsOf, slice, turnsOf, type Sampled, type TrackGeometry } from "../shared/track";
+import { at, CHAR_EM, layoutLabels, polyD, sample, segmentsOf, slice, turnsOf, type Sampled, type TrackGeometry } from "../shared/track";
 
 export type MapTint = "yellow" | "red";
 
@@ -27,11 +27,13 @@ export interface TrackMapProps {
 }
 
 const COLORS = {
-  dark: { track: "#6f7679", pit: "#55595d", text: "#f0f0e8", dim: "#8d9396", yellow: "#e8d44d", red: "#e63a2e", edge: "#0a0b0b", hover: "#3fd0b0", poi: "#5b9bff" },
-  light: { track: "#8c97b8", pit: "#b4bdd6", text: "#00206b", dim: "#6a76a0", yellow: "#f5c400", red: "#d62e24", edge: "#7a5f00", hover: "#3a63c8", poi: "#0031a7" },
+  dark: { track: "#6f7679", pit: "#55595d", text: "#f0f0e8", dim: "#8d9396", yellow: "#e8d44d", red: "#e63a2e", edge: "#0a0b0b", hover: "#3fd0b0", poi: "#8d9396", ring: "#0a0b0b" },
+  light: { track: "#8c97b8", pit: "#b4bdd6", text: "#00206b", dim: "#6a76a0", yellow: "#f5c400", red: "#d62e24", edge: "#7a5f00", hover: "#3a63c8", poi: "#1f4fc4", ring: "#ffffff" },
 } as const;
 
 const GAP = 0.003;
+/** Font size of turn numbers and labels, in px. */
+const FONT = 12;
 
 /** The geometry's drawing: lap, pit lane, finish line, direction arrow, turn numbers and flagged segments. */
 export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pending = [], tint, labels = true, onSegments, className }: TrackMapProps) {
@@ -65,48 +67,47 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
     for (const [x, y] of pts) {
       x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
     }
+    const pad = Math.max(x1 - x0, y1 - y0) * 0.09 + 10;
+    // A point of interest near the edge makes room for its label on both sides.
+    const kEst = (x1 - x0 + 2 * pad) / width;
+    for (const q of g.pois ?? []) {
+      const w = q.label.length * FONT * CHAR_EM * kEst + 8 * kEst;
+      x0 = Math.min(x0, q.x - w); x1 = Math.max(x1, q.x + w);
+      y0 = Math.min(y0, q.y - FONT * kEst); y1 = Math.max(y1, q.y + FONT * kEst);
+    }
     const cx = (x0 + x1) / 2;
     const cy = (y0 + y1) / 2;
-    const pad = Math.max(x1 - x0, y1 - y0) * 0.09 + 10;
     const box = { x: x0 - pad, y: y0 - pad, w: x1 - x0 + 2 * pad, h: y1 - y0 + 2 * pad };
     return { lap, pit, segs, box, cx, cy };
-  }, [g]);
+  }, [g, width]);
   const { lap, pit, segs, box, cx, cy } = d;
   if (lap.pts.length < 3) return null;
   const k = box.w / width; // drawing units per px
-  const fs = 16 * k;
+  const fs = FONT * k;
   const height = Math.round(box.h / k);
   const yel = new Set(yellow);
   const pen = new Set(pending);
-  const side = (u: number, off: number, inward = false) => {
+  const side = (u: number, off: number) => {
     const p = at(lap, u);
-    let nx = p.ty;
-    let ny = -p.tx;
+    const nx = p.ty;
+    const ny = -p.tx;
     const out = nx * (p.x - cx) + ny * (p.y - cy) > 0 ? 1 : -1;
-    const s = (inward ? -out : out) * off * k;
-    nx *= s;
-    ny *= s;
-    return { x: p.x + nx, y: p.y + ny, p };
+    return { x: p.x - out * nx * off * k, y: p.y - out * ny * off * k, p };
   };
   const f = at(lap, g.start);
   const arrow = at(lap, g.start + 0.035);
   const tintC = tint === "red" ? c.red : c.yellow;
 
-  const turnLabels = (() => {
-    const ts = turnsOf(g).map((t) => {
-      const m = side(t.u, 1);
-      const nx = (m.x - m.p.x) / k;
-      const ny = (m.y - m.p.y) / k;
-      return { n: t.n, ax: m.p.x, ay: m.p.y, nx, ny, w: String(t.n).length * fs * 0.62 };
-    });
-    const placed = placeLabels(ts.map((t) => ({ x: t.ax, y: t.ay, nx: t.nx, ny: t.ny, w: t.w })), { h: fs, base: 15 * k, step: fs * 0.95 });
-    return ts.map((t, i) => {
-      const dx = placed[i].x - t.ax;
-      const dy = placed[i].y - t.ay;
-      const len = Math.hypot(dx, dy) || 1;
-      return { n: t.n, ax: t.ax, ay: t.ay, x: placed[i].x, y: placed[i].y, d: placed[i].d, ux: dx / len, uy: dy / len };
-    });
-  })();
+  const flagged = segs.filter((s) => (yel.has(s.id) || pen.has(s.id)) && !s.pit);
+  const labelSet = layoutLabels(g, lap, pit, {
+    cx,
+    cy,
+    k,
+    fs,
+    bounds: { x0: box.x, y0: box.y, x1: box.x + box.w, y1: box.y + box.h },
+    extra: labels ? flagged.map((s) => ({ key: s.id, u: s.from + ((((s.to - s.from) % 1) + 1) % 1 || 1) / 2, chars: s.name.length, base: 22 * k, inward: true })) : [],
+  });
+  const turnLabels = labelSet.turns;
 
   const segPath = (s: (typeof segs)[number]) => {
     if (s.pit) {
@@ -163,21 +164,21 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
         </>
       )}
       {labels &&
-        segs
-          .filter((s) => (yel.has(s.id) || pen.has(s.id)) && !s.pit)
-          .map((s) => {
-            const span = (((s.to - s.from) % 1) + 1) % 1 || 1;
-            const m = side(s.from + span / 2, 22, true);
-            return (
-              <text key={s.id} x={m.x} y={m.y + fs * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fs} fill={yel.has(s.id) ? c.yellow : c.dim}>
+        labelSet.extra.map((m) => {
+          const s = flagged.find((q) => q.id === m.key)!;
+          return (
+            <g key={m.key}>
+              {m.d > 22 * k + 0.01 && <line x1={m.ax} y1={m.ay} x2={m.x - m.ux * fs * 0.55} y2={m.y - m.uy * fs * 0.55} stroke={c.dim} strokeWidth={1} vectorEffect="non-scaling-stroke" />}
+              <text x={m.x} y={m.y + fs * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fs} fill={yel.has(s.id) ? c.yellow : c.dim}>
                 {s.name}
               </text>
-            );
-          })}
-      {(g.pois ?? []).map((q) => (
+            </g>
+          );
+        })}
+      {labelSet.pois.map((q) => (
         <g key={q.id} style={{ pointerEvents: "none" }}>
-          <circle cx={q.x} cy={q.y} r={3.5 * k} fill={c.poi} />
-          <text x={q.x + (q.x < cx ? 7 : -7) * k} y={q.y + fs * 0.35} textAnchor={q.x < cx ? "start" : "end"} fontFamily="PerfectDOSVGA, monospace" fontSize={fs} fill={c.text}>
+          <circle cx={q.x} cy={q.y} r={3 * k} fill={c.poi} stroke={c.ring} strokeWidth={1.5 * k} />
+          <text x={q.tx} y={q.ty + fs * 0.35} textAnchor={q.anchor} fontFamily="PerfectDOSVGA, monospace" fontSize={fs} fill={c.poi}>
             {q.label}
           </text>
         </g>
