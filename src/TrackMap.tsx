@@ -1,6 +1,6 @@
-import { useMemo } from "react";
-import type { MouseEvent } from "react";
-import { at, polyD, sample, segmentsOf, slice, turnsOf, type Sampled, type TrackGeometry } from "../shared/track";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { PointerEvent } from "react";
+import { at, placeLabels, polyD, sample, segmentsOf, slice, turnsOf, type Sampled, type TrackGeometry } from "../shared/track";
 
 export type MapTint = "yellow" | "red";
 
@@ -18,20 +18,44 @@ export interface TrackMapProps {
   tint?: MapTint;
   /** Names flagged segments (S4) beside them. On by default. */
   labels?: boolean;
-  onSegment?: (id: string, kind: "click" | "context", e: MouseEvent) => void;
+  /**
+   * Makes the segments flaggable. Press and drag across segments with the left button ("click") or the right button
+   * ("context"); on release the ids touched are handed over, in the order they were crossed. One segment is a plain click.
+   */
+  onSegments?: (ids: string[], kind: "click" | "context") => void;
   className?: string;
 }
 
 const COLORS = {
-  dark: { track: "#6f7679", pit: "#55595d", text: "#f0f0e8", dim: "#8d9396", yellow: "#e8d44d", red: "#e63a2e", edge: "#0a0b0b" },
-  light: { track: "#8c97b8", pit: "#b4bdd6", text: "#00206b", dim: "#6a76a0", yellow: "#f5c400", red: "#d62e24", edge: "#7a5f00" },
+  dark: { track: "#6f7679", pit: "#55595d", text: "#f0f0e8", dim: "#8d9396", yellow: "#e8d44d", red: "#e63a2e", edge: "#0a0b0b", hover: "#3fd0b0" },
+  light: { track: "#8c97b8", pit: "#b4bdd6", text: "#00206b", dim: "#6a76a0", yellow: "#f5c400", red: "#d62e24", edge: "#7a5f00", hover: "#3a63c8" },
 } as const;
 
 const GAP = 0.003;
 
 /** The geometry's drawing: lap, pit lane, finish line, direction arrow, turn numbers and flagged segments. */
-export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pending = [], tint, labels = true, onSegment, className }: TrackMapProps) {
+export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pending = [], tint, labels = true, onSegments, className }: TrackMapProps) {
   const c = COLORS[theme];
+  const [paint, setPaint] = useState<{ ids: string[]; kind: "click" | "context" } | null>(null);
+  const live = useRef(paint);
+  live.current = paint;
+  const apply = useRef(onSegments);
+  apply.current = onSegments;
+  useEffect(() => {
+    if (!paint) return;
+    const end = () => {
+      const p = live.current;
+      setPaint(null);
+      if (p) apply.current?.(p.ids, p.kind);
+    };
+    const cancel = () => setPaint(null);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", cancel);
+    return () => {
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", cancel);
+    };
+  }, [paint === null]);
   const d = useMemo(() => {
     const lap = sample(g.line, true);
     const pit: Sampled | null = g.pit ? sample(g.pit.line, false) : null;
@@ -68,6 +92,22 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
   const arrow = at(lap, g.start + 0.035);
   const tintC = tint === "red" ? c.red : c.yellow;
 
+  const turnLabels = (() => {
+    const ts = turnsOf(g).map((t) => {
+      const m = side(t.u, 1);
+      const nx = (m.x - m.p.x) / k;
+      const ny = (m.y - m.p.y) / k;
+      return { n: t.n, ax: m.p.x, ay: m.p.y, nx, ny, w: String(t.n).length * fs * 0.62 };
+    });
+    const placed = placeLabels(ts.map((t) => ({ x: t.ax, y: t.ay, nx: t.nx, ny: t.ny, w: t.w })), { h: fs, base: 15 * k, step: fs * 0.95 });
+    return ts.map((t, i) => {
+      const dx = placed[i].x - t.ax;
+      const dy = placed[i].y - t.ay;
+      const len = Math.hypot(dx, dy) || 1;
+      return { n: t.n, ax: t.ax, ay: t.ay, x: placed[i].x, y: placed[i].y, d: placed[i].d, ux: dx / len, uy: dy / len };
+    });
+  })();
+
   const segPath = (s: (typeof segs)[number]) => {
     if (s.pit) {
       if (!pit) return "";
@@ -79,15 +119,22 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
     const e = Math.min(GAP, span / 4);
     return polyD(slice(lap, s.from + e, s.from + span - e));
   };
-  const flag = (id: string, kind: "click" | "context") => (e: MouseEvent) => {
-    if (!onSegment) return;
+  const begin = (id: string) => (e: PointerEvent) => {
+    if (!onSegments || (e.button !== 0 && e.button !== 2)) return;
     e.preventDefault();
-    onSegment(id, kind, e);
+    (e.target as Element).releasePointerCapture?.(e.pointerId);
+    setPaint({ ids: [id], kind: e.button === 0 ? "click" : "context" });
+  };
+  const sweep = (e: PointerEvent) => {
+    if (!live.current) return;
+    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest("[data-seg]");
+    const id = el?.getAttribute("data-seg");
+    if (id && !live.current.ids.includes(id)) setPaint({ ...live.current, ids: [...live.current.ids, id] });
   };
 
   return (
-    <svg className={className} viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} width={width} height={height} style={{ display: "block", margin: "0 auto", maxWidth: "100%" }} role="img" aria-label="Track map">
-      <style>{`@keyframes tm-b{0%,49%{opacity:1}50%,100%{opacity:.25}}.tm-b{animation:tm-b 1s steps(1,end) infinite}@media (prefers-reduced-motion:reduce){.tm-b{animation:none}}`}</style>
+    <svg className={className} viewBox={`${box.x} ${box.y} ${box.w} ${box.h}`} width={width} height={height} style={{ display: "block", margin: "0 auto", maxWidth: "100%", ["--tm-hover" as string]: c.hover, ...(onSegments ? { touchAction: "none", userSelect: "none" } : {}) }} role="img" aria-label="Track map" onPointerMove={onSegments ? sweep : undefined} onContextMenu={onSegments ? (e) => e.preventDefault() : undefined}>
+      <style>{`@keyframes tm-b{0%,49%{opacity:1}50%,100%{opacity:.25}}.tm-b{animation:tm-b 1s steps(1,end) infinite}.tm-h:hover .tm-v{stroke:var(--tm-hover)}@media (prefers-reduced-motion:reduce){.tm-b{animation:none}}`}</style>
       {tint && <path d={polyD(slice(lap, 0, 1))} fill="none" stroke={tintC} strokeOpacity={0.35} strokeWidth={16} strokeLinejoin="round" vectorEffect="non-scaling-stroke" />}
       {segs.map((s) => {
         const path = segPath(s);
@@ -95,12 +142,13 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
         const isP = pen.has(s.id);
         const edge = theme === "light" && isY;
         return (
-          <g key={s.id}>
+          <g key={s.id} className={onSegments ? "tm-h" : undefined}>
             {edge && <path d={path} fill="none" stroke={c.edge} strokeWidth={s.pit ? 6 : 9} vectorEffect="non-scaling-stroke" />}
-            <path d={path} fill="none" stroke={isY ? c.yellow : s.pit ? c.pit : c.track} strokeWidth={s.pit ? 3 : 6} vectorEffect="non-scaling-stroke" />
+            <path className="tm-v" d={path} fill="none" stroke={isY ? c.yellow : s.pit ? c.pit : c.track} strokeWidth={s.pit ? 3 : 6} vectorEffect="non-scaling-stroke" />
             {isP && <path className="tm-b" d={path} fill="none" stroke={c.yellow} strokeWidth={s.pit ? 3 : 6} strokeDasharray="5 5" vectorEffect="non-scaling-stroke" />}
-            {onSegment && (
-              <path d={path} fill="none" stroke="transparent" strokeWidth={s.pit ? 12 : 18} vectorEffect="non-scaling-stroke" style={{ cursor: "pointer" }} onClick={flag(s.id, "click")} onContextMenu={flag(s.id, "context")} />
+            {paint?.ids.includes(s.id) && <path d={path} fill="none" stroke={c.hover} strokeWidth={s.pit ? 3 : 6} strokeDasharray={paint.kind === "context" ? "5 5" : undefined} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
+            {onSegments && (
+              <path data-seg={s.id} d={path} fill="none" stroke="transparent" strokeWidth={s.pit ? 12 : 18} vectorEffect="non-scaling-stroke" style={{ cursor: "pointer" }} onPointerDown={begin(s.id)} />
             )}
           </g>
         );
@@ -126,14 +174,14 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
               </text>
             );
           })}
-      {turnsOf(g).map((t) => {
-        const m = side(t.u, 15);
-        return (
-          <text key={t.n} x={m.x} y={m.y + fs * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fs} fill={c.text}>
+      {turnLabels.map((t) => (
+        <g key={t.n}>
+          {t.d > 15 * k + 0.01 && <line x1={t.ax} y1={t.ay} x2={t.x - t.ux * fs * 0.55} y2={t.y - t.uy * fs * 0.55} stroke={c.dim} strokeWidth={1} vectorEffect="non-scaling-stroke" />}
+          <text x={t.x} y={t.y + fs * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fs} fill={c.text}>
             {t.n}
           </text>
-        );
-      })}
+        </g>
+      ))}
       <path d={`M${f.x + f.ty * 8 * k},${f.y - f.tx * 8 * k}L${f.x - f.ty * 8 * k},${f.y + f.tx * 8 * k}`} stroke={c.text} strokeWidth={3} vectorEffect="non-scaling-stroke" />
       <path
         d={`M${arrow.x + arrow.tx * 6 * k},${arrow.y + arrow.ty * 6 * k}L${arrow.x - arrow.tx * 4 * k - arrow.ty * 5 * k},${arrow.y - arrow.ty * 4 * k + arrow.tx * 5 * k}L${arrow.x - arrow.tx * 4 * k + arrow.ty * 5 * k},${arrow.y - arrow.ty * 4 * k - arrow.tx * 5 * k}Z`}

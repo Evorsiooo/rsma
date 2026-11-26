@@ -17,7 +17,7 @@ interface Common {
   now: number;
 }
 
-/** Steward panel: the map and one list of team reports and confirmed yellows. Left click confirms, right click dismisses. */
+/** Steward panel: the map and one list of team reports and confirmed yellows. Drag with the left button to confirm segments, with the right button to clear them. */
 export function StewardYellows({ track, state, now, disabled, send }: Common & { disabled: boolean; send: (c: import("../shared/commands").Command) => Promise<boolean> }) {
   const segs = useMemo(() => segmentsOf(track.geometry), [track]);
   const name = (id: string) => segs.find((s) => s.id === id)?.name ?? id;
@@ -33,10 +33,14 @@ export function StewardYellows({ track, state, now, disabled, send }: Common & {
           yellow={yellow}
           pending={pending}
           tint={tint(state.flag)}
-          onSegment={disabled ? undefined : (id, kind) => {
-            if (kind === "click") {
-              if (!yellow.includes(id)) send({ type: "zoneConfirm", seg: id, label: "" });
-            } else if (pending.includes(id)) send({ type: "zoneDismiss", seg: id });
+          onSegments={disabled ? undefined : async (ids, kind) => {
+            // Left button confirms every segment crossed; right button clears the yellow ones and dismisses the reports on the rest.
+            for (const id of ids) {
+              if (kind === "click") {
+                if (!yellow.includes(id)) await send({ type: "zoneConfirm", seg: id, label: "" });
+              } else if (yellow.includes(id)) await send({ type: "zoneClear", seg: id, label: "" });
+              else if (pending.includes(id)) await send({ type: "zoneDismiss", seg: id });
+            }
           }}
         />
       </div>
@@ -63,7 +67,7 @@ export function StewardYellows({ track, state, now, disabled, send }: Common & {
   );
 }
 
-/** Team panel: the map shows confirmed yellows; a click reports a segment to the stewards. */
+/** Team panel: the map shows confirmed yellows; dragging with the left button reports segments to the stewards. */
 export function TeamYellows({ track, state, team, car, disabled, report, withdraw }: Omit<Common, "now"> & { team: string; car?: string; disabled: boolean; report: (seg: string) => void; withdraw: (id: string) => void }) {
   const segs = useMemo(() => segmentsOf(track.geometry), [track]);
   const name = (id: string) => segs.find((s) => s.id === id)?.name ?? id;
@@ -72,7 +76,7 @@ export function TeamYellows({ track, state, team, car, disabled, report, withdra
     <>
       <div className="r-section"><span>Track map</span></div>
       <div className="r-blank" style={{ padding: 4 }}>
-        <TrackMap geometry={track.geometry} width={278} yellow={state.zones.map((z) => z.seg)} tint={tint(state.flag)} onSegment={disabled ? undefined : (id, kind) => kind === "click" && report(id)} />
+        <TrackMap geometry={track.geometry} width={278} yellow={state.zones.map((z) => z.seg)} tint={tint(state.flag)} onSegments={disabled ? undefined : (ids, kind) => kind === "click" && ids.filter((id) => !state.zones.some((z) => z.seg === id)).forEach((id) => report(id))} />
       </div>
       {mine.map((r) => (
         <div className="r-row" style={{ alignItems: "center", gap: 4 }} key={r.id}>

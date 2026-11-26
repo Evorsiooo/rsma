@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { at, autoSplits, withLine, drawnDirection, emptyGeometry, lapT, nearest, sample, segmentLabel, segmentsOf, setDirection, slice, turnsOf, validateGeometry, type TrackGeometry } from "../shared/track.ts";
+import { at, autoSplits, placeLabels, withLine, drawnDirection, emptyGeometry, lapT, nearest, sample, segmentLabel, segmentsOf, setDirection, slice, turnsOf, validateGeometry, type TrackGeometry } from "../shared/track.ts";
 
 // A square-ish loop drawn clockwise on screen (y down): top, right, bottom, left.
 const square = [
@@ -126,4 +126,18 @@ test("changing the line keeps turns and splits at the same places on the circuit
   const sa = at(sample(n.line, true), n.splits[0].u);
   assert.ok(Math.hypot(sb.x - sa.x, sb.y - sa.y) < 12);
   assert.equal(n.splits[0].id, "a");
+});
+
+test("labels that would overlap are moved apart, labels that fit stay put", () => {
+  const spot = (x: number, y: number) => ({ x, y, nx: 0, ny: -1, w: 10 });
+  const far = placeLabels([spot(0, 100), spot(200, 100)], { h: 16, base: 15, step: 16 });
+  assert.deepEqual(far.map((p) => p.d), [15, 15]);
+  const near = placeLabels([spot(0, 100), spot(4, 100), spot(8, 100)], { h: 16, base: 15, step: 16 });
+  for (let i = 0; i < near.length; i++) {
+    for (let j = i + 1; j < near.length; j++) {
+      assert.ok(Math.abs(near[i].x - near[j].x) >= 10 || Math.abs(near[i].y - near[j].y) >= 16, `labels ${i} and ${j} overlap`);
+    }
+  }
+  assert.equal(near[0].d, 15);
+  assert.ok(near[1].y > 100); // the second goes to the inner side
 });
