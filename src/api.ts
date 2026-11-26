@@ -129,8 +129,14 @@ async function teamCall(method: string, path: string, body?: unknown): Promise<s
   return ((await res.json().catch(() => ({}))) as { error?: string }).error ?? "failed";
 }
 
-export const addPitWindow = (sessionId: string, teamId: string, fromMs: number, toMs: number) =>
-  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/pit`, { fromMs, toMs });
+export const addPitWindow = (sessionId: string, teamId: string, fromMs: number, toMs: number, entry?: string) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/pit`, { fromMs, toMs, entry });
+export const addPlanDriver = (sessionId: string, teamId: string, entry: string, driver: string, fromMs: number) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/plan`, { entry, driver, fromMs });
+export const removePlanDriver = (sessionId: string, teamId: string, planId: string) =>
+  teamCall("DELETE", `/api/sessions/${sessionId}/team/${teamId}/plan/${planId}`);
+export const teamDriver = (sessionId: string, teamId: string, action: "next" | "swap", runId: string) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/driver`, { action, runId });
 export const removePitWindow = (sessionId: string, teamId: string, windowId: string) =>
   teamCall("DELETE", `/api/sessions/${sessionId}/team/${teamId}/pit/${windowId}`);
 export const moveOwnCar = (sessionId: string, teamId: string, runId: string, dir: -1 | 1) =>

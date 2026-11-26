@@ -421,9 +421,10 @@ export function EditInfoDialog({ run, onClose, send }: { run: Run; onClose: () =
         <input className="r-field" aria-label="Plate" maxLength={12} value={plate} onChange={(e) => setPlate(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
       </div>
       <div className="r-form-field">
-        <span className="r-label">Driver number</span>
-        <input className="r-field" aria-label="Driver number" maxLength={4} value={number} onChange={(e) => setNumber(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+        <span className="r-label">{run.entry ? "Car number" : "Driver number"}</span>
+        <input className="r-field" aria-label={run.entry ? "Car number" : "Driver number"} maxLength={4} value={number} onChange={(e) => setNumber(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
       </div>
+      {run.entry && <div className="r-banner is-teal">Applies to every driver of this car.</div>}
     </Dialog>
   );
 }
