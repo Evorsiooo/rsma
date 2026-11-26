@@ -4,7 +4,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { carText, classify, fmtPenalty, fmtTime, releasable, type Flag, type RadioMsg, type Run } from "../shared/race";
 import { fmtClock } from "../shared/sessions";
 import type { SessionInfo } from "../shared/types";
-import { addPitWindow, addPlanDriver, api, askDriver, moveOwnCar, removePitWindow, removePlanDriver, sendTeamRadio, teamDriver, teamNoteCmd, teamRunCmd, teamTiming } from "./api";
+import { addPitWindow, addPlanDriver, api, reportYellow, withdrawYellow, askDriver, moveOwnCar, removePitWindow, removePlanDriver, sendTeamRadio, teamDriver, teamNoteCmd, teamRunCmd, teamTiming } from "./api";
 import { CarDrivers, carTitle } from "./car";
 import { Lcd } from "./Lcd";
 import { useMe } from "./me";
@@ -14,6 +14,7 @@ import { Topbar } from "./Shell";
 import { TimingTable } from "./TimingTable";
 import { Dialog, sessionCountdown, toast, useClock, useNow } from "./ui";
 import { useRaceLive } from "./useRaceLive";
+import { TeamYellows, useTrack } from "./YellowFlags";
 import { AttributeDialog, ConfirmDnf, NotesDialog, SetTimeDialog } from "./steward/Dialogs";
 import { AudioSettingsDialog, useRadioTTS } from "./AudioSettings";
 import { startBeeps } from "./audio";
@@ -23,6 +24,7 @@ const FLAG_WORD: Record<Flag, string> = { green: "GREEN", yellow: "YELLOW", red:
 const ERRORS: Record<string, string> = {
   race_ended: "This race has ended.",
   invalid: "Invalid value.",
+  already_yellow: "That segment is already yellow.",
   too_many: "Too many windows.",
   not_found: "Not found.",
   no_queue: "No queued car in your team.",
@@ -95,6 +97,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const nav = useNavigate();
   const { state, live, offset } = useRaceLive(sessionId, "auth");
   const now = useNow(offset, true);
+  const track = useTrack(race.trackId);
   const [selId, setSelId] = useState<string | null>(null);
   const [sort, setSort] = useState<"fastest" | "last">("fastest");
   const runById = useMemo(() => new Map(state?.runs.map((r) => [r.id, r])), [state?.runs]);
@@ -338,6 +341,22 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
 
         <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
           <div className="r-stack" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
+            {track && (
+              <TeamYellows
+                track={track}
+                state={state}
+                team={team.id}
+                disabled={race.ended}
+                report={async (seg) => {
+                  const err = await reportYellow(sessionId, team.id, seg, sel ? (sel.number ? `#${sel.number}` : sel.name) : undefined);
+                  if (err) toast(ERRORS[err] ?? "Report not sent.");
+                }}
+                withdraw={async (rid) => {
+                  const err = await withdrawYellow(sessionId, team.id, rid);
+                  if (err) toast(ERRORS[err] ?? "Report not withdrawn.");
+                }}
+              />
+            )}
             {session.selfTimed && (
               <>
                 <div className="r-section"><span>Release every</span></div>
