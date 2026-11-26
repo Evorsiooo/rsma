@@ -8,7 +8,7 @@ import { admin } from "./admin";
 import { myTeams } from "./my-team";
 import { attendance } from "./attendance";
 import { registration } from "./registration";
-import { tracks } from "./tracks";
+import { segmentLabelOf, tracks } from "./tracks";
 import { syncRegistered, teamWithCar } from "./stage";
 import { loadConfig, loadStandings } from "./standings";
 import { publicResults } from "./session-results";
@@ -174,7 +174,7 @@ app.post("/api/sessions/:id/cmd", async (c) => {
   const cmd = await c.req.json().catch(() => null);
   if (!cmd || typeof cmd.type !== "string") return c.json({ error: "invalid" }, 400);
   // Team commands only come through the team routes; self-timed sessions have no steward Go or Stop.
-  if (["teamGo", "teamFinish", "teamMove", "teamNote", "teamNoteDel", "syncReg", "ask", "answer", "driverRadio", "planAdd", "planDel"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
+  if (["teamGo", "teamFinish", "teamMove", "teamNote", "teamNoteDel", "syncReg", "ask", "answer", "driverRadio", "planAdd", "planDel", "zoneReport", "zoneWithdraw"].includes(cmd.type)) return c.json({ error: "invalid" }, 400);
   if (info.session.selfTimed && (cmd.type === "go" || cmd.type === "finish" || cmd.type === "queueAgain")) return c.json({ error: "self_timed" }, 409);
   // Races are run differently for now: no live timing.
   if (info.session.type === "race" && RACE_TIMING_CMDS.includes(cmd.type)) return c.json({ error: "race_timing_off" }, 409);
@@ -189,6 +189,11 @@ app.post("/api/sessions/:id/cmd", async (c) => {
     const ids: unknown[] = Array.isArray(cmd.teams) ? cmd.teams.map((t: { id?: unknown }) => t?.id) : [];
     const known = (await c.env.DB.prepare("SELECT id, name FROM teams ORDER BY lower(name)").all<{ id: string; name: string }>()).results;
     cmd.teams = known.filter((t) => ids.includes(t.id));
+  }
+  if (cmd.type === "zoneConfirm" || cmd.type === "zoneClear" || cmd.type === "zoneDismiss") {
+    const label = await segmentLabelOf(c.env.DB, info.race.trackId, cmd.seg);
+    if (!label) return c.json({ error: "invalid" }, 400);
+    cmd.label = label;
   }
   // In an endurance event the number and plate belong to the car record: a clash is refused before anything changes.
   let carOfEdit: { entry: string; root: string } | null = null;
@@ -264,6 +269,24 @@ app.post("/api/sessions/:id/team/:teamId/pit", async (c) => {
   if ("error" in r) return r.error;
   const body = (await c.req.json().catch(() => ({}))) as { fromMs?: unknown; toMs?: unknown; entry?: unknown };
   const cmd = { type: "pitAdd", team: r.team.id, teamName: r.team.name, entry: typeof body.entry === "string" ? body.entry : undefined, fromMs: Number(body.fromMs), toMs: Number(body.toMs), lengthMs: r.info.session.endsAt - r.info.session.startsAt };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+// Yellow flags: a team reports a segment (only stewards see it, and the team its own report) or withdraws its report.
+app.post("/api/sessions/:id/team/:teamId/zone", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  const body = (await c.req.json().catch(() => ({}))) as { seg?: unknown; car?: unknown };
+  const label = await segmentLabelOf(c.env.DB, r.info.race.trackId, body.seg);
+  if (!label) return c.json({ error: "invalid" }, 400);
+  const cmd = { type: "zoneReport", team: r.team.id, teamName: r.team.name, seg: body.seg, label, car: typeof body.car === "string" ? body.car : undefined };
+  return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
+});
+
+app.delete("/api/sessions/:id/team/:teamId/zone/:zid", async (c) => {
+  const r = await teamSession(c);
+  if ("error" in r) return r.error;
+  const cmd = { type: "zoneWithdraw", team: r.team.id, id: c.req.param("zid") };
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 

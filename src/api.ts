@@ -217,3 +217,8 @@ export interface CarFields {
   seats?: number;
   drivers?: string[];
 }
+
+export const reportYellow = (sessionId: string, teamId: string, seg: string, car?: string) =>
+  teamCall("POST", `/api/sessions/${sessionId}/team/${teamId}/zone`, { seg, car });
+export const withdrawYellow = (sessionId: string, teamId: string, reportId: string) =>
+  teamCall("DELETE", `/api/sessions/${sessionId}/team/${teamId}/zone/${reportId}`);

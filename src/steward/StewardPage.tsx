@@ -15,8 +15,8 @@ import { useRaceLive } from "../useRaceLive";
 import { AssignDialog, AttributeDialog, ConfirmDelete, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, EditInfoDialog, RulesDialog, SetTimeDialog, TeamsDialog } from "./Dialogs";
 import { AudioSettingsDialog, useRadioTTS } from "../AudioSettings";
 import { startBeeps } from "../audio";
-import { PanelTrackMap } from "../TrackPanel";
 import { CarDrivers, carTitle } from "../car";
+import { StewardYellows, useTrack } from "../YellowFlags";
 
 const ERRORS: Record<string, string> = {
   not_queued: "Only queued drivers can be removed.",
@@ -186,6 +186,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
     api.teams().then(setTeams, () => {});
   }, []);
   const closeDialog = () => setDialog(null);
+  const track = useTrack(race.trackId);
   const now = useNow(offset, !!state && (state.runs.some((r) => r.status === "onstage") || !!state.lastReleaseAt));
 
   const send = async (cmd: Command) => {
@@ -312,7 +313,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
 
         <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
           <div className="r-stack" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
-            <PanelTrackMap trackId={race.trackId} />
+            {track && <StewardYellows track={track} state={state} now={now} disabled={race.ended} send={send} />}
             <div className="r-section"><span>Flags</span></div>
             <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
               {(["green", "yellow", "red"] as Flag[]).map((f) => (

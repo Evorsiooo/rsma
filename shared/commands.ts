@@ -55,6 +55,12 @@ export type Command =
   | { type: "ruleDel"; id: string }
   | { type: "radio"; to: "all" | string[]; text: string }
   | { type: "queueAgain"; runId: string; team?: string }
+  | { type: "zoneConfirm"; seg: string; label: string }
+  | { type: "zoneClear"; seg: string; label: string }
+  | { type: "zoneDismiss"; seg: string; label?: string }
+  | { type: "zoneClearAll" }
+  | { type: "zoneReport"; team: string; teamName: string; seg: string; car?: string; label?: string }
+  | { type: "zoneWithdraw"; team: string; id: string }
   | { type: "reset" };
 
 export interface Ctx {
@@ -81,6 +87,8 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
   s.notes ??= [];
   s.pitWindows ??= [];
   s.plan ??= [];
+  s.zones ??= [];
+  s.zoneReports ??= [];
   const auto = (to: "all" | string[], text: string, say?: string, tone?: Tone, team?: string, teamName?: string) => {
     s.radio.push({ id: ctx.newId(), at: ctx.now, to, text, say, from: "Race control", auto: true, tone, team, teamName });
   };
@@ -632,12 +640,68 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       note(`Swap in ${car}: ${cur.name} to ${next.name}`, "green");
       break;
     }
+    case "zoneConfirm": {
+      // The worker checks the segment against the event's track and writes the label ("turns 3 to 4").
+      const seg = clean(cmd.seg, 20);
+      const label = clean(cmd.label, 40);
+      if (!seg || !label) return { error: "invalid" };
+      s.zoneReports = s.zoneReports.filter((z) => z.seg !== seg);
+      if (s.zones.some((z) => z.seg === seg)) break;
+      s.zones.push({ seg, at: ctx.now, by: ctx.actor });
+      auto("all", `Yellow flag, ${label}.`, undefined, "yellow");
+      note(`Yellow confirmed, ${label}`, "yellow");
+      break;
+    }
+    case "zoneClear": {
+      const seg = clean(cmd.seg, 20);
+      const label = clean(cmd.label, 40);
+      if (!label || !s.zones.some((z) => z.seg === seg)) return { error: "not_found" };
+      s.zones = s.zones.filter((z) => z.seg !== seg);
+      auto("all", `Yellow flag cleared, ${label}.`, undefined, "green");
+      note(`Yellow cleared, ${label}`, "green");
+      break;
+    }
+    case "zoneClearAll": {
+      if (!s.zones.length) return { error: "not_found" };
+      s.zones = [];
+      auto("all", "All yellow flags cleared.", undefined, "green");
+      note("All yellows cleared", "green");
+      break;
+    }
+    case "zoneDismiss": {
+      const seg = clean(cmd.seg, 20);
+      const had = s.zoneReports.length;
+      s.zoneReports = s.zoneReports.filter((z) => z.seg !== seg);
+      if (s.zoneReports.length === had) return { error: "not_found" };
+      note(`Yellow report dismissed, ${clean(cmd.label, 40) || seg}`);
+      break;
+    }
+    case "zoneReport": {
+      const seg = clean(cmd.seg, 20);
+      const team = clean(cmd.team, 60);
+      if (!seg || !team) return { error: "invalid" };
+      // A team has one report per segment; a segment already yellow needs none.
+      if (s.zones.some((z) => z.seg === seg)) return { error: "already_yellow" };
+      s.zoneReports = s.zoneReports.filter((z) => !(z.seg === seg && z.team === team));
+      s.zoneReports.push({ id: ctx.newId(), seg, team, teamName: clean(cmd.teamName, 40), car: clean(cmd.car, 24) || undefined, at: ctx.now });
+      if (s.zoneReports.length > 100) s.zoneReports.splice(0, s.zoneReports.length - 100);
+      note(`Yellow reported, ${clean(cmd.label, 40) || seg}: ${clean(cmd.teamName, 40) || team}${clean(cmd.car, 24) ? ` ${clean(cmd.car, 24)}` : ""}`, "yellow");
+      break;
+    }
+    case "zoneWithdraw": {
+      const had = s.zoneReports.length;
+      s.zoneReports = s.zoneReports.filter((z) => !(z.id === cmd.id && z.team === cmd.team));
+      if (s.zoneReports.length === had) return { error: "not_found" };
+      break;
+    }
     case "reset": {
       // Times, penalties, pending finishes and radio history are cleared; drivers still queued stay.
       s.runs = s.runs.filter((r) => r.status === "queued");
       s.pending = [];
       s.pendingTeam = {};
       s.radio = [];
+      s.zones = [];
+      s.zoneReports = [];
       s.lastReleaseAt = undefined;
       note("Stage reset");
       break;

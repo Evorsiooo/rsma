@@ -1,6 +1,6 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import type { Me } from "../shared/types";
-import { segmentsOf, validateGeometry, type TrackGeometry } from "../shared/track";
+import { segmentLabel, segmentsOf, validateGeometry, type TrackGeometry } from "../shared/track";
 import type { AdminEnv } from "./admin";
 
 /** The tracing guide is a JPEG shrunk in the browser; this is the most one track may hold. */
@@ -95,4 +95,13 @@ export function mountTracksAdmin(app: Hono<{ Bindings: AdminEnv; Variables: { me
     const res = await c.env.DB.prepare("DELETE FROM tracks WHERE id = ?").bind(id).run();
     return res.meta.changes ? c.json({ ok: true }) : c.json({ error: "not_found" }, 404);
   });
+}
+
+/** The radio wording for a segment of an event's track ("turns 3 to 4"), or null when the event has no such segment. */
+export async function segmentLabelOf(db: D1Database, trackId: string | null, seg: unknown): Promise<string | null> {
+  if (!trackId || typeof seg !== "string") return null;
+  const r = await db.prepare(`SELECT ${COLS} FROM tracks WHERE id = ?`).bind(trackId).first<Row>();
+  const g = r && parse(r);
+  const s = g && segmentsOf(g).find((x) => x.id === seg);
+  return g && s ? segmentLabel(g, s) : null;
 }

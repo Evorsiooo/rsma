@@ -109,6 +109,25 @@ export interface DriverPlan {
   fromMs: number;
 }
 
+/** A segment of the track flagged yellow for everyone. */
+export interface YellowZone {
+  /** Segment id of the event's track. */
+  seg: string;
+  at: number;
+  by: string;
+}
+
+/** A team's report of a yellow in a segment. Only stewards and the reporting team see it. */
+export interface ZoneReport {
+  id: string;
+  seg: string;
+  team: string;
+  teamName: string;
+  /** The car selected in the team panel when it reported, e.g. "#7". */
+  car?: string;
+  at: number;
+}
+
 export interface RaceState {
   flag: Flag;
   runs: Run[];
@@ -129,6 +148,10 @@ export interface RaceState {
   pitWindows: PitWindow[];
   /** Endurance: who drives each car and when. Visible to staff and to the team they belong to. */
   plan: DriverPlan[];
+  /** Segments flagged yellow, confirmed by a steward. Per session. */
+  zones: YellowZone[];
+  /** Teams' pending yellow reports. Staff, and each team its own. */
+  zoneReports: ZoneReport[];
   /** Usernames of active driver radio listeners. */
   onRadio?: string[];
 }
@@ -153,6 +176,8 @@ export const emptyState = (): RaceState => ({
   notes: [],
   pitWindows: [],
   plan: [],
+  zones: [],
+  zoneReports: [],
   onRadio: [],
 });
 
@@ -170,7 +195,7 @@ export interface Viewer {
  */
 export function viewFor(s: RaceState, v: Viewer): RaceState {
   if (v.staff) return s;
-  const base: RaceState = { ...s, log: [], notes: s.notes.filter((n) => !!n.team && v.teams.includes(n.team)), radio: [], pitWindows: s.pitWindows.filter((w) => v.teams.includes(w.team)), plan: (s.plan ?? []).filter((p) => v.teams.includes(p.team)) };
+  const base: RaceState = { ...s, log: [], notes: s.notes.filter((n) => !!n.team && v.teams.includes(n.team)), radio: [], pitWindows: s.pitWindows.filter((w) => v.teams.includes(w.team)), plan: (s.plan ?? []).filter((p) => v.teams.includes(p.team)), zoneReports: (s.zoneReports ?? []).filter((z) => v.teams.includes(z.team)) };
   // Not signed in: the Public radio, which only carries Global messages.
   if (!v.user) return { ...base, radio: s.radio.filter((m) => m.to === "all") };
   const mine = s.runs.filter((r) => r.name.toLowerCase() === v.user);
