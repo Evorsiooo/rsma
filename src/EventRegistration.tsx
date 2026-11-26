@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useParams } from "react-router-dom";
-import { CUT_LABEL, fullNotice, GROUP_URL, orderRule, REG_KIND_LABEL, REG_KINDS, spotsLine, statusText, type EventView, type RegistrationView, type RegTeam } from "../shared/registration";
+import { carName, CUT_LABEL, driverUnit, fullNotice, GROUP_URL, lineupLine, moveRank, orderRule, REG_KIND_LABEL, REG_KINDS, spotsLine, statusText, type Car, type EventView, type RegistrationView, type RegTeam } from "../shared/registration";
 import { PANEL_ROLES, hasAny } from "../shared/teams";
 import type { SessionSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
@@ -19,6 +19,11 @@ const ERRORS: Record<string, string> = {
   picks_closed: "The time to choose drivers for this session has passed.",
   too_many: "That session is full for your team. Untick a driver first.",
   not_registered: "Only registered drivers of the team can be chosen.",
+  car_limit: "Your team has entered all the cars it is allowed.",
+  number_taken: "Another car has that number.",
+  in_other_car: "A driver can only be in one car.",
+  lineup_locked: "Lineups are locked. Ask the stewards to change them.",
+  not_found: "That car no longer exists.",
   forbidden: "Not allowed.",
   unauthorized: "You are signed out. Sign in again.",
   network: "Could not reach the server. Check your connection.",
@@ -32,7 +37,7 @@ type Res = { ok: true; data?: unknown } | { ok: false; error: string };
  * Runs one change. Changes go to the server one after another, in the order they were made, so a quick second click
  * can never overtake the first. With a key, the box shows the wanted state at once until the changes are done.
  */
-type Act = (call: () => Promise<Res>, tick?: { key: string; want: boolean }) => Promise<boolean>;
+type Act = (call: () => Promise<Res>, tick?: { key: string; want: boolean } | { car: string; order: string[] }) => Promise<boolean>;
 
 /** Old per-session address: forward to the event's page. */
 export function RegisterRedirect() {
@@ -51,6 +56,8 @@ export function EventRegistration() {
   const [ev, setEv] = useState<EventView | null | undefined>(undefined);
   // What the boxes show while changes are on their way: key -> wanted state.
   const [opt, setOpt] = useState<Record<string, boolean>>({});
+  // The lineup order a car shows while a change to it is on its way: car id -> driver ids.
+  const [ord, setOrd] = useState<Record<string, string[]>>({});
   const chain = useRef<Promise<unknown>>(Promise.resolve());
   const pending = useRef(0);
   const failed = useRef(false);
@@ -68,7 +75,8 @@ export function EventRegistration() {
   // Every answer carries the whole event as it is after that change, so there is nothing to reload on success.
   // After a rejected or lost change the page is reloaded once, so what it shows is what the server has.
   const act: Act = (call, tick) => {
-    if (tick) setOpt((o) => ({ ...o, [tick.key]: tick.want }));
+    if (tick && "car" in tick) setOrd((o) => ({ ...o, [tick.car]: tick.order }));
+    else if (tick) setOpt((o) => ({ ...o, [tick.key]: tick.want }));
     pending.current++;
     const task = chain.current.then(async () => {
       let ok = false;
@@ -91,7 +99,10 @@ export function EventRegistration() {
           failed.current = false;
           await reload();
         }
-        if (live.current) setOpt({});
+        if (live.current) {
+          setOpt({});
+          setOrd({});
+        }
       }
       return ok;
     });
@@ -114,13 +125,13 @@ export function EventRegistration() {
       </div>
       {roots.map((root) => {
         const sessions = race.sessions.filter((s) => mine.some((g) => g.sessionId === s.id && g.root === root)).sort((a, b) => a.startsAt - b.startsAt);
-        return <Group key={root} root={root} sessions={sessions.map((s) => byId(s.id))} views={views} opt={opt} act={act} />;
+        return <Group key={root} root={root} sessions={sessions.map((s) => byId(s.id))} views={views} opt={opt} ord={ord} act={act} />;
       })}
     </>
   );
 }
 
-function Group({ root, sessions, views, opt, act }: { root: string; sessions: SessionSummary[]; views: Record<string, RegistrationView>; opt: Record<string, boolean>; act: Act }) {
+function Group({ root, sessions, views, opt, ord, act }: { root: string; sessions: SessionSummary[]; views: Record<string, RegistrationView>; opt: Record<string, boolean>; ord: Record<string, string[]>; act: Act }) {
   const rv = views[root];
   const s = rv.settings!;
   const phase = rv.phase;
@@ -133,7 +144,7 @@ function Group({ root, sessions, views, opt, act }: { root: string; sessions: Se
         {phase !== "upcoming" && (
           <Bd top>
             {REG_KINDS.filter((k) => rv.counts[k].spots > 0).map((k) => (
-              <div key={k}>{REG_KIND_LABEL[k]} spots: {spotsLine(rv.counts[k])}</div>
+              <div key={k}>{k === "driver" && s.endurance ? "Car" : REG_KIND_LABEL[k]} spots: {spotsLine(rv.counts[k], k === "driver" ? (s.endurance ? driverUnit(s) : "") : "")}</div>
             ))}
             {sessions.length > 1 && <div className="mute">One list of spots for {names}. Everyone gets the same result in all of them.</div>}
             <div className="mute">{orderRule(s)}</div>
@@ -148,13 +159,13 @@ function Group({ root, sessions, views, opt, act }: { root: string; sessions: Se
         (rv.teams.length === 0 ? (
           <Box title="Team Registration"><Bd><div className="note">Only a Team Principal or Sporting Director can register a team.</div></Bd></Box>
         ) : (
-          rv.teams.map((t) => <TeamBox key={t.id} team={t} root={root} sessions={sessions} views={views} opt={opt} act={act} />)
+          rv.teams.map((t) => <TeamBox key={t.id} team={t} root={root} sessions={sessions} views={views} opt={opt} ord={ord} act={act} />)
         ))}
     </>
   );
 }
 
-function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; root: string; sessions: SessionSummary[]; views: Record<string, RegistrationView>; opt: Record<string, boolean>; act: Act }) {
+function TeamBox({ team, root, sessions, views, opt, ord, act }: { team: RegTeam; root: string; sessions: SessionSummary[]; views: Record<string, RegistrationView>; opt: Record<string, boolean>; ord: Record<string, string[]>; act: Act }) {
   const rv = views[root];
   const open = rv.phase === "open";
   const regs = rv.registrations.filter((r) => r.teamId === team.id);
@@ -190,6 +201,14 @@ function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; roo
   // Only sessions that limit drivers per team get their own column; everyone else has one result for the whole group.
   const limitedCols = sessions.filter((x) => views[x.id]?.settings?.teamLimit != null);
   const own = (uid: string) => regs.find((r) => r.userId === uid && r.kind === "driver");
+  const endurance = !!rv.settings?.endurance;
+  const cars = new Map(rv.cars.map((c) => [c.id, c]));
+  // In an endurance event a driver's place is the car and the seat in it.
+  const carStatus = (r: { carId: string | null; rank: number | null; cut: string; waitPos: number | null }) => {
+    const c = r.carId ? cars.get(r.carId) : null;
+    if (!c) return r.cut === "denied" ? "Denied" : "No car";
+    return `${carName(c)} · ${r.rank! <= c.seats ? `Race ${r.rank}` : `Reserve ${r.rank! - c.seats}`}`;
+  };
   return (
     <>
       <Box title={`${team.name} · Drivers`}>
@@ -237,7 +256,7 @@ function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; roo
                       <td>
                         <input type="checkbox" aria-label={`${m.username} registered`} checked={on} disabled={!open} onChange={() => toggle(m, "driver")} />
                       </td>
-                      <td>{on && own(m.id) ? (own(m.id)!.cut === "out" ? "In" : statusText(own(m.id)!)) : ""}</td>
+                      <td>{on && own(m.id) ? (endurance ? carStatus(own(m.id)!) : own(m.id)!.cut === "out" ? "In" : statusText(own(m.id)!)) : ""}</td>
                       {limitedCols.map((x) => {
                         const cut = cutIn(x.id, m.id);
                         if (!on || !cut || cut === "waitlist" || cut === "denied") return <td key={x.id} className="mute">{""}</td>;
@@ -268,6 +287,7 @@ function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; roo
           </Bd>
         ))}
       </Box>
+      {endurance && <CarsBox team={team} root={root} rv={rv} ord={ord} act={act} />}
       {(staff.length > 0 || guests.length > 0 || open) && (
         <Box title={`${team.name} · Staff and guests`}>
           <Bd flush>
@@ -310,5 +330,114 @@ function TeamBox({ team, root, sessions, views, opt, act }: { team: RegTeam; roo
         </Box>
       )}
     </>
+  );
+}
+
+/** Endurance events: the team's cars, each with its drivers in rank order. The top seats race, the rest are reserve. */
+function CarsBox({ team, root, rv, ord, act }: { team: RegTeam; root: string; rv: RegistrationView; ord: Record<string, string[]>; act: Act }) {
+  const s = rv.settings!;
+  const locked = rv.lineupLock !== null && Date.now() > rv.lineupLock;
+  const cars = rv.cars.filter((c) => c.teamId === team.id).sort((a, b) => a.at - b.at);
+  const name = new Map(team.members.map((m) => [m.id, m.username]));
+  const inCar = new Set(cars.flatMap((c) => c.drivers.map((d) => d.userId)));
+  // Registered drivers of the team who are in no car yet.
+  const free = rv.registrations.filter((r) => r.kind === "driver" && r.teamId === team.id && !r.denied && !inCar.has(r.userId));
+  const [edit, setEdit] = useState<string | null>(null);
+  const [v, setV] = useState({ label: "", number: "", plate: "", seats: "" });
+  const [add, setAdd] = useState<Record<string, string>>({});
+  const full = cars.length >= s.carsPerTeam;
+  const order = (c: Car) => ord[c.id] ?? c.drivers.map((d) => d.userId);
+  const setOrder = (c: Car, ids: string[]) => act(() => registrationApi.teamCarEdit(root, team.id, c.id, { drivers: ids }), { car: c.id, order: ids });
+  const startEdit = (c: Car | null) => {
+    setEdit(c ? c.id : "new");
+    setV({ label: c?.label ?? "", number: c?.number ?? "", plate: c?.plate ?? "", seats: String(c?.seats ?? s.seatsPerCar) });
+  };
+  const seatsOk = /^\d+$/.test(v.seats) && Number(v.seats) >= 1 && Number(v.seats) <= s.seatsPerCar;
+  const form = (c: Car | null) => (
+    <Bd top bar>
+      <input type="text" style={{ flex: 1, minWidth: 140 }} placeholder="Car name" aria-label="Car name" value={v.label} onChange={(e) => setV({ ...v, label: e.target.value })} />
+      <input type="text" style={{ width: 80 }} placeholder="Number" aria-label="Car number" value={v.number} onChange={(e) => setV({ ...v, number: e.target.value })} />
+      <input type="text" style={{ width: 110 }} placeholder="Plate" aria-label="Plate" value={v.plate} onChange={(e) => setV({ ...v, plate: e.target.value })} />
+      <input type="text" inputMode="numeric" style={{ width: 70 }} placeholder="Seats" aria-label="Drivers racing" title={`Drivers racing, at most ${s.seatsPerCar}`} value={v.seats} onChange={(e) => setV({ ...v, seats: e.target.value })} />
+      <button
+        className="btn pri"
+        disabled={!seatsOk}
+        onClick={async () => {
+          const body = { label: v.label, number: v.number, plate: v.plate, seats: Number(v.seats) };
+          if (await act(() => (c ? registrationApi.teamCarEdit(root, team.id, c.id, body) : registrationApi.teamCarAdd(root, team.id, body)))) setEdit(null);
+        }}
+      >
+        {c ? "Save" : "Add car"}
+      </button>
+      <button className="btn" onClick={() => setEdit(null)}>Cancel</button>
+    </Bd>
+  );
+  return (
+    <Box title={`${team.name} · Cars`}>
+      <Bd>
+        <div><b>{cars.length} of {s.carsPerTeam} cars entered.</b> The first drivers of each car race, the rest are reserve.</div>
+        <div className="mute">{rv.lineupLock === null ? "" : locked ? "Lineups are locked. Only the stewards can change them now." : `Change lineups until ${fmt.format(rv.lineupLock)}.`}</div>
+      </Bd>
+      {cars.map((c) => {
+        const ids = order(c);
+        const pick = add[c.id] ?? "";
+        return (
+          <div key={c.id}>
+            <Bd top bar>
+              <span style={{ flex: 1 }}>
+                <b>{carName(c)}</b>
+                {c.plate ? ` · ${c.plate}` : ""} <span className="mute">· {lineupLine(ids.length, c.seats)} · {ids.length === 0 ? "Waiting, no drivers" : c.cut === "in" ? "In" : c.waitPos ? `Waiting, position ${c.waitPos}` : "Waiting"}</span>
+              </span>
+              <button className="btn sm" disabled={locked} onClick={() => startEdit(c)}>Edit</button>
+              <button className="btn sm red" disabled={locked} onClick={() => act(() => registrationApi.teamCarRemove(root, team.id, c.id))}>Remove car</button>
+            </Bd>
+            {edit === c.id && form(c)}
+            {ids.length > 0 && (
+              <Bd flush>
+                <table className="t">
+                  <thead>
+                    <tr>
+                      <th>Seat</th>
+                      <th>Driver</th>
+                      <th />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {ids.map((u, i) => (
+                      <tr key={u}>
+                        <td>{i < c.seats ? `Race ${i + 1}` : `Reserve ${i + 1 - c.seats}`}</td>
+                        <td>{name.get(u) ?? c.drivers.find((d) => d.userId === u)?.username ?? u}</td>
+                        <td className="n">
+                          <button className="btn sm" disabled={locked || i === 0} onClick={() => setOrder(c, moveRank(ids, i, -1))}>Up</button>{" "}
+                          <button className="btn sm" disabled={locked || i === ids.length - 1} onClick={() => setOrder(c, moveRank(ids, i, 1))}>Down</button>{" "}
+                          <button className="btn sm red" disabled={locked} onClick={() => setOrder(c, ids.filter((x) => x !== u))}>Remove</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </Bd>
+            )}
+            <Bd top bar>
+              <select aria-label={`Add a driver to ${carName(c)}`} style={{ flex: 1, minWidth: 180 }} value={pick} disabled={locked || free.length === 0} onChange={(e) => setAdd({ ...add, [c.id]: e.target.value })}>
+                <option value="">{free.length ? "Choose a driver" : "No registered driver left to add"}</option>
+                {free.map((r) => (
+                  <option key={r.userId} value={r.userId}>{r.username}</option>
+                ))}
+              </select>
+              <button className="btn" disabled={locked || !pick} onClick={() => { setAdd({ ...add, [c.id]: "" }); setOrder(c, [...ids, pick]); }}>Add driver</button>
+            </Bd>
+          </div>
+        );
+      })}
+      {edit === "new" ? (
+        form(null)
+      ) : (
+        <Bd top bar>
+          <button className="btn pri" disabled={locked || full} onClick={() => startEdit(null)}>Add car</button>
+          {full && <span className="mute">Your team has entered all {s.carsPerTeam} cars it is allowed.</span>}
+        </Bd>
+      )}
+    </Box>
   );
 }
