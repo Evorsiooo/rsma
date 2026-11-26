@@ -124,7 +124,9 @@ export function EventRegistration() {
         <b style={{ color: "var(--s-ink)" }}>{race.name} · team registration</b>
       </div>
       {roots.map((root) => {
-        const sessions = race.sessions.filter((s) => mine.some((g) => g.sessionId === s.id && g.root === root)).sort((a, b) => a.startsAt - b.startsAt);
+        // A session that is over is not registered for any more.
+        const sessions = race.sessions.filter((s) => s.endsAt > Date.now() && mine.some((g) => g.sessionId === s.id && g.root === root)).sort((a, b) => a.startsAt - b.startsAt);
+        if (sessions.length === 0) return null;
         return <Group key={root} root={root} sessions={sessions.map((s) => byId(s.id))} views={views} opt={opt} ord={ord} act={act} />;
       })}
     </>
@@ -211,7 +213,7 @@ function TeamBox({ team, root, sessions, views, opt, ord, act }: { team: RegTeam
   };
   return (
     <>
-      <Box title={`${team.name} · Drivers`}>
+      {!endurance && <Box title={`${team.name} · Drivers`}>
         <Bd style={{ borderBottom: "1px dotted var(--s-line-l)" }}>
           {(() => {
             const ds = regs.filter((r) => r.kind === "driver");
@@ -286,8 +288,8 @@ function TeamBox({ team, root, sessions, views, opt, ord, act }: { team: RegTeam
             <span className="mute">{x.name}: {sel(x.id).size} of {views[x.id].settings!.teamLimit} drivers take part · choose until {fmt.format(views[x.id].pickUntil!)}</span>
           </Bd>
         ))}
-      </Box>
-      {endurance && <CarsBox team={team} root={root} rv={rv} ord={ord} act={act} />}
+      </Box>}
+      {endurance && <CarsBox team={team} root={root} rv={rv} ord={ord} act={act} open={open} />}
       {(staff.length > 0 || guests.length > 0 || open) && (
         <Box title={`${team.name} · Staff and guests`}>
           <Bd flush>
@@ -333,84 +335,62 @@ function TeamBox({ team, root, sessions, views, opt, ord, act }: { team: RegTeam
   );
 }
 
-/** Endurance events: the team's cars, each with its drivers in rank order. The top seats race, the rest are reserve. */
-function CarsBox({ team, root, rv, ord, act }: { team: RegTeam; root: string; rv: RegistrationView; ord: Record<string, string[]>; act: Act }) {
+/**
+ * Endurance events: the team's cars, each with its drivers in rank order. The top seats race, the rest are reserve.
+ * A car is just a car (the number and plate are filled in on Flagman), and putting a driver in a car registers them.
+ */
+function CarsBox({ team, root, rv, ord, act, open }: { team: RegTeam; root: string; rv: RegistrationView; ord: Record<string, string[]>; act: Act; open: boolean }) {
   const s = rv.settings!;
   const locked = rv.lineupLock !== null && Date.now() > rv.lineupLock;
   const cars = rv.cars.filter((c) => c.teamId === team.id).sort((a, b) => a.at - b.at);
   const name = new Map(team.members.map((m) => [m.id, m.username]));
   const inCar = new Set(cars.flatMap((c) => c.drivers.map((d) => d.userId)));
-  // Registered drivers of the team who are in no car yet.
-  const free = rv.registrations.filter((r) => r.kind === "driver" && r.teamId === team.id && !r.denied && !inCar.has(r.userId));
-  const [edit, setEdit] = useState<string | null>(null);
-  const [v, setV] = useState({ label: "", number: "", plate: "", seats: "" });
-  const [add, setAdd] = useState<Record<string, string>>({});
+  // The team's drivers who are in no car yet.
+  const free = team.members.filter((m) => m.roles.includes("driver") && !inCar.has(m.id));
   const full = cars.length >= s.carsPerTeam;
   const order = (c: Car) => ord[c.id] ?? c.drivers.map((d) => d.userId);
   const setOrder = (c: Car, ids: string[]) => act(() => registrationApi.teamCarEdit(root, team.id, c.id, { drivers: ids }), { car: c.id, order: ids });
-  const startEdit = (c: Car | null) => {
-    setEdit(c ? c.id : "new");
-    setV({ label: c?.label ?? "", number: c?.number ?? "", plate: c?.plate ?? "", seats: String(c?.seats ?? s.seatsPerCar) });
-  };
-  const seatsOk = /^\d+$/.test(v.seats) && Number(v.seats) >= 1 && Number(v.seats) <= s.seatsPerCar;
-  const form = (c: Car | null) => (
-    <Bd top bar>
-      <input type="text" style={{ flex: 1, minWidth: 140 }} placeholder="Car name" aria-label="Car name" value={v.label} onChange={(e) => setV({ ...v, label: e.target.value })} />
-      <input type="text" style={{ width: 80 }} placeholder="Number" aria-label="Car number" value={v.number} onChange={(e) => setV({ ...v, number: e.target.value })} />
-      <input type="text" style={{ width: 110 }} placeholder="Plate" aria-label="Plate" value={v.plate} onChange={(e) => setV({ ...v, plate: e.target.value })} />
-      <input type="text" inputMode="numeric" style={{ width: 70 }} placeholder="Seats" aria-label="Drivers racing" title={`Drivers racing, at most ${s.seatsPerCar}`} value={v.seats} onChange={(e) => setV({ ...v, seats: e.target.value })} />
-      <button
-        className="btn pri"
-        disabled={!seatsOk}
-        onClick={async () => {
-          const body = { label: v.label, number: v.number, plate: v.plate, seats: Number(v.seats) };
-          if (await act(() => (c ? registrationApi.teamCarEdit(root, team.id, c.id, body) : registrationApi.teamCarAdd(root, team.id, body)))) setEdit(null);
-        }}
-      >
-        {c ? "Save" : "Add car"}
-      </button>
-      <button className="btn" onClick={() => setEdit(null)}>Cancel</button>
-    </Bd>
-  );
+  const sorry = locked ? "Lineups are locked. Only the stewards can change them now." : !open ? "Registration is closed." : "";
   return (
     <Box title={`${team.name} · Cars`}>
       <Bd>
-        <div><b>{cars.length} of {s.carsPerTeam} cars entered.</b> The first drivers of each car race, the rest are reserve.</div>
-        <div className="mute">{rv.lineupLock === null ? "" : locked ? "Lineups are locked. Only the stewards can change them now." : `Change lineups until ${fmt.format(rv.lineupLock)}.`}</div>
+        <div><b>{cars.length} of {s.carsPerTeam} cars entered.</b> Up to {s.seatsPerCar} drivers race in a car, the first ones in its list. Any others you add are reserves.</div>
+        <div className="mute">
+          {rv.lineupLock !== null && !locked ? `Change lineups until ${fmt.format(rv.lineupLock)}. ` : ""}
+          Putting a driver in a car registers them. Drivers must <a href={GROUP_URL} target="_blank" rel="noreferrer">join the RSMA Roblox group</a> (a pending request counts) before the deadline, or they cannot race.
+        </div>
+        {sorry && <div style={{ marginTop: 4 }}><b>{sorry}</b></div>}
       </Bd>
-      {cars.map((c) => {
+      {cars.map((c, n) => {
         const ids = order(c);
-        const pick = add[c.id] ?? "";
+        const status = ids.length === 0 ? "Waiting, no drivers" : c.cut === "in" ? "In" : c.waitPos ? `Waiting, position ${c.waitPos}` : "Waiting";
         return (
           <div key={c.id}>
             <Bd top bar>
               <span style={{ flex: 1 }}>
-                <b>{carName(c)}</b>
-                {c.plate ? ` · ${c.plate}` : ""} <span className="mute">· {lineupLine(ids.length, c.seats)} · {ids.length === 0 ? "Waiting, no drivers" : c.cut === "in" ? "In" : c.waitPos ? `Waiting, position ${c.waitPos}` : "Waiting"}</span>
+                <b>Car {n + 1}</b> <span className="mute">· {lineupLine(ids.length, c.seats)} · {status}</span>
               </span>
-              <button className="btn sm" disabled={locked} onClick={() => startEdit(c)}>Edit</button>
-              <button className="btn sm red" disabled={locked} onClick={() => act(() => registrationApi.teamCarRemove(root, team.id, c.id))}>Remove car</button>
+              <button className="btn sm red" disabled={locked || !open} onClick={() => act(() => registrationApi.teamCarRemove(root, team.id, c.id))}>Remove car</button>
             </Bd>
-            {edit === c.id && form(c)}
             {ids.length > 0 && (
               <Bd flush>
-                <table className="t">
+                <table className="t" style={{ tableLayout: "fixed" }}>
                   <thead>
                     <tr>
-                      <th>Seat</th>
+                      <th style={{ width: 120 }}>Seat</th>
                       <th>Driver</th>
-                      <th />
+                      <th style={{ width: 200 }} />
                     </tr>
                   </thead>
                   <tbody>
                     {ids.map((u, i) => (
                       <tr key={u}>
-                        <td>{i < c.seats ? `Race ${i + 1}` : `Reserve ${i + 1 - c.seats}`}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>{i < c.seats ? `Race ${i + 1}` : `Reserve ${i + 1 - c.seats}`}</td>
                         <td>{name.get(u) ?? c.drivers.find((d) => d.userId === u)?.username ?? u}</td>
-                        <td className="n">
-                          <button className="btn sm" disabled={locked || i === 0} onClick={() => setOrder(c, moveRank(ids, i, -1))}>Up</button>{" "}
-                          <button className="btn sm" disabled={locked || i === ids.length - 1} onClick={() => setOrder(c, moveRank(ids, i, 1))}>Down</button>{" "}
-                          <button className="btn sm red" disabled={locked} onClick={() => setOrder(c, ids.filter((x) => x !== u))}>Remove</button>
+                        <td className="n" style={{ whiteSpace: "nowrap" }}>
+                          <button className="btn sm" disabled={locked || !open || i === 0} onClick={() => setOrder(c, moveRank(ids, i, -1))}>Up</button>{" "}
+                          <button className="btn sm" disabled={locked || !open || i === ids.length - 1} onClick={() => setOrder(c, moveRank(ids, i, 1))}>Down</button>{" "}
+                          <button className="btn sm red" disabled={locked || !open} onClick={() => setOrder(c, ids.filter((x) => x !== u))}>Remove</button>
                         </td>
                       </tr>
                     ))}
@@ -419,25 +399,20 @@ function CarsBox({ team, root, rv, ord, act }: { team: RegTeam; root: string; rv
               </Bd>
             )}
             <Bd top bar>
-              <select aria-label={`Add a driver to ${carName(c)}`} style={{ flex: 1, minWidth: 180 }} value={pick} disabled={locked || free.length === 0} onChange={(e) => setAdd({ ...add, [c.id]: e.target.value })}>
-                <option value="">{free.length ? "Choose a driver" : "No registered driver left to add"}</option>
-                {free.map((r) => (
-                  <option key={r.userId} value={r.userId}>{r.username}</option>
+              <select aria-label={`Add a driver to car ${n + 1}`} style={{ flex: 1, minWidth: 180 }} value="" disabled={locked || !open || free.length === 0} onChange={(e) => e.target.value && setOrder(c, [...ids, e.target.value])}>
+                <option value="">{free.length ? "Add a driver…" : "Every driver of your team is in a car"}</option>
+                {free.map((m) => (
+                  <option key={m.id} value={m.id}>{m.username}</option>
                 ))}
               </select>
-              <button className="btn" disabled={locked || !pick} onClick={() => { setAdd({ ...add, [c.id]: "" }); setOrder(c, [...ids, pick]); }}>Add driver</button>
             </Bd>
           </div>
         );
       })}
-      {edit === "new" ? (
-        form(null)
-      ) : (
-        <Bd top bar>
-          <button className="btn pri" disabled={locked || full} onClick={() => startEdit(null)}>Add car</button>
-          {full && <span className="mute">Your team has entered all {s.carsPerTeam} cars it is allowed.</span>}
-        </Bd>
-      )}
+      <Bd top bar>
+        <button className="btn pri" disabled={locked || !open || full} onClick={() => act(() => registrationApi.teamCarAdd(root, team.id, {}))}>Add car</button>
+        {full && <span className="mute">Your team has entered all {s.carsPerTeam} cars it is allowed.</span>}
+      </Bd>
     </Box>
   );
 }

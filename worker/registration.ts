@@ -484,16 +484,35 @@ const MAX_LINEUP = 30;
 const cleanText = (v: unknown, max: number, pattern: RegExp): string | null | undefined =>
   v === undefined ? undefined : v === null || (typeof v === "string" && v.trim() === "") ? null : typeof v === "string" && v.trim().length <= max && pattern.test(v.trim()) ? v.trim() : undefined;
 
-/** Checks a ranked lineup against the team's registered drivers and the other cars; the error code, or the cleaned ids. */
-function checkLineup(d: EventData, root: string, teamId: string, entryId: string | null, v: unknown): string[] | string {
+/**
+ * Checks a ranked lineup against the team's drivers and the other cars; the error code, or the cleaned ids and which of them
+ * are not registered yet. A team member with the Driver role is registered by being put in a car.
+ */
+function checkLineup(d: EventData, root: string, teamId: string, entryId: string | null, v: unknown): { ids: string[]; fresh: { id: string; username: string }[] } | string {
   if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) return "invalid";
   const ids = [...new Set(v as string[])];
   if (ids.length > MAX_LINEUP) return "too_many";
   const mine = new Set(d.regs.filter((r) => r.sessionId === root && r.teamId === teamId && r.kind === "driver" && !r.denied).map((r) => r.userId));
-  if (ids.some((u) => !mine.has(u))) return "not_registered";
+  const fresh: { id: string; username: string }[] = [];
+  for (const u of ids) {
+    if (mine.has(u)) continue;
+    const m = d.members.find((x) => x.teamId === teamId && x.id === u && parseRoles(x.roles).includes("driver"));
+    if (!m) return "not_registered";
+    if (d.regs.some((r) => r.sessionId === root && r.userId === u)) return "taken";
+    fresh.push({ id: u, username: m.username });
+  }
   const taken = new Set(d.lineups.filter((l) => l.entryId !== entryId).map((l) => l.userId));
   if (ids.some((u) => taken.has(u))) return "in_other_car";
-  return ids;
+  return { ids, fresh };
+}
+
+/** Registrations for drivers a lineup brings in, and the removal of those it drops: team managers do both by editing a car. */
+function registerStatements(c: C, root: string, teamId: string, fresh: { id: string }[], dropped: string[]) {
+  const at = Date.now();
+  return [
+    ...fresh.map((u) => c.env.DB.prepare("INSERT INTO registrations (session_id, roblox_id, kind, team_id, discord, grp, created_at) VALUES (?, ?, 'driver', ?, NULL, 'unverified', ?) ON CONFLICT DO NOTHING").bind(root, u.id, teamId, at)),
+    ...dropped.map((u) => c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ?").bind(root, u, teamId)),
+  ];
 }
 
 async function carGate(c: C): Promise<{ me: Me; d: EventData; root: string; s: RegSettings } | Response> {
@@ -520,7 +539,7 @@ async function carsDone(c: C) {
 }
 
 /** Enters a car for a team, up to the event's cars per team. Used by staff and by the team's managers. */
-async function addCar(c: C, d: EventData, root: string, s: RegSettings, teamId: string, b: CarBody) {
+async function addCar(c: C, d: EventData, root: string, s: RegSettings, teamId: string, b: CarBody, managed = false) {
   const own = d.entries.filter((e) => e.rootSession === root && e.teamId === teamId);
   if (own.length >= s.carsPerTeam) return c.json({ error: "car_limit" }, 409);
   const label = cleanText(b.label, 40, /^[^\n]+$/) ?? `Car ${own.length + 1}`;
@@ -529,35 +548,46 @@ async function addCar(c: C, d: EventData, root: string, s: RegSettings, teamId: 
   const seats = b.seats === undefined ? s.seatsPerCar : b.seats;
   if (number === undefined || plate === undefined || !Number.isInteger(seats) || (seats as number) < 1 || (seats as number) > s.seatsPerCar) return c.json({ error: "invalid" }, 400);
   if (number && d.entries.some((e) => e.rootSession === root && e.number === number)) return c.json({ error: "number_taken" }, 409);
-  const ids = b.drivers === undefined ? [] : checkLineup(d, root, teamId, null, b.drivers);
-  if (typeof ids === "string") return c.json({ error: ids }, ids === "in_other_car" ? 409 : 400);
+  const lineup = b.drivers === undefined ? { ids: [] as string[], fresh: [] } : checkLineup(d, root, teamId, null, b.drivers);
+  if (typeof lineup === "string") return c.json({ error: lineup }, lineup === "in_other_car" || lineup === "taken" ? 409 : 400);
+  if (managed && lineup.fresh.length > 0 && regPhase(s, Date.now()) !== "open") return c.json({ error: "not_open" }, 409);
   const id = crypto.randomUUID();
   await c.env.DB.batch([
     c.env.DB.prepare("INSERT INTO entries (id, root_session, team_id, label, number, plate, seats, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, root, teamId, label, number, plate, seats, Date.now()),
-    ...lineupStatements(c, root, id, ids).slice(1),
+    ...registerStatements(c, root, teamId, lineup.fresh, []),
+    ...lineupStatements(c, root, id, lineup.ids).slice(1),
   ]);
   return carsDone(c);
 }
 
 /** Changes a car's label, number, plate, race seats or its whole ranked lineup. */
-async function editCar(c: C, d: EventData, root: string, s: RegSettings, cur: EntryRow, b: CarBody) {
+async function editCar(c: C, d: EventData, root: string, s: RegSettings, cur: EntryRow, b: CarBody, managed = false) {
   const label = cleanText(b.label, 40, /^[^\n]+$/);
   const number = cleanText(b.number, 4, /^[A-Za-z0-9]+$/);
   const plate = cleanText(b.plate, 12, /^[A-Za-z0-9 -]+$/);
   const seats = b.seats === undefined ? cur.seats : b.seats;
   if (label === null || number === undefined && b.number !== undefined || plate === undefined && b.plate !== undefined || !Number.isInteger(seats) || (seats as number) < 1 || (seats as number) > Math.max(s.seatsPerCar, cur.seats)) return c.json({ error: "invalid" }, 400);
   if (number && d.entries.some((e) => e.rootSession === root && e.id !== cur.id && e.number === number)) return c.json({ error: "number_taken" }, 409);
-  const ids = b.drivers === undefined ? null : checkLineup(d, root, cur.teamId, cur.id, b.drivers);
-  if (typeof ids === "string") return c.json({ error: ids }, ids === "in_other_car" ? 409 : 400);
+  const lineup = b.drivers === undefined ? null : checkLineup(d, root, cur.teamId, cur.id, b.drivers);
+  if (typeof lineup === "string") return c.json({ error: lineup }, lineup === "in_other_car" || lineup === "taken" ? 409 : 400);
+  const open = regPhase(s, Date.now()) === "open";
+  if (managed && lineup && lineup.fresh.length > 0 && !open) return c.json({ error: "not_open" }, 409);
+  // A team's managers add and remove drivers in one step: being in a car is being registered.
+  const dropped = managed && open && lineup ? d.lineups.filter((l) => l.entryId === cur.id && !lineup.ids.includes(l.userId)).map((l) => l.userId) : [];
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE entries SET label = ?, number = ?, plate = ?, seats = ? WHERE id = ?").bind(label ?? cur.label, b.number === undefined ? cur.number : number, b.plate === undefined ? cur.plate : plate, seats, cur.id),
-    ...(ids ? lineupStatements(c, root, cur.id, ids) : []),
+    ...(lineup ? [...registerStatements(c, root, cur.teamId, lineup.fresh, dropped), ...lineupStatements(c, root, cur.id, lineup.ids)] : []),
+    ...(dropped.length > 0 ? pruneStatements(c.env.DB) : []),
   ]);
   return carsDone(c);
 }
 
-const removeCar = async (c: C, root: string, id: string) => {
-  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM entry_drivers WHERE entry_id = ?").bind(id), c.env.DB.prepare("DELETE FROM entries WHERE id = ? AND root_session = ?").bind(id, root)]);
+const removeCar = async (c: C, root: string, id: string, unregister: { teamId: string; userIds: string[] } | null = null) => {
+  await c.env.DB.batch([
+    c.env.DB.prepare("DELETE FROM entry_drivers WHERE entry_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM entries WHERE id = ? AND root_session = ?").bind(id, root),
+    ...(unregister ? registerStatements(c, root, unregister.teamId, [], unregister.userIds) : []),
+  ]);
   return carsDone(c);
 };
 
@@ -601,7 +631,7 @@ async function lineupGate(c: C): Promise<{ d: EventData; team: { id: string; nam
 registration.post("/:sid/team/:teamId/cars", async (c) => {
   const g = await lineupGate(c);
   if (g instanceof Response) return g;
-  return addCar(c, g.d, g.root, g.s, g.team.id, (await c.req.json().catch(() => ({}))) as CarBody);
+  return addCar(c, g.d, g.root, g.s, g.team.id, (await c.req.json().catch(() => ({}))) as CarBody, true);
 });
 
 registration.put("/:sid/team/:teamId/cars/:id", async (c) => {
@@ -609,7 +639,7 @@ registration.put("/:sid/team/:teamId/cars/:id", async (c) => {
   if (g instanceof Response) return g;
   const cur = g.d.entries.find((e) => e.id === c.req.param("id") && e.rootSession === g.root && e.teamId === g.team.id);
   if (!cur) return c.json({ error: "not_found" }, 404);
-  return editCar(c, g.d, g.root, g.s, cur, (await c.req.json().catch(() => ({}))) as CarBody);
+  return editCar(c, g.d, g.root, g.s, cur, (await c.req.json().catch(() => ({}))) as CarBody, true);
 });
 
 registration.delete("/:sid/team/:teamId/cars/:id", async (c) => {
@@ -617,5 +647,5 @@ registration.delete("/:sid/team/:teamId/cars/:id", async (c) => {
   if (g instanceof Response) return g;
   const cur = g.d.entries.find((e) => e.id === c.req.param("id") && e.rootSession === g.root && e.teamId === g.team.id);
   if (!cur) return carsDone(c);
-  return removeCar(c, g.root, cur.id);
+  return removeCar(c, g.root, cur.id, regPhase(g.s, Date.now()) === "open" ? { teamId: g.team.id, userIds: g.d.lineups.filter((l) => l.entryId === cur.id).map((l) => l.userId) } : null);
 });
