@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { at, autoSplits, placeLabels, withLine, drawnDirection, emptyGeometry, lapT, nearest, sample, segmentLabel, segmentsOf, setDirection, slice, turnsOf, validateGeometry, MAX_POIS, type TrackGeometry } from "../shared/track.ts";
+import { at, autoSplits, layoutLabels, placeLabels, CHAR_EM, withLine, drawnDirection, emptyGeometry, lapT, nearest, sample, segmentLabel, segmentsOf, setDirection, slice, turnsOf, validateGeometry, MAX_POIS, type TrackGeometry } from "../shared/track.ts";
 
 // A square-ish loop drawn clockwise on screen (y down): top, right, bottom, left.
 const square = [
@@ -150,4 +150,20 @@ test("points of interest are cleaned, capped and optional", () => {
   assert.equal(validateGeometry({ ...g, pois: Array.from({ length: MAX_POIS + 1 }, (_, i) => ({ id: `p${i}`, x: 1, y: 1, label: "X" })) }), null);
   assert.equal(validateGeometry({ ...g, pois: [{ id: "BAD ID", x: 1, y: 1, label: "X" }] }), null);
   assert.equal(validateGeometry({ ...g, pois: "no" }), null);
+});
+
+test("a point of interest's label keeps clear of the track and of turn numbers", () => {
+  const g = geo({ turns: [0.1, 0.35], pois: [{ id: "a", x: 150, y: 120, label: "LAKE" }, { id: "b", x: 250, y: 90, label: "CITY" }] });
+  const lap = sample(g.line, true);
+  const fs = 12;
+  const L = layoutLabels(g, lap, null, { cx: 200, cy: 200, k: 1, fs, bounds: { x0: 0, y0: 0, x1: 400, y1: 400 } });
+  const w = (label: string) => label.length * fs * CHAR_EM;
+  const box = (p: (typeof L.pois)[number]) => ({ x: p.anchor === "start" ? p.tx + w(p.label) / 2 : p.anchor === "end" ? p.tx - w(p.label) / 2 : p.tx, y: p.ty, w: w(p.label), h: fs });
+  for (const p of L.pois) {
+    const b = box(p);
+    assert.ok(!lap.pts.some(([x, y]) => Math.abs(x - b.x) < b.w / 2 && Math.abs(y - b.y) < b.h / 2), `${p.label} sits on the track`);
+    for (const t of L.turns) assert.ok(Math.abs(t.x - b.x) >= (b.w + fs * 0.6) / 2 || Math.abs(t.y - b.y) >= fs, `${p.label} overlaps turn ${t.n}`);
+  }
+  const [a, b] = L.pois.map(box);
+  assert.ok(Math.abs(a.x - b.x) >= (a.w + b.w) / 2 || Math.abs(a.y - b.y) >= fs, "the two labels overlap");
 });

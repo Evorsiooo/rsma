@@ -6,7 +6,7 @@ import {
   drawnDirection,
   emptyGeometry,
   nearest,
-  placeLabels,
+  layoutLabels,
   polyD,
   sample,
   segmentsOf,
@@ -40,6 +40,7 @@ const TEAL = "#3fd0b0";
 const YELLOW = "#e8d44d";
 const RED = "#e63a2e";
 const POI = "#5b9bff";
+const FONT = 12;
 const wrap1 = (x: number) => ((x % 1) + 1) % 1;
 
 interface Snap {
@@ -424,32 +425,20 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
   const labelAt = (u: number, text: string, color: string, off: number) => {
     const { p, nx, ny } = normal(u);
     return (
-      <text x={p.x + nx * px(off)} y={p.y + ny * px(off) + px(5.5)} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill={color} style={{ pointerEvents: "none" }}>
+      <text x={p.x + nx * px(off)} y={p.y + ny * px(off) + fsz * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fsz} fill={color} style={{ pointerEvents: "none" }}>
         {text}
       </text>
     );
   };
-  // Turn numbers (and, in the Segments step, segment names) that sit close together are spread out, with a leader line to their point.
+  // Turn numbers (and, in the Segments step, segment names) that sit close together are spread out, with a leader line to their
+  // point, and a point of interest's label keeps clear of them and of the track.
   const showNames = step === 5;
-  const spots = closed
-    ? placeLabels(
-        [
-          ...turns.map((t) => {
-            const { p, nx, ny } = normal(t.u);
-            return { x: p.x, y: p.y, nx, ny, w: String(t.n).length * px(16) * 0.62, base: px(18) };
-          }),
-          ...(showNames
-            ? g.splits.map((q) => {
-                const { p, nx, ny } = normal(q.u);
-                return { x: p.x, y: p.y, nx, ny, w: 3 * px(16) * 0.62, base: px(26) };
-              })
-            : []),
-        ],
-        { h: px(16), base: px(18), step: px(15) },
-      )
-    : [];
-  const turnSpots = spots.slice(0, turns.length);
-  const splitSpots = spots.slice(turns.length);
+  const fsz = px(FONT);
+  const L = closed
+    ? layoutLabels(g, lap, pit, { cx: g.w / 2, cy: g.h / 2, k, fs: fsz, bounds: { x0: 0, y0: 0, x1: g.w, y1: g.h }, turnBase: px(18), extra: showNames ? g.splits.map((q) => ({ key: q.id, u: q.u, chars: 3, base: px(26) })) : [] })
+    : null;
+  const turnSpots = L?.turns ?? [];
+  const splitSpot = (id: string) => L?.extra.find((e) => e.key === id);
   const tick = (u: number, color: string, len: number) => {
     const p = at(lap, u);
     return <path d={`M${p.x + p.ty * px(len)},${p.y - p.tx * px(len)}L${p.x - p.ty * px(len)},${p.y + p.tx * px(len)}`} stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />;
@@ -553,7 +542,7 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
                 <g key={`t${t.n}`}>
                   {sp && sp.d > px(18) + 0.01 && <line x1={a.x} y1={a.y} x2={sp.x} y2={sp.y} stroke="#8d9396" strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
                   {sp && (
-                    <text x={sp.x} y={sp.y + px(5.5)} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill={lit && step === 4 ? (del ? RED : TEAL) : "#f0f0e8"} style={{ pointerEvents: "none" }}>
+                    <text x={sp.x} y={sp.y + fsz * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fsz} fill={lit && step === 4 ? (del ? RED : TEAL) : "#f0f0e8"} style={{ pointerEvents: "none" }}>
                       {t.n}
                     </text>
                   )}
@@ -572,10 +561,10 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
               return (
                 <g key={s.id}>
                   {tick(s.u, selected ? "#f0f0e8" : YELLOW, 9)}
-                  {step === 5 && splitSpots[i] && (
+                  {step === 5 && splitSpot(s.id) && (
                     <>
-                      {splitSpots[i].d > px(26) + 0.01 && <line x1={at(lap, s.u).x} y1={at(lap, s.u).y} x2={splitSpots[i].x} y2={splitSpots[i].y} stroke="#8d9396" strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
-                      <text x={splitSpots[i].x} y={splitSpots[i].y + px(5.5)} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill={YELLOW} style={{ pointerEvents: "none" }}>
+                      {splitSpot(s.id)!.d > px(26) + 0.01 && <line x1={at(lap, s.u).x} y1={at(lap, s.u).y} x2={splitSpot(s.id)!.x} y2={splitSpot(s.id)!.y} stroke="#8d9396" strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
+                      <text x={splitSpot(s.id)!.x} y={splitSpot(s.id)!.y + fsz * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fsz} fill={YELLOW} style={{ pointerEvents: "none" }}>
                         {segs[idx]?.name ?? ""}
                       </text>
                     </>
@@ -595,7 +584,7 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
                 <g key={q.id} onPointerDown={step === 6 ? (e) => grab(e, { kind: "poi", i }) : undefined} onPointerEnter={() => setHot(key)} onPointerLeave={() => setHot((h) => (h === key ? null : h))} style={{ cursor: step === 6 ? (del ? "pointer" : "grab") : undefined, pointerEvents: step === 6 ? undefined : "none" }}>
                   <circle cx={q.x} cy={q.y} r={px(11)} fill="transparent" />
                   <circle cx={q.x} cy={q.y} r={px(4)} fill={on ? (del ? RED : "#f0f0e8") : POI} />
-                  <text x={q.x + (q.x < g.w / 2 ? px(8) : -px(8))} y={q.y + px(5.5)} textAnchor={q.x < g.w / 2 ? "start" : "end"} fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill="#f0f0e8" style={{ pointerEvents: "none" }}>
+                  <text x={L?.pois[i]?.tx ?? q.x} y={(L?.pois[i]?.ty ?? q.y) + fsz * 0.35} textAnchor={L?.pois[i]?.anchor ?? "start"} fontFamily="PerfectDOSVGA, monospace" fontSize={fsz} fill={on ? "#f0f0e8" : POI} style={{ pointerEvents: "none" }}>
                     {q.label}
                   </text>
                 </g>
