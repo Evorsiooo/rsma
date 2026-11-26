@@ -28,6 +28,7 @@ const ERRORS: Record<string, string> = {
   invalid_times: "The end must be after the start.",
   invalid_link: "That session cannot be linked: it must be in this event and not follow this session.",
   has_registrations: "This session has registrations of its own. Remove them before linking it.",
+  has_cars: "Cars are entered. Remove them before turning endurance off.",
   has_principal: "This team already has a Team Principal.",
   invalid_roles: "Pick at least one role.",
   has_customers: "Customer teams still run this factory team's car.",
@@ -899,6 +900,8 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
   const [teamCap, setTeamCap] = useState("");
   const [teamLimit, setTeamLimit] = useState("");
   const [pickCutoff, setPickCutoff] = useState("");
+  const [endurance, setEndurance] = useState(false);
+  const [cars, setCars] = useState({ carsPerTeam: "2", seatsPerCar: "3" });
   useEffect(() => {
     const others = sessions.filter((o) => o.id !== session.id);
     Promise.all(others.map((o) => registrationApi.get(o.id).then((v) => (v.settings ? o : null), () => null))).then((l) =>
@@ -917,6 +920,8 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
         setDeadline(toLocalInput(s.deadline));
         setN({ drivers: String(s.drivers), employees: String(s.employees), spectators: String(s.spectators), factoryReserved: String(s.factoryReserved) });
         setIndependents(s.independents);
+        setEndurance(s.endurance);
+        if (s.endurance) setCars({ carsPerTeam: String(s.carsPerTeam), seatsPerCar: String(s.seatsPerCar) });
       }
       setLoaded(true);
     }, () => setLoaded(true));
@@ -934,8 +939,11 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
     teamLimit: teamLimit.trim() === "" ? null : num(teamLimit),
     pickCutoff: teamLimit.trim() === "" || pickCutoff === "" ? null : fromLocalInput(pickCutoff),
     follows,
+    endurance,
+    carsPerTeam: endurance ? num(cars.carsPerTeam) : 0,
+    seatsPerCar: endurance ? num(cars.seatsPerCar) : 0,
   };
-  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt);
+  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt) && (!endurance || follows !== null || (settings.carsPerTeam >= 1 && settings.seatsPerCar >= 1));
   const save = async () => {
     const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
     if (!r.ok) return say(r.error);
@@ -997,7 +1005,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
             <input className="r-field r-fill" type="datetime-local" aria-label="Registration deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
           </label></>}
           {follows === null && <>
-          {field("Driver spots", "drivers")}
+          {field(endurance ? "Car spots" : "Driver spots", "drivers")}
           {field("Reserved per factory team", "factoryReserved")}
           <label className="r-row" style={{ alignItems: "center" }}>
             <span style={{ width: 240, flex: "none" }}>Team driver cap (blank for none)</span>
@@ -1005,12 +1013,30 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
           </label>
           {field("Employee spots", "employees")}
           {field("Spectator spots", "spectators")}
+          <label className="r-check">
+            <input type="checkbox" checked={endurance} onChange={(e) => setEndurance(e.target.checked)} />
+            <span>Endurance event: teams enter cars with several drivers</span>
+          </label>
+          {endurance && (
+            <>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Cars per team</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Cars per team" value={cars.carsPerTeam} onChange={(e) => setCars({ ...cars, carsPerTeam: e.target.value })} />
+              </label>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Drivers racing per car</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Drivers racing per car" value={cars.seatsPerCar} onChange={(e) => setCars({ ...cars, seatsPerCar: e.target.value })} />
+              </label>
+              <div style={{ color: "var(--r-text-dim)" }}>The driver spots above count cars, and so does the team cap. A team ranks as many drivers as it wants on each car: the top ones race and the rest are reserve. The same limits apply to every team. Existing team drivers stay unassigned until they are put in a car.</div>
+            </>
+          )}
           </>}
-          <label className="r-row" style={{ alignItems: "center" }}>
+          {follows !== null && endurance && <div style={{ color: "var(--r-text-dim)" }}>Endurance event, set by the linked session: spots count cars.</div>}
+          {!endurance && <label className="r-row" style={{ alignItems: "center" }}>
             <span style={{ width: 240, flex: "none" }}>Drivers per team in this session (blank for no limit)</span>
             <input className="r-field r-fill" inputMode="numeric" aria-label="Drivers per team in this session" value={teamLimit} onChange={(e) => setTeamLimit(e.target.value)} />
-          </label>
-          {teamLimit.trim() !== "" && (
+          </label>}
+          {!endurance && teamLimit.trim() !== "" && (
             <>
               <label className="r-row" style={{ alignItems: "center" }}>
                 <span style={{ width: 240, flex: "none" }}>Teams choose until (blank for session start)</span>

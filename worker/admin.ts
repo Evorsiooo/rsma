@@ -11,6 +11,7 @@ import { regSessionsOf, syncRegistered, syncSessions } from "./stage";
 import { aiVoiceOn, issueCode, revokeCode, setAiVoice, setTokenMode, tokenMode } from "./access-codes";
 import { mountStandingsAdmin } from "./standings";
 import { formatDiscordStewardMessage, getDiscordWebhook, sendDiscordWebhook, setDiscordWebhook } from "./discord";
+import { pruneStatements } from "./entries";
 
 export interface AdminEnv extends AuthEnv {
   /** Local development only: point username lookups at a mock server. */
@@ -327,6 +328,7 @@ admin.delete("/sessions/:id", guard("races"), async (c) => {
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sid),
+    ...pruneStatements(c.env.DB),
   ]);
   await syncSessions(c.env, followers);
   return c.json({ ok: true });
@@ -348,6 +350,9 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
   let deadline = Number(b.deadline);
   let [drivers, employees, spectators, reserved] = [num(b.drivers), num(b.employees), num(b.spectators), num(b.factoryReserved)];
   let capIn: unknown = b.teamCap;
+  let endurance = b.endurance === true;
+  let carsPerTeam = num(b.carsPerTeam ?? 0);
+  let seatsPerCar = num(b.seatsPerCar ?? 0);
   if (follows) {
     // Linked: the first session of the group sets the window and the numbers, and the group must be in the same race with no loop.
     const same = await c.env.DB.prepare("SELECT 1 FROM sessions a JOIN sessions b ON a.race_id = b.race_id WHERE a.id = ? AND b.id = ?").bind(id, follows).first();
@@ -358,28 +363,38 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
       loop = cur === id;
     }
     const w = await c.env.DB.prepare(
-      "SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, team_cap AS teamCap FROM session_registration WHERE session_id = ?",
+      "SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, team_cap AS teamCap, endurance, cars_per_team AS carsPerTeam, seats_per_car AS seatsPerCar FROM session_registration WHERE session_id = ?",
     )
       .bind(head)
-      .first<{ opensAt: number; deadline: number; drivers: number; employees: number; spectators: number; factoryReserved: number; teamCap: number | null }>();
+      .first<{ opensAt: number; deadline: number; drivers: number; employees: number; spectators: number; factoryReserved: number; teamCap: number | null; endurance: number; carsPerTeam: number; seatsPerCar: number }>();
     if (!same || !w || loop) return c.json({ error: "invalid_link" }, 400);
     if (await c.env.DB.prepare("SELECT 1 FROM registrations WHERE session_id = ?").bind(id).first()) return c.json({ error: "has_registrations" }, 409);
     ({ opensAt, deadline, drivers, employees, spectators } = w);
     reserved = w.factoryReserved;
     capIn = w.teamCap;
+    ({ carsPerTeam, seatsPerCar } = w);
+    endurance = !!w.endurance;
   }
   if (!Number.isFinite(opensAt) || !Number.isFinite(deadline) || deadline <= opensAt) return c.json({ error: "invalid_times" }, 400);
-  const teamLimit = b.teamLimit === null || b.teamLimit === undefined ? null : num(b.teamLimit);
-  const pickCutoff = b.pickCutoff === null || b.pickCutoff === undefined ? null : Number(b.pickCutoff);
+  if (carsPerTeam === null || seatsPerCar === null || (endurance && (carsPerTeam < 1 || seatsPerCar < 1))) return c.json({ error: "invalid" }, 400);
+  // Cars cannot be switched off while any exist: staff remove them first.
+  if (!endurance && !follows && (await c.env.DB.prepare("SELECT 1 FROM entries WHERE root_session = ?").bind(id).first())) return c.json({ error: "has_cars" }, 409);
+  let teamLimit = b.teamLimit === null || b.teamLimit === undefined ? null : num(b.teamLimit);
+  let pickCutoff = b.pickCutoff === null || b.pickCutoff === undefined ? null : Number(b.pickCutoff);
   if ((b.teamLimit != null && teamLimit === null) || (pickCutoff !== null && !Number.isFinite(pickCutoff))) return c.json({ error: "invalid" }, 400);
+  if (endurance) {
+    // The lineups replace the per-team driver limit. Its stored value is kept, so switching endurance off brings it back.
+    const old = await c.env.DB.prepare("SELECT team_limit AS teamLimit, pick_cutoff AS pickCutoff FROM session_registration WHERE session_id = ?").bind(id).first<{ teamLimit: number | null; pickCutoff: number | null }>();
+    ({ teamLimit, pickCutoff } = old ?? { teamLimit: null, pickCutoff: null });
+  }
   const teamCap = capIn === null || capIn === undefined ? null : num(capIn);
   if (drivers === null || employees === null || spectators === null || reserved === null || (capIn != null && teamCap === null)) return c.json({ error: "invalid" }, 400);
   await c.env.DB.prepare(
-    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows, team_cap, team_limit, pick_cutoff)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8, follows = ?9, team_cap = ?10, team_limit = ?11, pick_cutoff = ?12`,
+    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows, team_cap, team_limit, pick_cutoff, endurance, cars_per_team, seats_per_car)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8, follows = ?9, team_cap = ?10, team_limit = ?11, pick_cutoff = ?12, endurance = ?13, cars_per_team = ?14, seats_per_car = ?15`,
   )
-    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0, follows, teamCap, teamLimit, pickCutoff)
+    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0, follows, teamCap, teamLimit, pickCutoff, endurance ? 1 : 0, carsPerTeam, seatsPerCar)
     .run();
   await syncRegistered(c.env, id);
   return c.json({ ok: true });
@@ -394,6 +409,7 @@ admin.delete("/sessions/:id/registration", guard("races"), async (c) => {
     c.env.DB.prepare("DELETE FROM session_picks WHERE session_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(id),
+    ...pruneStatements(c.env.DB),
   ]);
   await syncSessions(c.env, followers);
   return c.json({ ok: true });
@@ -460,6 +476,7 @@ admin.delete("/teams/:id", guard("users"), async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ?").bind(c.req.param("id")),
     c.env.DB.prepare("DELETE FROM teams WHERE id = ?").bind(c.req.param("id")),
+    ...pruneStatements(c.env.DB),
   ]);
   await syncSessions(c.env, sessions);
   return c.json({ ok: true });
@@ -503,6 +520,7 @@ admin.delete("/teams/:id/members/:uid", guard("users"), async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(c.req.param("id"), c.req.param("uid")),
     c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ? AND roblox_id = ? AND kind != 'spectator'").bind(c.req.param("id"), c.req.param("uid")),
+    ...pruneStatements(c.env.DB),
   ]);
   await syncSessions(c.env, sessions);
   return c.json({ ok: true });

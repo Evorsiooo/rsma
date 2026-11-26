@@ -178,4 +178,16 @@ export const registrationApi = {
   staffEdit: (sid: string, userId: string, b: { denied?: boolean; teamId?: string | null; group?: GroupStatus; kind?: RegKind; discord?: string }) => send("PUT", reg(sid, `/staff/${userId}`), b),
   staffCode: (sid: string, userId: string) => send("POST", reg(sid, `/staff/${userId}/code`)),
   staffRemove: (sid: string, userId: string) => send("DELETE", reg(sid, `/staff/${userId}`)),
+  carAdd: (sid: string, b: CarFields & { teamId: string }) => send("POST", reg(sid, "/cars"), b),
+  carEdit: (sid: string, carId: string, b: CarFields) => send("PUT", reg(sid, `/cars/${carId}`), b),
+  carRemove: (sid: string, carId: string) => send("DELETE", reg(sid, `/cars/${carId}`)),
 };
+
+/** What staff set on a car; `drivers` is the whole ranked lineup (user ids). */
+export interface CarFields {
+  label?: string;
+  number?: string;
+  plate?: string;
+  seats?: number;
+  drivers?: string[];
+}

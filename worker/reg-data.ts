@@ -2,6 +2,11 @@ import type { Me, RaceSummary, SessionSummary } from "../shared/types";
 import {
   applyTeamLimit,
   computeCut,
+  computeEnduranceCut,
+  lineupOf,
+  raceDrivers,
+  type Car,
+  type EntryInput,
   eligibleFor,
   heldSpots,
   waitPositions,
@@ -41,6 +46,21 @@ export interface SettingsRow {
   teamLimit: number | null;
   pickCutoff: number | null;
   follows: string | null;
+  endurance: number;
+  carsPerTeam: number;
+  seatsPerCar: number;
+}
+
+export interface EntryRow {
+  id: string;
+  rootSession: string;
+  teamId: string;
+  teamName: string | null;
+  label: string;
+  number: string | null;
+  plate: string | null;
+  seats: number;
+  at: number;
 }
 
 export interface RegRow {
@@ -69,6 +89,9 @@ export interface EventData {
   settings: Map<string, SettingsRow>;
   regs: RegRow[];
   picks: { sessionId: string; userId: string }[];
+  /** Cars entered in endurance events, and their ranked drivers. */
+  entries: EntryRow[];
+  lineups: { entryId: string; userId: string; rank: number }[];
   factories: Set<string>;
   members: MemberRow[];
   /** Every team with its car, only when asked for (staging the queue needs it). */
@@ -95,7 +118,7 @@ export async function loadEventData(env: AuthEnv, c: Context | null, by: Selecto
     db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE race_id = ${rid} ORDER BY starts_at, position`).bind(arg),
     db
       .prepare(
-        `SELECT session_id AS sessionId, opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows
+        `SELECT session_id AS sessionId, opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows, endurance, cars_per_team AS carsPerTeam, seats_per_car AS seatsPerCar
          FROM session_registration WHERE session_id IN ${inRace}`,
       )
       .bind(arg),
@@ -108,6 +131,8 @@ export async function loadEventData(env: AuthEnv, c: Context | null, by: Selecto
       .bind(arg),
     db.prepare(`SELECT session_id AS sessionId, roblox_id AS userId FROM session_picks WHERE session_id IN ${inRace}`).bind(arg),
     db.prepare("SELECT id FROM teams WHERE kind = 'factory'"),
+    db.prepare(`SELECT e.id, e.root_session AS rootSession, e.team_id AS teamId, t.name AS teamName, e.label, e.number, e.plate, e.seats, e.created_at AS at FROM entries e LEFT JOIN teams t ON t.id = e.team_id WHERE e.root_session IN ${inRace} ORDER BY e.created_at, e.id`).bind(arg),
+    db.prepare(`SELECT entry_id AS entryId, roblox_id AS userId, rank FROM entry_drivers WHERE root_session IN ${inRace} ORDER BY rank`).bind(arg),
   ];
   if (sub) {
     stmts.push(
@@ -125,16 +150,18 @@ export async function loadEventData(env: AuthEnv, c: Context | null, by: Selecto
   const rows = <T>(i: number) => (out[i]?.results ?? []) as T[];
   const raceRow = rows<{ id: string; name: string; expiresAt: number; ended: number }>(0)[0];
   const sessions = rows<Omit<SessionSummary, "selfTimed" | "staging"> & { selfTimed: number; staging: number }>(1).map((r) => ({ ...r, selfTimed: !!r.selfTimed, staging: !!r.staging }));
-  const members = sub ? rows<MemberRow>(6) : [];
+  const members = sub ? rows<MemberRow>(8) : [];
   const me = !sub
     ? null
-    : (tokenMe ?? buildMe(claims!, rows<MeUser>(7)[0] ?? null, rows<{ role: never }>(8), rows<MeTeamRow>(9)));
+    : (tokenMe ?? buildMe(claims!, rows<MeUser>(9)[0] ?? null, rows<{ role: never }>(10), rows<MeTeamRow>(11)));
   return {
     me,
     race: raceRow ? { ...raceRow, ended: !!raceRow.ended, sessions } : null,
     settings: new Map(rows<SettingsRow>(2).map((r) => [r.sessionId, r])),
     regs: rows<RegRow>(3),
     picks: rows<{ sessionId: string; userId: string }>(4),
+    entries: rows<EntryRow>(6),
+    lineups: rows<{ entryId: string; userId: string; rank: number }>(7),
     factories: new Set(rows<{ id: string }>(5).map((t) => t.id)),
     members,
     teams: new Map(withTeams ? rows<{ id: string; name: string; kind: string; car: string | null; factoryId: string | null }>(out.length - 1).map((t) => [t.id, t]) : []),
@@ -160,8 +187,8 @@ export function settingsIn(d: EventData, sid: string): RegSettings | null {
   const root = rootIn(d, sid);
   const w = root === sid ? null : d.settings.get(root);
   // A linked session shares the first session's window and numbers; only its independents setting is its own.
-  const shared = w ? { opensAt: w.opensAt, deadline: w.deadline, drivers: w.drivers, employees: w.employees, spectators: w.spectators, factoryReserved: w.factoryReserved, teamCap: w.teamCap } : {};
-  return {
+  const shared = w ? { opensAt: w.opensAt, deadline: w.deadline, drivers: w.drivers, employees: w.employees, spectators: w.spectators, factoryReserved: w.factoryReserved, teamCap: w.teamCap, endurance: !!w.endurance, carsPerTeam: w.carsPerTeam, seatsPerCar: w.seatsPerCar } : {};
+  const out: RegSettings = {
     opensAt: r.opensAt,
     deadline: r.deadline,
     drivers: r.drivers,
@@ -171,10 +198,15 @@ export function settingsIn(d: EventData, sid: string): RegSettings | null {
     teamCap: r.teamCap,
     teamLimit: r.teamLimit,
     pickCutoff: r.pickCutoff,
+    endurance: !!r.endurance,
+    carsPerTeam: r.carsPerTeam,
+    seatsPerCar: r.seatsPerCar,
     ...shared,
     independents: !!r.independents,
     follows: root === sid ? null : r.follows,
   };
+  // In an endurance event the lineups replace the per-team driver limit (the stored value is kept, only ignored).
+  return out.endurance ? { ...out, teamLimit: null, pickCutoff: null } : out;
 }
 
 export function groupIn(d: EventData, sid: string): { root: string; members: (RegGroupMember & { independents: boolean })[] } {
@@ -190,23 +222,64 @@ export function groupIn(d: EventData, sid: string): { root: string; members: (Re
   return { root, members: members.map((m) => ({ id: m.sessionId, name: m.name, teamsOnly: linked && !m.independents, independents: !!m.independents })) };
 }
 
+/** The cars of a group's registration, as the cut sees them: ranked driver ids, only those still really in the car. */
+function groupEntries(d: EventData, root: string): { entries: (EntryRow & { drivers: string[] })[]; inputs: EntryInput[] } {
+  const entries = d.entries
+    .filter((e) => e.rootSession === root)
+    .map((e) => ({ ...e, drivers: d.lineups.filter((l) => l.entryId === e.id).sort((a, b) => a.rank - b.rank).map((l) => l.userId) }));
+  return { entries, inputs: entries.map((e) => ({ id: e.id, teamId: e.teamId, at: e.at, drivers: e.drivers })) };
+}
+
 /**
  * Everyone registered for the group, with one result each. Linked sessions share one list of spots, so the cut and the
- * waiting list are worked out once for the group, never per session.
+ * waiting list are worked out once for the group, never per session. In an endurance event the spots count cars.
  */
-export function groupRegs(d: EventData, group: ReturnType<typeof groupIn>): { regs: Registration[]; held: number; settings: RegSettings | null } {
+export function groupRegs(d: EventData, group: ReturnType<typeof groupIn>): { regs: Registration[]; held: number; settings: RegSettings | null; cars: Car[] } {
   const gs = settingsIn(d, group.root);
-  if (!gs) return { regs: [], held: 0, settings: null };
+  if (!gs) return { regs: [], held: 0, settings: null, cars: [] };
   const rows = d.regs.filter((r) => r.sessionId === group.root).map(({ sessionId: _s, ...r }) => ({ ...r, denied: !!r.denied }));
+  if (gs.endurance) return enduranceRegs(d, group.root, rows, gs);
   const cut = computeCut(rows, gs, d.factories);
   const withCut = rows.map((r) => ({ ...r, cut: cut.get(r.userId) ?? ("waitlist" as Cut) }));
   const pos = waitPositions(withCut);
-  return { regs: withCut.map((r) => ({ ...r, waitPos: pos.get(r.userId) ?? null })), held: heldSpots(rows, gs, d.factories), settings: gs };
+  return { regs: withCut.map((r) => ({ ...r, waitPos: pos.get(r.userId) ?? null, carId: null, rank: null })), held: heldSpots(rows, gs, d.factories), settings: gs, cars: [] };
+}
+
+function enduranceRegs(d: EventData, root: string, rows: (Omit<RegRow, "sessionId" | "denied"> & { denied: boolean })[], gs: RegSettings) {
+  const { entries, inputs } = groupEntries(d, root);
+  const r = computeEnduranceCut(rows, inputs, gs, d.factories);
+  const lineups = lineupOf(inputs, rows);
+  const where = new Map<string, { carId: string; rank: number }>();
+  for (const [carId, list] of lineups) list.forEach((userId, i) => where.set(userId, { carId, rank: i + 1 }));
+  const withCut = rows.map((x) => ({ ...x, cut: r.cut.get(x.userId) ?? ("waitlist" as Cut) }));
+  // People who are not drivers keep the usual waiting list; drivers wait per car.
+  const pos = waitPositions(withCut.filter((x) => x.kind !== "driver"));
+  const regs = withCut.map((x) => ({ ...x, waitPos: x.kind === "driver" ? (r.driverWait.get(x.userId) ?? null) : (pos.get(x.userId) ?? null), carId: where.get(x.userId)?.carId ?? null, rank: where.get(x.userId)?.rank ?? null }));
+  const name = new Map(rows.map((x) => [x.userId, x.username]));
+  const cars = entries.map<Car>((e) => {
+    const list = lineups.get(e.id) ?? [];
+    return {
+      id: e.id,
+      teamId: e.teamId,
+      teamName: e.teamName ?? "",
+      label: e.label,
+      number: e.number,
+      plate: e.plate,
+      seats: e.seats,
+      at: e.at,
+      cut: r.carCut.get(e.id) ?? "waitlist",
+      waitPos: r.carWait.get(e.id) ?? null,
+      drivers: list.map((userId, i) => ({ userId, username: name.get(userId) ?? userId, rank: i + 1, race: raceDrivers(list, e.seats).includes(userId) })),
+    };
+  });
+  return { regs, held: r.held, settings: gs, cars };
 }
 
 /** The registrations that take part in one session: the group's results, minus people this session does not take. */
 export function regsIn(d: EventData, sid: string, s: RegSettings, group: ReturnType<typeof groupIn>): Registration[] {
   const regs = eligibleFor(groupRegs(d, group).regs, s, group.members.length > 1);
+  // The lineups of an endurance event replace the per-team driver limit.
+  if (s.endurance) return regs;
   const picks = new Set(d.picks.filter((p) => p.sessionId === sid).map((p) => p.userId));
   return applyTeamLimit(regs, s.teamLimit, picks);
 }
@@ -233,6 +306,7 @@ export function viewIn(d: EventData, sid: string, now = Date.now()): Registratio
     staff: isStaff(me),
     teams: [],
     registrations: [],
+    cars: [],
     self: null,
   };
   if (!settings) return view;
@@ -242,11 +316,22 @@ export function viewIn(d: EventData, sid: string, now = Date.now()): Registratio
   const g = groupRegs(d, group);
   view.pickUntil = pickUntilIn(d, sid, settings);
   view.group = group.members.map(({ id, name, teamsOnly }) => ({ id, name, teamsOnly }));
+  view.cars = view.staff ? g.cars : [];
   const gs = g.settings ?? settings;
   const spots = { driver: gs.drivers, employee: gs.employees, spectator: gs.spectators };
   // Everyone sees the spots, the people who are In and the waiting list, counted over the whole group.
   for (const k of REG_KINDS) {
     view.counts[k] = { spots: spots[k], taken: g.regs.filter((r) => r.kind === k && r.cut === "in").length, waiting: g.regs.filter((r) => r.kind === k && r.cut === "waitlist").length, held: k === "driver" ? g.held : 0 };
+  }
+  if (gs.endurance) {
+    // Driver spots are cars: each car with a driver counts once, and so does each independent.
+    const fielded = g.cars.filter((c) => c.drivers.length > 0);
+    const solo = g.regs.filter((r) => r.kind === "driver" && !r.teamId);
+    view.counts.driver = {
+      ...view.counts.driver,
+      taken: fielded.filter((c) => c.cut === "in").length + solo.filter((r) => r.cut === "in").length,
+      waiting: fielded.filter((c) => c.cut === "waitlist").length + solo.filter((r) => r.cut === "waitlist").length,
+    };
   }
   view.self = all.find((r) => r.userId === me?.id) ?? null;
   if (managed.length) {

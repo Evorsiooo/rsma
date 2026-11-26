@@ -7,6 +7,7 @@ import { SESSION_COOKIE } from "./auth/session";
 import { canIssueFor, issueCode, revokeCode } from "./access-codes";
 import { regSessionsOf, syncSessions } from "./stage";
 import { cleanUsername, resolveUser, type AdminEnv } from "./admin";
+import { pruneStatements } from "./entries";
 
 type C = Context<{ Bindings: AdminEnv; Variables: { me: Me } }>;
 
@@ -92,6 +93,7 @@ myTeams.delete("/:teamId/members/:uid", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(team.id, target.id),
     c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ? AND roblox_id = ? AND kind != 'spectator'").bind(team.id, target.id),
+    ...pruneStatements(c.env.DB),
   ]);
   await syncSessions(c.env, sessions);
   return c.json({ ok: true });
@@ -128,6 +130,7 @@ myTeams.post("/:teamId/leave", async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM team_members WHERE team_id = ? AND roblox_id = ?").bind(team.id, c.get("me").id),
     c.env.DB.prepare("DELETE FROM registrations WHERE team_id = ? AND roblox_id = ? AND kind != 'spectator'").bind(team.id, c.get("me").id),
+    ...pruneStatements(c.env.DB),
   ]);
   await syncSessions(c.env, sessions);
   return c.json({ ok: true });

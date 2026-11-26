@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { applyTeamLimit, computeCut, eligibleFor, fullNotice, groupSummary, heldSpots, orderRule, regPhase, spotsLine, statusText, waitPositions, type RegSettings } from "../shared/registration.ts";
 
-const s: RegSettings = { opensAt: 100, deadline: 200, drivers: 3, employees: 1, spectators: 1, factoryReserved: 1, independents: true, teamCap: null, teamLimit: null, pickCutoff: null, follows: null };
+const s: RegSettings = { opensAt: 100, deadline: 200, drivers: 3, employees: 1, spectators: 1, factoryReserved: 1, independents: true, teamCap: null, teamLimit: null, pickCutoff: null, follows: null, endurance: false, carsPerTeam: 0, seatsPerCar: 0 };
 const d = (userId: string, at: number, teamId: string | null, denied = false) => ({ userId, kind: "driver" as const, teamId, denied, at });
 
 test("phase follows the window", () => {
