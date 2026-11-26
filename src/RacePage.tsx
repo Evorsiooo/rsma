@@ -9,6 +9,8 @@ import { NotFound } from "./NotFound";
 import { Bd, Box, FlagBar, ResultsTable } from "./site/parts";
 import { EnteredResults } from "./EnteredResults";
 import { SessionSelect } from "./SessionSelect";
+import { useTrack } from "./TrackPanel";
+import { TrackMap } from "./TrackMap";
 import { sessionCountdown, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
 
@@ -57,10 +59,33 @@ export function RacePage() {
 
   if (info === null) return <NotFound />;
   const race = info?.race;
+  const track = useTrack(race?.trackId);
   const cd = info ? sessionCountdown(info.session, now) : null;
   const rows = state ? classify(state.runs) : [];
 
   const finished = rows.filter((r) => r.status === "finished").length;
+  const notices = (
+    <>
+      {info?.session.type === "race" && !race?.ended && !entered && <div className="notice">Live timing is not available for races.</div>}
+      {info?.session.selfTimed && !race?.ended && <div className="notice">Self-timed session. Times are recorded by the teams.</div>}
+    </>
+  );
+  const results = (
+    <>
+      {entered && (
+        <Box title={race?.name ?? "\u00A0"} right="Results">
+          <Bd flush><EnteredResults results={entered.results} points={entered.points} /></Bd>
+        </Box>
+      )}
+      {(!entered || finished > 0) && (
+        <Box title={race?.name ?? "\u00A0"} right={rows.length ? `${finished} finished` : undefined}>
+          <Bd flush>
+            {rows.length === 0 ? <div className="bd note">{state ? "No runs recorded." : "Loading timing data..."}</div> : <ResultsTable rows={rows} points={points} />}
+          </Bd>
+        </Box>
+      )}
+    </>
+  );
   return (
     <>
       {(info || !race?.ended) && (
@@ -82,20 +107,25 @@ export function RacePage() {
           </span>
         </div>
       )}
-      <FlagBar flag={state?.flag} ended={race?.ended} live={live} />
-      {info?.session.type === "race" && !race?.ended && !entered && <div className="notice">Live timing is not available for races.</div>}
-      {info?.session.selfTimed && !race?.ended && <div className="notice">Self-timed session. Times are recorded by the teams.</div>}
-      {entered && (
-        <Box title={race?.name ?? "\u00A0"} right="Results">
-          <Bd flush><EnteredResults results={entered.results} points={entered.points} /></Bd>
-        </Box>
-      )}
-      {(!entered || finished > 0) && (
-      <Box title={race?.name ?? "\u00A0"} right={rows.length ? `${finished} finished` : undefined}>
-        <Bd flush>
-          {rows.length === 0 ? <div className="bd note">{state ? "No runs recorded." : "Loading timing data..."}</div> : <ResultsTable rows={rows} points={points} />}
-        </Bd>
-      </Box>
+      {track ? (
+        <div className="live-grid">
+          <div className="live-top">
+            <FlagBar flag={state?.flag} ended={race?.ended} live={live} compact />
+            {notices}
+          </div>
+          <div className="live-main">{results}</div>
+          <div className="live-map">
+            <Box title="Track map">
+              <Bd><TrackMap geometry={track.geometry} width={316} theme="light" /></Bd>
+            </Box>
+          </div>
+        </div>
+      ) : (
+        <>
+          <FlagBar flag={state?.flag} ended={race?.ended} live={live} />
+          {notices}
+          {results}
+        </>
       )}
     </>
   );

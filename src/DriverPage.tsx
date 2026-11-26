@@ -11,6 +11,7 @@ import { useMe } from "./me";
 import { sessionCountdown, toast, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
 import { AudioSettingsDialog, audioStore as store, useAiVoiceAllowed } from "./AudioSettings";
+import { DriverTrackMap } from "./TrackPanel";
 
 const FLAG: Record<Flag, { label: string; tone: string }> = {
   green: { label: "Green flag", tone: " is-green" },
@@ -272,6 +273,8 @@ export function DriverPage() {
           <div className="r-empty">No run staged for {user.username}.</div>
         )}
       </div>
+
+      {info && !info.race.ended && <DriverTrackMap trackId={info.race.trackId} />}
 
       {questions.map((m) => (
         <div className="r-panel" key={m.id}>

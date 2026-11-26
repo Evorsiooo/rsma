@@ -204,6 +204,14 @@ body.is-site .flag::after { content: ""; position: absolute; right: 150px; top: 
 body.is-site .flag.y { background: linear-gradient(#ffe45c, #f2c200 55%, #d6a800); border-color: #8a6d00; color: #2b2200; }
 body.is-site .flag.r { background: linear-gradient(#ee4a62, #c8102e 55%, #9e0b23); border-color: #6d0618; }
 body.is-site .flag.end { background: linear-gradient(#6a7690, #4b5670 55%, #3d475f); border-color: #2d3550; }
+/* live timing with a track map: results on the left, flag, notices and map in a narrow column */
+body.is-site .live-grid { display: grid; grid-template-columns: minmax(0, 1fr) 340px; grid-template-areas: "main top" "main map"; gap: 12px; align-items: start; }
+body.is-site .live-main { grid-area: main; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+body.is-site .live-top { grid-area: top; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
+body.is-site .live-map { grid-area: map; min-width: 0; }
+body.is-site .live-map svg { margin: 0 auto; }
+body.is-site .flag.compact .k, body.is-site .flag.compact::after { display: none; }
+@media (max-width: 900px) { body.is-site .live-grid { grid-template-columns: minmax(0, 1fr); grid-template-areas: "top" "main" "map"; } }
 @media (max-width: 560px) { body.is-site .flag .k { display: none; } body.is-site .flag::after { display: none; } }
 
 /* ---- loading box ---- */

@@ -11,6 +11,7 @@ import { useMe } from "./me";
 import { NotFound } from "./NotFound";
 import { SessionSelect } from "./SessionSelect";
 import { Topbar } from "./Shell";
+import { PanelTrackMap } from "./TrackPanel";
 import { TimingTable } from "./TimingTable";
 import { Dialog, sessionCountdown, toast, useClock, useNow } from "./ui";
 import { useRaceLive } from "./useRaceLive";
@@ -338,6 +339,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
 
         <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
           <div className="r-stack" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
+            <PanelTrackMap trackId={race.trackId} />
             {session.selfTimed && (
               <>
                 <div className="r-section"><span>Release every</span></div>

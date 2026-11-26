@@ -15,6 +15,7 @@ import { useRaceLive } from "../useRaceLive";
 import { AssignDialog, AttributeDialog, ConfirmDelete, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, EditInfoDialog, RulesDialog, SetTimeDialog, TeamsDialog } from "./Dialogs";
 import { AudioSettingsDialog, useRadioTTS } from "../AudioSettings";
 import { startBeeps } from "../audio";
+import { PanelTrackMap } from "../TrackPanel";
 import { CarDrivers, carTitle } from "../car";
 
 const ERRORS: Record<string, string> = {
@@ -311,6 +312,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
 
         <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
           <div className="r-stack" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
+            <PanelTrackMap trackId={race.trackId} />
             <div className="r-section"><span>Flags</span></div>
             <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
               {(["green", "yellow", "red"] as Flag[]).map((f) => (

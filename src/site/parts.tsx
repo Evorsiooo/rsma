@@ -79,16 +79,16 @@ const FLAG_CLASS: Record<Flag, string> = { green: "", yellow: " y", red: " r" };
 export const FLAG_LABEL: Record<Flag, string> = { green: "Green flag", yellow: "Yellow flag", red: "Red flag" };
 
 /** Track-condition bar of the live timing page. */
-export function FlagBar({ flag, ended, live }: { flag?: Flag; ended?: boolean; live: boolean }) {
+export function FlagBar({ flag, ended, live, compact }: { flag?: Flag; ended?: boolean; live: boolean; compact?: boolean }) {
   if (ended)
     return (
-      <div className="flag end">
+      <div className={`flag end${compact ? " compact" : ""}`}>
         <span className="k">Track condition</span>
         <span className="v">Race ended</span>
       </div>
     );
   return (
-    <div className={`flag${flag ? FLAG_CLASS[flag] : ""}`} style={flag ? undefined : { visibility: "hidden" }}>
+    <div className={`flag${flag ? FLAG_CLASS[flag] : ""}${compact ? " compact" : ""}`} style={flag ? undefined : { visibility: "hidden" }}>
       <span className="k">Track condition</span>
       <span className="v">{flag ? FLAG_LABEL[flag] : " "}</span>
       <span className="l">{live ? "● LIVE" : "○ OFFLINE"}</span>
