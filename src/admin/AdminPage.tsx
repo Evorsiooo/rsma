@@ -932,7 +932,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
         if (s.endurance) setCars({ carsPerTeam: String(s.carsPerTeam), seatsPerCar: String(s.seatsPerCar) });
         setAttend(s.attendance);
         setAttendOpens(String(s.attendanceOpens));
-        setAttendCloses(String(s.attendanceCloses));
+        setAttendCloses(String(-s.attendanceCloses));
       }
       setLoaded(true);
     }, () => setLoaded(true));
@@ -953,11 +953,11 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
     endurance,
     attendance: attend,
     attendanceOpens: num(attendOpens),
-    attendanceCloses: num(attendCloses),
+    attendanceCloses: -num(attendCloses),
     carsPerTeam: endurance ? num(cars.carsPerTeam) : 0,
     seatsPerCar: endurance ? num(cars.seatsPerCar) : 0,
   };
-  const valid = [settings.attendanceOpens, settings.attendanceCloses].every((m) => Number.isFinite(m) && m <= ATTENDANCE_MAX_MINUTES) && [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt) && (!endurance || follows !== null || (settings.carsPerTeam >= 1 && settings.seatsPerCar >= 1));
+  const valid = [settings.attendanceOpens, settings.attendanceCloses].every((m) => Number.isFinite(m) && Math.abs(m) <= ATTENDANCE_MAX_MINUTES) && settings.attendanceCloses <= 0 && -settings.attendanceCloses < settings.attendanceOpens && [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt) && (!endurance || follows !== null || (settings.carsPerTeam >= 1 && settings.seatsPerCar >= 1));
   const save = async () => {
     const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
     if (!r.ok) return say(r.error);
@@ -1078,11 +1078,11 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
                 <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance opens, minutes before the session starts" value={attendOpens} onChange={(e) => setAttendOpens(e.target.value)} />
               </label>
               <label className="r-row" style={{ alignItems: "center" }}>
-                <span style={{ width: 240, flex: "none" }}>Link closes (minutes after the session starts)</span>
-                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance closes, minutes after the session starts" value={attendCloses} onChange={(e) => setAttendCloses(e.target.value)} />
+                <span style={{ width: 240, flex: "none" }}>Link closes (minutes before the session starts)</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance closes, minutes before the session starts" value={attendCloses} onChange={(e) => setAttendCloses(e.target.value)} />
               </label>
               <div style={{ color: "var(--r-text-dim)" }}>
-                Link: <b>{location.origin}/attend/{session.id}</b>. Closes at the session start with 0; a higher number keeps it open that many minutes into the session, for late drivers. Drivers sign in with Roblox and confirm. Nobody who has not confirmed is staged. Staff can mark anyone present or absent under Registrations.
+                Link: <b>{location.origin}/attend/{session.id}</b>. 0 closes it exactly when the session starts; 5 closes it five minutes before. It must close after it opens. Drivers sign in with Roblox and confirm. Nobody who has not confirmed is staged. Staff can mark anyone present or absent under Registrations.
               </div>
             </>
           )}
