@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { startSignIn } from "./access";
 import { useNavigate, useParams } from "react-router-dom";
-import { classify, fmtPenalty, fmtTime, type Flag, type RadioMsg, type Run } from "../shared/race";
+import { carText, classify, fmtPenalty, fmtTime, releasable, type Flag, type RadioMsg, type Run } from "../shared/race";
 import { fmtClock } from "../shared/sessions";
 import type { SessionInfo } from "../shared/types";
-import { addPitWindow, api, askDriver, moveOwnCar, removePitWindow, sendTeamRadio, teamNoteCmd, teamRunCmd, teamTiming } from "./api";
+import { addPitWindow, addPlanDriver, api, askDriver, moveOwnCar, removePitWindow, removePlanDriver, sendTeamRadio, teamDriver, teamNoteCmd, teamRunCmd, teamTiming } from "./api";
+import { CarDrivers, carTitle } from "./car";
 import { Lcd } from "./Lcd";
 import { useMe } from "./me";
 import { NotFound } from "./NotFound";
@@ -35,7 +36,11 @@ const ERRORS: Record<string, string> = {
   has_laps: "Laps are recorded, so this car stays on long run.",
   unauthorized: "Sign in again.",
   already_queued: "That driver is already in the queue or on stage.",
+  car_busy: "The car of every queued driver already has a driver on stage.",
+  not_queued: "That driver is not queued.",
+  swap_long_run: "Swap needs a long run. Stop a quali run at the line instead.",
 };
+const TONES = ["green", "yellow", "teal", "magenta"] as const;
 const mmss = (ms: number) => {
   const t = Math.max(0, Math.ceil(ms / 1000));
   return `${String(Math.floor(t / 60)).padStart(2, "0")}:${String(t % 60).padStart(2, "0")}`;
@@ -150,6 +155,10 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const lengthMs = session.endsAt - session.startsAt;
   const step = lengthMs > 2 * 3600_000 ? 5 : 1; // minutes
   const stepMs = step * 60_000;
+  const [lane, setLane] = useState<"pit" | "drivers">("pit");
+  const [carPick, setCarPick] = useState<string | null>(null);
+  const [planFrom, setPlanFrom] = useState(0);
+  const [planDriver, setPlanDriver] = useState("");
   const [from, setFrom] = useState(stepMs * 5);
   const [to, setTo] = useState(stepMs * 10);
   const fromMs = Math.min(from, Math.max(0, lengthMs - stepMs));
@@ -174,7 +183,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const bestFinal = rows.reduce<number | undefined>((m, r) => (r.finalMs != null && (m == null || r.finalMs < m) ? r.finalMs : m), undefined);
   const counting = onTrack.filter((r) => r.startedAt! > now);
   const nextMine = queued.findIndex((r) => r.team === team.id);
-  const nextCar = nextMine < 0 ? undefined : queued[nextMine];
+  const nextCar = releasable(state.runs, team.id);
   const releaseAt = nextMine < 0 || !state.lastReleaseAt ? null : state.lastReleaseAt + (nextMine + 1) * state.cadenceSec * 1000;
   const mineOnTrack = onTrack.filter((r) => r.team === team.id).length;
   const mineQueued = queued.filter((r) => r.team === team.id).length;
@@ -185,7 +194,23 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const ownQueue = queued.filter((r) => r.team === team.id);
   const selOwnIdx = sel && sel.status === "queued" && sel.team === team.id ? ownQueue.indexOf(sel) : -1;
   const hasActiveRun = sel ? state.runs.some((r) => r.name.toLowerCase() === sel.name.toLowerCase() && (r.status === "queued" || r.status === "onstage")) : false;
-  const windows = state.pitWindows.filter((w) => w.team === team.id);
+  // Endurance: the team's cars, each with the drivers staged for it. The lane and its controls work on one car at a time.
+  const cars = new Map<string, { id: string; label: string; drivers: string[] }>();
+  for (const r of state.runs) {
+    if (r.team !== team.id || !r.entry) continue;
+    const c = cars.get(r.entry) ?? { id: r.entry, label: [r.number ? `#${r.number}` : "", carText(r)].filter(Boolean).join(" "), drivers: [] };
+    if (!c.drivers.includes(r.name)) c.drivers.push(r.name);
+    cars.set(r.entry, c);
+  }
+  const endurance = cars.size > 0;
+  const curCar = (sel?.entry && cars.get(sel.entry)) || (carPick && cars.get(carPick)) || [...cars.values()][0];
+  const windows = state.pitWindows.filter((w) => w.team === team.id && (!endurance || !w.entry || w.entry === curCar?.id));
+  const plan = endurance ? state.plan.filter((p) => p.team === team.id && p.entry === curCar?.id) : [];
+  const tone = (name: string) => TONES[Math.max(0, curCar?.drivers.indexOf(name) ?? 0) % TONES.length];
+  const planAt = Math.min(planFrom, Math.max(0, lengthMs - stepMs));
+  const planWho = curCar?.drivers.includes(planDriver) ? planDriver : (curCar?.drivers[0] ?? "");
+  const carQueue = sel?.entry ? state.runs.filter((r) => r.entry === sel.entry && r.status === "queued") : [];
+  const carOnTrack = sel?.entry ? state.runs.find((r) => r.entry === sel.entry && r.status === "onstage" && r.startedAt != null && r.startedAt <= now) : undefined;
   const elapsed = now - session.startsAt;
   // Graduation under the timeline: about five labelled marks, on round minutes.
   const tickStep = [5, 10, 15, 30, 60, 120, 180, 360].find((m) => lengthMs / (m * 60_000) <= 5) ?? 720;
@@ -219,7 +244,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
     else setText("");
   };
   const addWindow = async () => {
-    const err = await addPitWindow(sessionId, team.id, fromMs, toMs);
+    const err = await addPitWindow(sessionId, team.id, fromMs, toMs, endurance ? curCar?.id : undefined);
     if (err) toast(ERRORS[err] ?? "Window not added.");
   };
   const timing = async (action: "go" | "finish", runId?: string) => {
@@ -239,6 +264,19 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const moveCar = async (runId: string, dir: -1 | 1) => {
     const err = await moveOwnCar(sessionId, team.id, runId, dir);
     if (err) toast(ERRORS[err] ?? "Not moved.");
+  };
+  const addDriver = async () => {
+    if (!curCar || !planWho) return;
+    const err = await addPlanDriver(sessionId, team.id, curCar.id, planWho, planAt);
+    if (err) toast(ERRORS[err] ?? "Driver not added.");
+  };
+  const delDriver = async (pid: string) => {
+    const err = await removePlanDriver(sessionId, team.id, pid);
+    if (err) toast(ERRORS[err] ?? "Driver not removed.");
+  };
+  const driverCmd = async (action: "next" | "swap", runId: string) => {
+    const err = await teamDriver(sessionId, team.id, action, runId);
+    if (err) toast(ERRORS[err] ?? "Command failed.");
   };
   const delWindow = async (wid: string) => {
     const err = await removePitWindow(sessionId, team.id, wid);
@@ -317,8 +355,25 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                 </div>
               </>
             )}
-            <div className="r-section"><span>Pit window, min</span></div>
-            <div className="r-timeline" aria-label="Pit windows">
+            <div className="r-section"><span>{endurance ? "Pit windows and drivers, min" : "Pit window, min"}</span></div>
+            {endurance && cars.size > 1 && (
+              <div className="r-row" style={{ alignItems: "center" }}>
+                <span className="r-text" style={{ width: 90 }}>Car</span>
+                <div className="r-select r-fill">
+                  <select aria-label="Car" value={curCar?.id} onChange={(e) => setCarPick(e.target.value)}>
+                    {[...cars.values()].map((c) => (
+                      <option key={c.id} value={c.id}>{c.label}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+            <div className={`r-timeline${endurance ? " r-timeline--drivers" : ""}`} aria-label="Pit windows">
+              {plan.map((p, i) => (
+                <div className={`r-timeline__driver is-${tone(p.driver)}`} key={p.id} style={{ ["--from" as string]: pct(p.fromMs), ["--len" as string]: pct((plan[i + 1]?.fromMs ?? lengthMs) - p.fromMs) }}>
+                  {p.driver}
+                </div>
+              ))}
               {windows.map((w) => (
                 <div className="r-timeline__window" key={w.id} style={{ ["--from" as string]: pct(w.fromMs), ["--len" as string]: pct(w.toMs - w.fromMs) }} />
               ))}
@@ -331,6 +386,46 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                 </span>
               ))}
             </div>
+            {endurance && (
+              <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                <button className="r-btn" aria-pressed={lane === "pit"} onClick={() => setLane("pit")}>Pit window</button>
+                <button className="r-btn" aria-pressed={lane === "drivers"} onClick={() => setLane("drivers")}>Who drives</button>
+              </div>
+            )}
+            {endurance && lane === "drivers" ? (
+              <>
+                <div className="r-row" style={{ alignItems: "center" }}>
+                  <span className="r-text" style={{ width: 90 }}>Driver</span>
+                  <div className="r-select r-fill">
+                    <select aria-label="Driver" value={planWho} onChange={(e) => setPlanDriver(e.target.value)}>
+                      {curCar?.drivers.map((d) => (
+                        <option key={d} value={d}>{d}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="r-row" style={{ alignItems: "center" }}>
+                  <span className="r-text" style={{ width: 90 }}>From</span>
+                  <div className="r-stepper r-fill">
+                    <button className="r-cell" aria-label="Starts earlier" disabled={planAt <= 0} onClick={() => setPlanFrom(Math.max(0, planAt - stepMs))}>-</button>
+                    <div className="r-readout r-fill">{fmtClock(planAt)}</div>
+                    <button className="r-cell" aria-label="Starts later" disabled={planAt + stepMs >= lengthMs} onClick={() => setPlanFrom(planAt + stepMs)}>+</button>
+                  </div>
+                </div>
+                <button className="r-btn" disabled={race.ended || !planWho} onClick={addDriver}>Add driver</button>
+                {plan.length > 0 && (
+                  <div className="r-stack" style={{ gap: 2 }}>
+                    {plan.map((p) => (
+                      <div className="r-row" style={{ alignItems: "center", gap: 4 }} key={p.id}>
+                        <span className="r-text r-fill" style={{ color: `var(--r-${tone(p.driver)})` }}>{fmtClock(p.fromMs)} {p.driver}</span>
+                        <button className="r-cell r-cell--wide r-cell--red" style={{ height: 19 }} disabled={race.ended} onClick={() => delDriver(p.id)}>Remove</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
             <div className="r-row" style={{ alignItems: "center" }}>
               <span className="r-text" style={{ width: 90 }}>Opens at</span>
               <div className="r-stepper r-fill">
@@ -357,6 +452,8 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                   </div>
                 ))}
               </div>
+            )}
+              </>
             )}
             <div className="r-section"><span>Sort</span></div>
             <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
@@ -386,7 +483,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
               />
             </div>
 
-            <div className="r-row" style={{ height: 270, flex: "none" }}>
+            <div className="r-row" style={{ height: endurance ? 340 : 270, flex: "none" }}>
               <div className="r-panel r-fill">
                 <div className="r-header">Race log</div>
                 <div className="r-log r-log--wrap" ref={logRef} style={{ flex: "1 1 0", minHeight: 0 }}>
@@ -404,8 +501,9 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
 
               <div className="r-panel" style={{ width: 340 }}>
                 <div className="r-header">Selected car</div>
-                <div className="r-log r-log--title">{sel ? [sel.name, sel.number ? `#${sel.number}` : "", sel.plate].filter(Boolean).join("  ") : ""}</div>
+                <div className="r-log r-log--title">{sel ? carTitle(sel) : ""}</div>
                 <div className="r-log" style={{ flex: "1 1 0", minHeight: 0 }}>
+                  {sel && <CarDrivers runs={state.runs} sel={sel} />}
                   {sel?.laps?.map((l, i) => (
                     <div className={`r-log__line${l === Math.min(...sel.laps!) ? " is-magenta" : ""}`} key={`l${i}`}>Lap {i + 1} {fmtTime(l)}</div>
                   ))}
@@ -416,8 +514,21 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                     <div className="r-log__line is-dim" key={n.id}>{n.text}</div>
                   ))}
                 </div>
+                {sel?.entry && sel.team === team.id && !race.ended && carQueue.length > 0 && (
+                  <>
+                    <div className="r-section"><span>Next driver</span></div>
+                    <div className="r-grid" style={{ ["--cols" as string]: Math.min(carQueue.length, 3) }}>
+                      {carQueue.slice(0, 3).map((r, i) => (
+                        <button key={r.id} className={`r-cell${i === 0 ? " is-on" : ""}`} aria-pressed={i === 0} onClick={() => driverCmd("next", r.id)}>{r.name}</button>
+                      ))}
+                    </div>
+                  </>
+                )}
                 {sel && sel.team === team.id && !race.ended && (
-                  <div className="r-grid" style={{ ["--cols" as string]: 1 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: sel.entry && session.selfTimed ? 2 : 1 }}>
+                    {sel.entry && session.selfTimed && (
+                      <button className="r-cell" disabled={!carOnTrack || carQueue.length === 0} onClick={() => driverCmd("swap", carQueue[0].id)}>Swap driver</button>
+                    )}
                     <button className="r-cell" onClick={() => setDialog({ kind: "notes", runId: sel.id })}>{selNotes.length ? `Notes (${selNotes.length})` : "Notes"}</button>
                   </div>
                 )}

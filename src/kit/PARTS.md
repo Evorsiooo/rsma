@@ -22,6 +22,7 @@ Catalog pages: `parts-radio.html`, `parts-app.html`, `parts-ops.html`.
 | `r-select`, `r-check`, `r-slider` | Same dark well and bevel as `r-field` | |
 | `r-tag`, `r-count`, `r-avatar`, `r-user` | Role/status tags, unread count, user chip | tag colours `is-green/yellow/red/magenta/teal/white` |
 | `r-timeline` | Pit window: striped window, green "now" marker | `--from --len --at` |
+| `r-timeline--drivers`, `r-timeline__driver` | Endurance pit plan: the lane also shows one block per driver stint, windows striped on top | `--from --len`, `is-yellow` `is-teal` `is-magenta` |
 | `r-lamp--fixed` | the original lamp size, 25 x 20, for lamps in new panels (system status, RX/TX, live) | `r-lamp--red` `r-lamp--yellow` |
 | `r-well`, `r-legend`, `r-toasts` | helpers | `RSMA.toast({text,tone})` |
 
