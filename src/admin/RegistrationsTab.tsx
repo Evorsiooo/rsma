@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { carName, driverUnit, inGroup, lineupLine, spotsLine, statusText, CUT_LABEL, REG_KIND_LABEL, REG_KINDS, type Car, type GroupStatus, type RegKind, type Registration, type RegistrationView } from "../../shared/registration";
 import type { AdminRace } from "../../shared/types";
-import { api, registrationApi } from "../api";
+import { api, attendanceApi, registrationApi } from "../api";
+import { ATTENDANCE_LABEL, type AttendanceStatus, type AttendanceView } from "../../shared/attendance";
 import { CodeDialog, useTokenMode } from "../access";
 import { Dialog, toast } from "../ui";
 
@@ -71,8 +72,76 @@ export function RegistrationsTab({ races }: { races: AdminRace[] }) {
         </div>
       )}
       {view?.settings?.endurance && <CarsSection view={view} sid={current} act={act} />}
+      {view && <AttendancePanel group={view.group} root={current} />}
       {view && <StaffSection view={view} sid={current} act={act} />}
     </>
+  );
+}
+
+/** Attendance of one session of the group: who confirmed, and staff overrides. Hidden while no session of the group takes attendance. */
+function AttendancePanel({ group, root }: { group: RegistrationView["group"]; root: string }) {
+  const [sid, setSid] = useState(root);
+  const [v, setV] = useState<AttendanceView | null>(null);
+  const [any, setAny] = useState<boolean | null>(null);
+  useEffect(() => setSid(root), [root]);
+  const load = useCallback(() => attendanceApi.get(sid).then(setV, () => setV(null)), [sid]);
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load]);
+  useEffect(() => {
+    Promise.all(group.map((m) => attendanceApi.get(m.id).then((a) => a.enabled, () => false))).then((l) => setAny(l.some(Boolean)));
+  }, [group.map((m) => m.id).join()]);
+  const set = async (uid: string, status: AttendanceStatus | null) => {
+    const r = await attendanceApi.staffSet(sid, uid, status);
+    if (!r.ok) say(r.error);
+    load();
+  };
+  if (!any) return null;
+  return (
+    <div className="r-panel">
+      <div className="r-header">Attendance</div>
+      {group.length > 1 && (
+        <div className="r-select" style={{ margin: 4 }}>
+          <select aria-label="Attendance session" value={sid} onChange={(e) => setSid(e.target.value)}>
+            {group.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+          </select>
+        </div>
+      )}
+      {v && !v.enabled && <div className="r-empty">This session does not take attendance.</div>}
+      {v?.enabled && v.rows.length === 0 && <div className="r-empty">No driver is In for this session.</div>}
+      {v?.enabled && v.rows.length > 0 && (
+        <table className="r-table">
+          <thead>
+            <tr>
+              <th className="is-left">Driver</th>
+              <th className="is-left" style={{ width: 140 }}>Team</th>
+              <th style={{ width: 150 }}>Answer</th>
+              <th className="is-left" style={{ width: 110 }}>Set by</th>
+              <th style={{ width: 240 }} />
+            </tr>
+          </thead>
+          <tbody>
+            {v.rows.map((r) => (
+              <tr key={r.userId}>
+                <td className="is-left" style={clip}>{r.username}</td>
+                <td className="is-left" style={clip}>{r.teamName ?? "Independent"}</td>
+                <td style={{ color: r.status === "present" ? "var(--r-green)" : r.status === "absent" ? "var(--r-red)" : undefined }}>{ATTENDANCE_LABEL[r.status ?? "none"]}</td>
+                <td className="is-left" style={{ ...dim, ...clip }}>{r.by ?? ""}</td>
+                <td style={{ padding: 2 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
+                    <button className="r-cell" disabled={r.status === "present"} onClick={() => set(r.userId, "present")}>Present</button>
+                    <button className="r-cell" disabled={r.status === "absent"} onClick={() => set(r.userId, "absent")}>Absent</button>
+                    <button className="r-cell" disabled={r.status === null} onClick={() => set(r.userId, null)}>Clear</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
   );
 }
 

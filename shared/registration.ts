@@ -32,6 +32,12 @@ export interface RegSettings {
   carsPerTeam: number;
   /** Most drivers that race in one car; the rest of the lineup is reserve (endurance only). Shared with the group. */
   seatsPerCar: number;
+  /** Drivers confirm attendance through a link before the session; only those present are staged. Per session, not shared by a link. */
+  attendance: boolean;
+  /** Minutes before the session starts that the attendance link opens. */
+  attendanceOpens: number;
+  /** Minutes after the session starts that attendance closes. */
+  attendanceCloses: number;
 }
 
 export interface RegSummary {

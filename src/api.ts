@@ -1,3 +1,4 @@
+import type { AttendanceStatus, AttendanceView } from "../shared/attendance";
 import type { EventView, GroupStatus, RegKind, RegSettings, RegSummary, RegistrationView } from "../shared/registration";
 import type { TeamRole } from "../shared/teams";
 import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
@@ -163,6 +164,12 @@ export const myTeam = {
 };
 
 const reg = (sid: string, path = "") => `/api/registration/${sid}${path}`;
+export const attendanceApi = {
+  get: (sid: string) => get<AttendanceView>(`/api/attendance/${sid}`),
+  answer: (sid: string, status: AttendanceStatus) => send("PUT", `/api/attendance/${sid}`, { status }),
+  staffSet: (sid: string, userId: string, status: AttendanceStatus | null) => send("PUT", `/api/attendance/${sid}/${userId}`, { status }),
+};
+
 export const registrationApi = {
   list: () => get<RegSummary[]>("/api/registration"),
   get: (sid: string) => get<RegistrationView>(reg(sid)),

@@ -6,6 +6,7 @@ import { getCookie } from "hono/cookie";
 import { SESSION_COOKIE } from "./auth/session";
 import { admin } from "./admin";
 import { myTeams } from "./my-team";
+import { attendance } from "./attendance";
 import { registration } from "./registration";
 import { syncRegistered, teamWithCar } from "./stage";
 import { loadStandings } from "./standings";
@@ -47,6 +48,7 @@ app.route("/api/auth", auth);
 app.route("/api/admin", admin);
 app.route("/api/my-teams", myTeams);
 app.route("/api/registration", registration);
+app.route("/api/attendance", attendance);
 
 app.get("/api/config", async (c) => {
   const [token, aiVoice] = await Promise.all([tokenMode(c.env.DB), aiVoiceOn(c.env.DB)]);
