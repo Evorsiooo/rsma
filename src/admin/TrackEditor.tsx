@@ -6,14 +6,18 @@ import {
   drawnDirection,
   emptyGeometry,
   nearest,
+  placeLabels,
+  polyD,
   sample,
   segmentsOf,
   setDirection,
+  slice,
   smoothPath,
   splitId,
   turnsOf,
   withLine,
   MAX_POINTS,
+  MAX_POIS,
   MAX_SPLITS,
   MAX_TURNS,
   type Pt,
@@ -22,10 +26,11 @@ import {
 import { admin } from "../api";
 import { Dialog, toast } from "../ui";
 
-const STEPS = ["Image", "Trace", "Pit lane", "Start and direction", "Turns", "Segments"] as const;
-type Step = 0 | 1 | 2 | 3 | 4 | 5;
-type Sel = { kind: "pt" | "pit" | "turn" | "split"; i: number } | null;
-type PitTool = "add" | "entry" | "exit";
+const STEPS = ["Image", "Trace", "Pit lane", "Start and direction", "Turns", "Segments", "Points of interest"] as const;
+type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6;
+type Sel = { kind: "pt" | "pit" | "turn" | "split" | "in" | "out" | "poi"; i: number } | null;
+/** Add places things, Delete removes whatever is clicked; Entry and Exit place the pit lane's ends on the lap. */
+type Tool = "add" | "delete" | "entry" | "exit";
 
 const CANVAS_W = 600;
 const CANVAS_H = 420;
@@ -33,6 +38,9 @@ const MAX_SIDE = 1600;
 const MAX_IMAGE_CHARS = 650_000;
 const TEAL = "#3fd0b0";
 const YELLOW = "#e8d44d";
+const RED = "#e63a2e";
+const POI = "#5b9bff";
+const wrap1 = (x: number) => ((x % 1) + 1) % 1;
 
 interface Snap {
   g: TrackGeometry;
@@ -71,7 +79,9 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
   const [fade, setFade] = useState<0 | 1 | 2>(0);
   const [step, setStep] = useState<Step>(0);
   const [sel, setSel] = useState<Sel>(null);
-  const [pitTool, setPitTool] = useState<PitTool>("add");
+  const [tool, setTool] = useState<Tool>("add");
+  const [hot, setHot] = useState<string | null>(null);
+  const [hoverSeg, setHoverSeg] = useState<string | null>(null);
   const [view, setView] = useState({ x: 0, y: 0, w: 1600, h: (1600 * CANVAS_H) / CANVAS_W });
   const [dirty, setDirty] = useState(false);
   const [discard, setDiscard] = useState(false);
@@ -174,6 +184,15 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
 
   const click = (x: number, y: number) => {
     setSel(null);
+    if (tool === "delete") {
+      // Deleting works on what is clicked: a segment's body removes that segment (it joins the one before).
+      if (step === 5) {
+        const n = onLine(x, y, 24);
+        const seg = n && segs.find((q) => !q.pit && wrap1(n.u - q.from) < (wrap1(q.to - q.from) || 1));
+        if (seg) commit({ ...g, splits: g.splits.filter((q) => q.id !== seg.id) });
+      }
+      return;
+    }
     if (step === 1) {
       if (!closed) {
         if (g.line.length >= MAX_POINTS) return toast("Too many points.");
@@ -187,7 +206,7 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
         setSel({ kind: "pt", i: n.seg + 1 });
       }
     } else if (step === 2) {
-      if (pitTool === "add") {
+      if (tool === "add") {
         const cur = g.pit ?? { line: [] as Pt[], inU: 0, outU: 0 };
         if (cur.line.length >= MAX_POINTS) return;
         const line = [...cur.line, { x, y }];
@@ -195,9 +214,9 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
         commit({ ...g, pit: { ...cur, line, inU: first, outU: cur.line.length === 0 ? first : cur.outU } });
         setSel({ kind: "pit", i: line.length - 1 });
       } else {
-        const n = onLine(x, y, 24);
+        const n = onLine(x, y, 40);
         if (!n || !g.pit) return;
-        commit({ ...g, pit: { ...g.pit, [pitTool === "entry" ? "inU" : "outU"]: n.u } });
+        commit({ ...g, pit: { ...g.pit, [tool === "entry" ? "inU" : "outU"]: n.u } });
       }
     } else if (step === 3) {
       const n = onLine(x, y, 24);
@@ -208,6 +227,10 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
       if (g.turns.length >= MAX_TURNS) return toast("Too many turns.");
       commit({ ...g, turns: [...g.turns, n.u] });
       setSel({ kind: "turn", i: g.turns.length });
+    } else if (step === 6) {
+      if ((g.pois?.length ?? 0) >= MAX_POIS) return toast("Too many points of interest.");
+      commit({ ...g, pois: [...(g.pois ?? []), { id: splitId(), x, y, label: "NEW" }] });
+      setSel({ kind: "poi", i: g.pois?.length ?? 0 });
     } else if (step === 5) {
       const n = onLine(x, y, 24);
       if (!n) return;
@@ -229,9 +252,23 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
     setSel(s);
     gesture.current = { kind: "drag", base: g, sel: s, moved: false };
   };
+  /** A press on something already placed: drags it, or deletes it when the Delete tool is on. */
+  const grab = (e: RPointerEvent, s: NonNullable<Sel>) => {
+    if (tool !== "delete") return startDrag(e, s);
+    e.stopPropagation();
+    removeItem(s);
+  };
   const move = (e: RPointerEvent<SVGSVGElement>) => {
     const ges = gesture.current;
-    if (!ges) return;
+    if (!ges) {
+      if (step === 5 && closed) {
+        const p = toDrawing(e);
+        const n = onLine(p.x, p.y, 16);
+        const seg = n && segs.find((q) => !q.pit && wrap1(n.u - q.from) < (wrap1(q.to - q.from) || 1));
+        setHoverSeg(seg ? seg.id : null);
+      }
+      return;
+    }
     if (ges.kind === "pan") {
       const dx = e.clientX - ges.sx;
       const dy = e.clientY - ges.sy;
@@ -253,6 +290,11 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
       setG(withLine(b, b.line.map((q, i) => (i === s.i ? { ...q, x: p.x, y: p.y } : q))));
     } else if (s.kind === "pit" && b.pit) {
       setG({ ...b, pit: { ...b.pit, line: b.pit.line.map((q, i) => (i === s.i ? { ...q, x: p.x, y: p.y } : q)) } });
+    } else if (s.kind === "poi") {
+      setG({ ...b, pois: (b.pois ?? []).map((q, i) => (i === s.i ? { ...q, x: p.x, y: p.y } : q)) });
+    } else if (s.kind === "in" || s.kind === "out") {
+      const u = nearest(sample(b.line, true), p.x, p.y).u;
+      if (b.pit) setG({ ...b, pit: { ...b.pit, [s.kind === "in" ? "inU" : "outU"]: u } });
     } else if (s.kind === "turn" || s.kind === "split") {
       const u = nearest(sample(b.line, true), p.x, p.y).u;
       setG(s.kind === "turn" ? { ...b, turns: b.turns.map((t, i) => (i === s.i ? u : t)) } : { ...b, splits: b.splits.map((q, i) => (i === s.i ? { ...q, u } : q)) });
@@ -268,20 +310,22 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
 
   // ---- Buttons ----------------------------------------------------------------------
 
-  const remove = () => {
-    if (!sel) return;
-    if (sel.kind === "pt") {
+  const removeItem = (target: NonNullable<Sel>) => {
+    if (target.kind === "pt") {
       if (g.line.length <= 3 && closed) return toast("A lap needs at least 3 points.");
-      commit(withLine(g, g.line.filter((_, i) => i !== sel.i)), closed && g.line.length - 1 >= 3);
-    } else if (sel.kind === "pit" && g.pit) {
-      const line = g.pit.line.filter((_, i) => i !== sel.i);
+      commit(withLine(g, g.line.filter((_, i) => i !== target.i)), closed && g.line.length - 1 >= 3);
+    } else if (target.kind === "pit" && g.pit) {
+      const line = g.pit.line.filter((_, i) => i !== target.i);
       commit({ ...g, pit: line.length ? { ...g.pit, line } : null });
-    } else if (sel.kind === "turn") commit({ ...g, turns: g.turns.filter((_, i) => i !== sel.i) });
-    else if (sel.kind === "split") commit({ ...g, splits: g.splits.filter((_, i) => i !== sel.i) });
+    } else if (target.kind === "turn") commit({ ...g, turns: g.turns.filter((_, i) => i !== target.i) });
+    else if (target.kind === "split") commit({ ...g, splits: g.splits.filter((_, i) => i !== target.i) });
+    else if (target.kind === "poi") commit({ ...g, pois: (g.pois ?? []).filter((_, i) => i !== target.i) });
     setSel(null);
+    setHot(null);
   };
+  const remove = () => sel && removeItem(sel);
   const toggleSharp = () => {
-    if (!sel || sel.kind === "turn" || sel.kind === "split") return;
+    if (!sel || (sel.kind !== "pt" && sel.kind !== "pit")) return;
     if (sel.kind === "pt") commit({ ...g, line: g.line.map((q, i) => (i === sel.i ? { ...q, sharp: q.sharp ? undefined : true } : q)) });
     else if (g.pit) commit({ ...g, pit: { ...g.pit, line: g.pit.line.map((q, i) => (i === sel.i ? { ...q, sharp: q.sharp ? undefined : true } : q)) } });
   };
@@ -355,29 +399,57 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
   const turns = turnsOf(g);
   const segs = segmentsOf(g);
   const px = (n: number) => n * k;
-  const handle = (p: Pt, key: string, selected: boolean, onDown: (e: RPointerEvent) => void, dim = false) => (
-    <g key={key} onPointerDown={onDown} style={{ cursor: "grab" }}>
-      <circle cx={p.x} cy={p.y} r={px(11)} fill="transparent" />
-      {p.sharp ? (
-        <rect x={p.x - px(4.5)} y={p.y - px(4.5)} width={px(9)} height={px(9)} transform={`rotate(45 ${p.x} ${p.y})`} fill={selected ? "#f0f0e8" : dim ? "#2e8f7a" : TEAL} />
-      ) : (
-        <rect x={p.x - px(3.5)} y={p.y - px(3.5)} width={px(7)} height={px(7)} fill={selected ? "#f0f0e8" : dim ? "#2e8f7a" : TEAL} />
-      )}
-    </g>
-  );
-  const labelAt = (u: number, text: string, color: string, off: number) => {
+  const del = tool === "delete";
+  const handle = (p: Pt, key: string, selected: boolean, onDown: (e: RPointerEvent) => void, o: { dim?: boolean; inert?: boolean } = {}) => {
+    const lit = selected || hot === key;
+    const fill = lit ? (del && !selected ? RED : "#f0f0e8") : o.dim ? "#2e8f7a" : TEAL;
+    return (
+      <g key={key} onPointerDown={onDown} onPointerEnter={() => setHot(key)} onPointerLeave={() => setHot((h) => (h === key ? null : h))} style={{ cursor: del ? "pointer" : "grab", pointerEvents: o.inert ? "none" : undefined }}>
+        <circle cx={p.x} cy={p.y} r={px(11)} fill="transparent" />
+        {p.sharp ? (
+          <rect x={p.x - px(4.5)} y={p.y - px(4.5)} width={px(9)} height={px(9)} transform={`rotate(45 ${p.x} ${p.y})`} fill={fill} />
+        ) : (
+          <rect x={p.x - px(3.5)} y={p.y - px(3.5)} width={px(7)} height={px(7)} fill={fill} />
+        )}
+      </g>
+    );
+  };
+  const normal = (u: number) => {
     const p = at(lap, u);
     const nx = p.ty;
     const ny = -p.tx;
-    const cx = g.w / 2;
-    const cy = g.h / 2;
-    const out = nx * (p.x - cx) + ny * (p.y - cy) > 0 ? 1 : -1;
+    const out = nx * (p.x - g.w / 2) + ny * (p.y - g.h / 2) > 0 ? 1 : -1;
+    return { p, nx: nx * out, ny: ny * out };
+  };
+  const labelAt = (u: number, text: string, color: string, off: number) => {
+    const { p, nx, ny } = normal(u);
     return (
-      <text x={p.x + nx * out * px(off)} y={p.y + ny * out * px(off) + px(5.5)} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill={color} style={{ pointerEvents: "none" }}>
+      <text x={p.x + nx * px(off)} y={p.y + ny * px(off) + px(5.5)} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill={color} style={{ pointerEvents: "none" }}>
         {text}
       </text>
     );
   };
+  // Turn numbers (and, in the Segments step, segment names) that sit close together are spread out, with a leader line to their point.
+  const showNames = step === 5;
+  const spots = closed
+    ? placeLabels(
+        [
+          ...turns.map((t) => {
+            const { p, nx, ny } = normal(t.u);
+            return { x: p.x, y: p.y, nx, ny, w: String(t.n).length * px(16) * 0.62, base: px(18) };
+          }),
+          ...(showNames
+            ? g.splits.map((q) => {
+                const { p, nx, ny } = normal(q.u);
+                return { x: p.x, y: p.y, nx, ny, w: 3 * px(16) * 0.62, base: px(26) };
+              })
+            : []),
+        ],
+        { h: px(16), base: px(18), step: px(15) },
+      )
+    : [];
+  const turnSpots = spots.slice(0, turns.length);
+  const splitSpots = spots.slice(turns.length);
   const tick = (u: number, color: string, len: number) => {
     const p = at(lap, u);
     return <path d={`M${p.x + p.ty * px(len)},${p.y - p.tx * px(len)}L${p.x - p.ty * px(len)},${p.y + p.tx * px(len)}`} stroke={color} strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />;
@@ -386,13 +458,20 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
   const f = lap.pts.length >= 3 ? at(lap, g.start) : null;
   const status = !closed ? `${g.line.length} points` : `${turns.length} turns, ${segs.length} segments`;
   const needsLine = !closed && step > 1;
+  const sliceOf = (q: (typeof segs)[number]) => {
+    const span = wrap1(q.to - q.from) || 1;
+    const e = Math.min(0.004, span / 4);
+    return polyD(slice(lap, q.from + e, q.from + span - e));
+  };
 
   const row = (...c: React.ReactNode[]) => <div className="r-grid" style={{ ["--cols" as string]: c.length }}>{c}</div>;
-  const btn = (label: string, on: () => void, o: { pressed?: boolean; disabled?: boolean } = {}) => (
-    <button key={label} className="r-btn" aria-pressed={o.pressed} disabled={o.disabled} onClick={on}>
+  const btn = (label: string, on: () => void, o: { pressed?: boolean; disabled?: boolean; red?: boolean } = {}) => (
+    <button key={label} className={o.pressed ? (o.red ? "r-btn red" : "r-btn pri") : "r-btn"} disabled={o.disabled} onClick={on}>
       {label}
     </button>
   );
+  const pick = (t: Tool) => setTool(t);
+  const addDelete = (add: string, delLabel: string) => row(btn(add, () => pick("add"), { pressed: tool === "add" }), btn(delLabel, () => pick("delete"), { pressed: tool === "delete", red: true }));
 
   return (
     <Dialog
@@ -403,7 +482,7 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
         <>
           <span className="r-text" style={{ marginRight: "auto", alignSelf: "center" }}>{status}</span>
           <button className="r-btn" onClick={tryClose}>{discard ? "Discard changes" : "Cancel"}</button>
-          <button className="r-btn r-btn--advance" disabled={busy || !loaded} onClick={save}>Save track</button>
+          <button className="r-btn pri" disabled={busy || !loaded} onClick={save}>Save track</button>
         </>
       }
     >
@@ -421,10 +500,11 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
             viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
             width={CANVAS_W}
             height={CANVAS_H}
-            style={{ background: "#0a0b0b", border: "1px solid #0c1112", display: "block", touchAction: "none", cursor: gesture.current?.kind === "pan" ? "grabbing" : "crosshair" }}
+            style={{ background: "#0a0b0b", border: "1px solid #0c1112", display: "block", touchAction: "none", cursor: gesture.current?.kind === "pan" ? "grabbing" : del ? "default" : "crosshair" }}
             onPointerDown={down}
             onPointerMove={move}
             onPointerUp={up}
+            onPointerLeave={() => setHoverSeg(null)}
             onContextMenu={(e) => e.preventDefault()}
           >
             {image && fade !== 2 && <image href={image} x={0} y={0} width={g.w} height={g.h} opacity={fade === 0 ? 0.9 : 0.35} preserveAspectRatio="xMidYMid meet" style={{ pointerEvents: "none" }} />}
@@ -432,12 +512,27 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
             {g.line.length >= 2 && (
               <path d={smoothPath(g.line, closed)} fill="none" stroke={TEAL} strokeWidth={2} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />
             )}
+            {step === 5 && closed && segs.filter((q) => !q.pit).map((q, i) => (
+              <path key={q.id} d={sliceOf(q)} fill="none" stroke={hoverSeg === q.id ? (del ? RED : "#f0f0e8") : i % 2 ? "#7fb2ff" : TEAL} strokeWidth={hoverSeg === q.id ? 5 : 3} vectorEffect="non-scaling-stroke" strokeLinecap="round" style={{ pointerEvents: "none" }} />
+            ))}
             {g.pit && g.pit.line.length >= 2 && (
               <path d={smoothPath(g.pit.line, false)} fill="none" stroke="#cfd3d6" strokeWidth={2} strokeDasharray="6 4" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />
             )}
+            {g.pit && closed && g.pit.line.length >= 2 && [g.pit.inU, g.pit.outU].map((u, i) => {
+              const a = at(lap, u);
+              const e = i === 0 ? g.pit!.line[0] : g.pit!.line[g.pit!.line.length - 1];
+              return <path key={`c${i}`} d={`M${a.x},${a.y}L${e.x},${e.y}`} stroke="#cfd3d6" strokeWidth={1} strokeDasharray="2 3" vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />;
+            })}
             {g.pit && closed && [g.pit.inU, g.pit.outU].map((u, i) => {
               const a = at(lap, u);
-              return <g key={i} style={{ pointerEvents: "none" }}><circle cx={a.x} cy={a.y} r={px(4)} fill="#cfd3d6" />{labelAt(u, i === 0 ? "in" : "out", "#cfd3d6", 20)}</g>;
+              const key = i === 0 ? "in" : "out";
+              return (
+                <g key={key} onPointerDown={step === 2 && !del ? (e) => startDrag(e, { kind: key, i: 0 }) : undefined} style={{ cursor: step === 2 && !del ? "grab" : undefined, pointerEvents: step === 2 ? undefined : "none" }}>
+                  <circle cx={a.x} cy={a.y} r={px(11)} fill="transparent" />
+                  <circle cx={a.x} cy={a.y} r={px(4)} fill={sel?.kind === key ? "#f0f0e8" : "#cfd3d6"} />
+                  {labelAt(u, i === 0 ? "in" : "out", "#cfd3d6", 20)}
+                </g>
+              );
             })}
             {f && (
               <>
@@ -449,25 +544,43 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
                 })()}
               </>
             )}
-            {closed && turns.map((t) => (
-              <g key={`t${t.n}`}>
-                {labelAt(t.u, String(t.n), "#f0f0e8", 18)}
-                {step === 4 && (
-                  <g onPointerDown={(e) => startDrag(e, { kind: "turn", i: g.turns.indexOf(t.u) })} style={{ cursor: "grab" }}>
-                    <circle cx={at(lap, t.u).x} cy={at(lap, t.u).y} r={px(9)} fill="transparent" />
-                    <circle cx={at(lap, t.u).x} cy={at(lap, t.u).y} r={px(4)} fill={sel?.kind === "turn" && g.turns[sel.i] === t.u ? "#f0f0e8" : TEAL} />
-                  </g>
-                )}
-              </g>
-            ))}
+            {closed && turns.map((t, i) => {
+              const a = at(lap, t.u);
+              const sp = turnSpots[i];
+              const key = `t${g.turns.indexOf(t.u)}`;
+              const lit = (sel?.kind === "turn" && g.turns[sel.i] === t.u) || hot === key;
+              return (
+                <g key={`t${t.n}`}>
+                  {sp && sp.d > px(18) + 0.01 && <line x1={a.x} y1={a.y} x2={sp.x} y2={sp.y} stroke="#8d9396" strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
+                  {sp && (
+                    <text x={sp.x} y={sp.y + px(5.5)} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill={lit && step === 4 ? (del ? RED : TEAL) : "#f0f0e8"} style={{ pointerEvents: "none" }}>
+                      {t.n}
+                    </text>
+                  )}
+                  {step === 4 && (
+                    <g onPointerDown={(e) => grab(e, { kind: "turn", i: g.turns.indexOf(t.u) })} onPointerEnter={() => setHot(key)} onPointerLeave={() => setHot((h) => (h === key ? null : h))} style={{ cursor: del ? "pointer" : "grab" }}>
+                      <circle cx={a.x} cy={a.y} r={px(9)} fill="transparent" />
+                      <circle cx={a.x} cy={a.y} r={px(4)} fill={lit ? (del ? RED : "#f0f0e8") : TEAL} />
+                    </g>
+                  )}
+                </g>
+              );
+            })}
             {closed && g.splits.map((s, i) => {
               const selected = sel?.kind === "split" && sel.i === i;
               const idx = segs.findIndex((q) => q.id === s.id);
               return (
                 <g key={s.id}>
                   {tick(s.u, selected ? "#f0f0e8" : YELLOW, 9)}
-                  {step === 5 && labelAt(s.u, segs[idx]?.name ?? "", YELLOW, 24)}
-                  {step === 5 && (
+                  {step === 5 && splitSpots[i] && (
+                    <>
+                      {splitSpots[i].d > px(26) + 0.01 && <line x1={at(lap, s.u).x} y1={at(lap, s.u).y} x2={splitSpots[i].x} y2={splitSpots[i].y} stroke="#8d9396" strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
+                      <text x={splitSpots[i].x} y={splitSpots[i].y + px(5.5)} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill={YELLOW} style={{ pointerEvents: "none" }}>
+                        {segs[idx]?.name ?? ""}
+                      </text>
+                    </>
+                  )}
+                  {step === 5 && !del && (
                     <g onPointerDown={(e) => startDrag(e, { kind: "split", i })} style={{ cursor: "grab" }}>
                       <circle cx={at(lap, s.u).x} cy={at(lap, s.u).y} r={px(9)} fill="transparent" />
                     </g>
@@ -475,17 +588,30 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
                 </g>
               );
             })}
-            {step === 1 && g.line.map((p, i) => handle(p, `p${i}`, sel?.kind === "pt" && sel.i === i, (e) => startDrag(e, { kind: "pt", i })))}
-            {step === 2 && g.line.map((p, i) => handle(p, `q${i}`, false, (e) => e.stopPropagation(), true))}
-            {step === 2 && g.pit?.line.map((p, i) => handle(p, `pit${i}`, sel?.kind === "pit" && sel.i === i, (e) => startDrag(e, { kind: "pit", i })))}
+            {(g.pois ?? []).map((q, i) => {
+              const key = `poi${i}`;
+              const on = (sel?.kind === "poi" && sel.i === i) || hot === key;
+              return (
+                <g key={q.id} onPointerDown={step === 6 ? (e) => grab(e, { kind: "poi", i }) : undefined} onPointerEnter={() => setHot(key)} onPointerLeave={() => setHot((h) => (h === key ? null : h))} style={{ cursor: step === 6 ? (del ? "pointer" : "grab") : undefined, pointerEvents: step === 6 ? undefined : "none" }}>
+                  <circle cx={q.x} cy={q.y} r={px(11)} fill="transparent" />
+                  <circle cx={q.x} cy={q.y} r={px(4)} fill={on ? (del ? RED : "#f0f0e8") : POI} />
+                  <text x={q.x + (q.x < g.w / 2 ? px(8) : -px(8))} y={q.y + px(5.5)} textAnchor={q.x < g.w / 2 ? "start" : "end"} fontFamily="PerfectDOSVGA, monospace" fontSize={px(16)} fill="#f0f0e8" style={{ pointerEvents: "none" }}>
+                    {q.label}
+                  </text>
+                </g>
+              );
+            })}
+            {step === 1 && g.line.map((p, i) => handle(p, `p${i}`, sel?.kind === "pt" && sel.i === i, (e) => grab(e, { kind: "pt", i })))}
+            {step === 2 && g.line.map((p, i) => handle(p, `q${i}`, false, () => {}, { dim: true, inert: true }))}
+            {step === 2 && g.pit?.line.map((p, i) => handle(p, `pit${i}`, sel?.kind === "pit" && sel.i === i, (e) => grab(e, { kind: "pit", i }), { inert: tool === "entry" || tool === "exit" }))}
           </svg>
         </div>
 
         <div className="r-stack" style={{ gap: 4, flex: 1, minWidth: 0 }}>
           <input className="r-field" placeholder="Track name" aria-label="Track name" maxLength={60} value={name} onChange={(e) => { setName(e.target.value); setDirty(true); }} />
-          <div className="r-section"><span>Step</span></div>
-          {STEPS.map((s, i) => btn(`${i + 1} ${s}`, () => { setStep(i as Step); setSel(null); }, { pressed: step === i, disabled: i > 1 && g.line.length < 3 && !closed }))}
-          <div className="r-section"><span>{STEPS[step]}</span></div>
+          <div className="r-header">Step</div>
+          {STEPS.map((s, i) => btn(`${i + 1} ${s}`, () => { setStep(i as Step); setSel(null); setTool("add"); setHot(null); }, { pressed: step === i, disabled: i > 1 && g.line.length < 3 && !closed }))}
+          <div className="r-header">{STEPS[step]}</div>
           {step === 0 && (
             <>
               <input ref={file} type="file" accept="image/*" hidden onChange={(e) => { importImage(e.target.files?.[0]); e.target.value = ""; }} />
@@ -494,15 +620,16 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
           )}
           {step === 1 && (
             <>
-              {row(btn("Delete point", remove, { disabled: sel?.kind !== "pt" }), btn("Sharp corner", toggleSharp, { pressed: sel?.kind === "pt" && !!g.line[sel.i]?.sharp, disabled: sel?.kind !== "pt" }))}
-              {row(btn("Close loop", closeLoop, { disabled: closed || g.line.length < 3 }), btn("Clear lap", () => commit({ ...g, line: [], turns: [], splits: [], pit: null }, false), { disabled: g.line.length === 0 }))}
+              {addDelete("Add point", "Delete point")}
+              {row(btn("Sharp corner", toggleSharp, { pressed: sel?.kind === "pt" && !!g.line[sel.i]?.sharp, disabled: sel?.kind !== "pt" }), btn("Close loop", closeLoop, { disabled: closed || g.line.length < 3 }))}
+              {btn("Clear lap", () => commit({ ...g, line: [], turns: [], splits: [], pit: null }, false), { disabled: g.line.length === 0 })}
             </>
           )}
           {step === 2 && (
             <>
-              {row(btn("Add point", () => setPitTool("add"), { pressed: pitTool === "add" }), btn("Delete point", remove, { disabled: sel?.kind !== "pit" }))}
-              {row(btn("Set entry", () => setPitTool("entry"), { pressed: pitTool === "entry", disabled: !g.pit }), btn("Set exit", () => setPitTool("exit"), { pressed: pitTool === "exit", disabled: !g.pit }))}
-              {row(btn("Sharp corner", toggleSharp, { disabled: sel?.kind !== "pit" }), btn("Clear pit lane", () => { commit({ ...g, pit: null }); setSel(null); }, { disabled: !g.pit }))}
+              {addDelete("Add point", "Delete point")}
+              {row(btn("Set entry", () => pick("entry"), { pressed: tool === "entry", disabled: !g.pit }), btn("Set exit", () => pick("exit"), { pressed: tool === "exit", disabled: !g.pit }))}
+              {row(btn("Sharp corner", toggleSharp, { disabled: sel?.kind !== "pit" }), btn("Clear pit lane", () => { commit({ ...g, pit: null }); setSel(null); setTool("add"); }, { disabled: !g.pit }))}
             </>
           )}
           {step === 3 && (
@@ -512,13 +639,21 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
           )}
           {step === 4 && (
             <>
-              {row(btn("Remove turn", remove, { disabled: sel?.kind !== "turn" }), btn("Clear turns", () => commit({ ...g, turns: [] }), { disabled: g.turns.length === 0 }))}
+              {addDelete("Add turn", "Delete turn")}
+              {btn("Clear turns", () => commit({ ...g, turns: [] }), { disabled: g.turns.length === 0 })}
             </>
           )}
           {step === 5 && (
             <>
-              {row(btn("Remove split", remove, { disabled: sel?.kind !== "split" }), btn("From turns", defaultSegments, { disabled: g.turns.length < 2 }))}
-              {btn("Clear splits", () => commit({ ...g, splits: [] }), { disabled: g.splits.length === 0 })}
+              {addDelete("Add split", "Delete segment")}
+              {row(btn("From turns", defaultSegments, { disabled: g.turns.length < 2 }), btn("Clear splits", () => commit({ ...g, splits: [] }), { disabled: g.splits.length === 0 }))}
+            </>
+          )}
+          {step === 6 && (
+            <>
+              {addDelete("Add point of interest", "Delete point of interest")}
+              <input className="r-field" aria-label="Label" placeholder={sel?.kind === "poi" ? "Label" : "Select a point to name it"} maxLength={16} disabled={sel?.kind !== "poi"} value={sel?.kind === "poi" ? g.pois?.[sel.i]?.label ?? "" : ""} onChange={(e) => sel?.kind === "poi" && (setDirty(true), setG({ ...g, pois: (g.pois ?? []).map((q, i) => (i === sel.i ? { ...q, label: e.target.value.toUpperCase() } : q)) }))} />
+              {btn("Clear points of interest", () => commit({ ...g, pois: [] }), { disabled: !g.pois?.length })}
             </>
           )}
           {needsLine && <div className="r-text">Close the loop in Trace first.</div>}

@@ -28,6 +28,14 @@ export interface PitLane {
   outU: number;
 }
 
+/** A labelled point of interest beside the circuit ("CITY", "LAKE"), at a place in the drawing. */
+export interface Poi {
+  id: string;
+  x: number;
+  y: number;
+  label: string;
+}
+
 export interface TrackGeometry {
   /** Size of the drawing space (the imported image, shrunk). */
   w: number;
@@ -41,6 +49,8 @@ export interface TrackGeometry {
   turns: number[];
   splits: Split[];
   pit: PitLane | null;
+  /** Points of interest, shown on every map. Older tracks have none. */
+  pois?: Poi[];
 }
 
 export interface TrackSegment {
@@ -56,6 +66,7 @@ export interface TrackSegment {
 export const MAX_POINTS = 400;
 export const MAX_TURNS = 60;
 export const MAX_SPLITS = 60;
+export const MAX_POIS = 30;
 export const MAX_SIZE = 4000;
 export const PIT_ID = "pit";
 
@@ -178,6 +189,45 @@ export function slice(s: Sampled, u0: number, u1: number, step = 0.004): [number
 }
 
 export const polyD = (pts: [number, number][]) => pts.map(([x, y], i) => `${i ? "L" : "M"}${x.toFixed(1)},${y.toFixed(1)}`).join("");
+
+/** A label to place beside a point of the lap: the point, the unit normal pointing away from the circuit's centre, the text width. */
+export interface LabelSpot {
+  x: number;
+  y: number;
+  nx: number;
+  ny: number;
+  w: number;
+  /** Distance from the point to try first; defaults to the common `base`. */
+  base?: number;
+}
+
+/**
+ * Where to draw each label so that none overlaps another. Each label first tries `base` away from its point on the
+ * outer side, then the inner side, then one `step` further out, and so on; the first free spot wins. `d` tells how far
+ * from its point a label ended up, so the caller can draw a leader line when it had to move.
+ */
+export function placeLabels(items: LabelSpot[], o: { h: number; base: number; step: number; tries?: number; gap?: number }): { x: number; y: number; d: number }[] {
+  const tries = o.tries ?? 6;
+  const gap = o.gap ?? o.h * 0.15;
+  const out: { x: number; y: number; d: number }[] = [];
+  for (const it of items) {
+    let best: { x: number; y: number; d: number } | null = null;
+    search: for (let j = 0; j < tries; j++) {
+      const d = (it.base ?? o.base) + j * o.step;
+      for (const side of [1, -1]) {
+        const x = it.x + it.nx * side * d;
+        const y = it.y + it.ny * side * d;
+        const clash = out.some((q, i) => Math.abs(q.x - x) < (items[i].w + it.w) / 2 + gap && Math.abs(q.y - y) < o.h + gap);
+        if (!clash) {
+          best = { x, y, d };
+          break search;
+        }
+      }
+    }
+    out.push(best ?? { x: it.x + it.nx * (it.base ?? o.base), y: it.y + it.ny * (it.base ?? o.base), d: it.base ?? o.base });
+  }
+  return out;
+}
 
 // ---- Turns and segments ---------------------------------------------------------
 
@@ -328,7 +378,18 @@ export function validateGeometry(v: unknown): TrackGeometry | null {
     if (!pl || inU == null || outU == null) return null;
     pit = { line: pl, inU: roundU(inU), outU: roundU(outU) };
   }
-  return { w, h, line, direction: o.direction, start: roundU(start), turns, splits, pit };
+  const pois: Poi[] = [];
+  if (o.pois != null) {
+    if (!Array.isArray(o.pois) || o.pois.length > MAX_POIS) return null;
+    for (const q of o.pois as { id?: unknown; x?: unknown; y?: unknown; label?: unknown }[]) {
+      const x = num(q?.x, -MAX_SIZE, 2 * MAX_SIZE);
+      const y = num(q?.y, -MAX_SIZE, 2 * MAX_SIZE);
+      if (x == null || y == null || typeof q.id !== "string" || !/^[a-z0-9]{1,12}$/.test(q.id) || typeof q.label !== "string") return null;
+      const label = q.label.trim().toUpperCase().slice(0, 16);
+      if (label) pois.push({ id: q.id, x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10, label });
+    }
+  }
+  return { w, h, line, direction: o.direction, start: roundU(start), turns, splits, pit, ...(pois.length ? { pois } : {}) };
 }
 
 /** What the public API returns for one track. */
