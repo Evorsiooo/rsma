@@ -14,10 +14,20 @@ export const MAX_PLACES = 50;
 export const MAX_ROWS = 100;
 export const MAX_WINDOW_MS = 600_000;
 
+/** One stint of a car: who drove. A driver who drives twice is listed twice. */
+export interface Stint {
+  username: string;
+}
+
 export interface ResultRow {
   /** 1 is the winner. */
   position: number;
+  /** The driver; for a car with a stint log, its first driver. */
   username: string;
+  /** A car's name, such as "#12 Alpha 1"; set for results entered per car. */
+  car?: string | null;
+  /** Who drove the car, in stint order. The points are split equally between these drivers. */
+  drivers?: Stint[];
   teamId: string | null;
   teamName: string | null;
   /** Run time; not kept for every past event. */
@@ -37,6 +47,8 @@ export interface ChampEvent {
   results: ResultRow[];
   /** Scored from a session run on the website (its settings are changed there); absent for results typed in by hand. */
   sessionId?: string;
+  /** The results of this session were typed in (per car or per driver) rather than timed on the site. */
+  entered?: boolean;
 }
 
 export interface StandingsData {
@@ -71,9 +83,26 @@ export function eventPoints(ev: Pick<ChampEvent, "half" | "mode" | "windowMs" | 
   return pts.map((p) => (ev.half ? p / 2 : p));
 }
 
+/** Points to two decimals, without trailing zeros: 25, 12.5, 8.33. */
 export function fmtPoints(n: number): string {
-  return Number.isInteger(n) ? String(n) : n.toFixed(1).replace(/\.0$/, "");
+  return Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, "");
 }
+
+/** The distinct drivers of a result row, in stint order: the stint log, or the one driver. */
+export function driversOf(r: Pick<ResultRow, "username" | "drivers">): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const d of r.drivers?.length ? r.drivers.map((s) => s.username) : [r.username]) {
+    const k = d.toLowerCase();
+    if (!seen.has(k)) {
+      seen.add(k);
+      out.push(d);
+    }
+  }
+  return out;
+}
+
+const cents = (n: number) => Math.round(n * 100) / 100;
 
 export interface Cell {
   points: number;
@@ -123,17 +152,22 @@ export function computeStandings(events: ChampEvent[], cfg: PointsConfig): Stand
     const rows = [...ev.results].sort((a, b) => a.position - b.position);
     const pts = eventPoints(ev, cfg);
     rows.forEach((r, j) => {
-      const d = line(drivers, r.username.toLowerCase(), r.username);
-      d.cells[i] = { points: pts[j], position: r.position };
-      d.points += pts[j];
-      if (r.teamName) d.team = r.teamName;
-      count(d, r.position);
+      // The car's points are split equally between the drivers who were in it.
+      const who = driversOf(r);
+      const share = cents(pts[j] / who.length);
+      for (const name of who) {
+        const d = line(drivers, name.toLowerCase(), name);
+        d.cells[i] = { points: share, position: r.position };
+        d.points = cents(d.points + share);
+        if (r.teamName) d.team = r.teamName;
+        count(d, r.position);
+      }
       if (r.teamName) {
         const tk = r.teamId ?? `n:${r.teamName.toLowerCase()}`;
         const t = line(teams, tk, r.teamName);
         const cell = t.cells[i];
         t.cells[i] = { points: (cell?.points ?? 0) + pts[j], position: Math.min(cell?.position ?? Infinity, r.position) };
-        t.points += pts[j];
+        t.points = cents(t.points + pts[j]);
         count(t, r.position);
       }
     });
@@ -179,10 +213,15 @@ export function eventProblem(ev: Pick<ChampEvent, "name" | "heldAt" | "mode" | "
   if (ev.results.length > MAX_ROWS) return `At most ${MAX_ROWS} drivers.`;
   const seen = new Set<string>();
   for (const r of ev.results) {
-    if (!cleanUsername(r.username)) return `"${r.username}" is not a Roblox username (3-20 letters, numbers or underscores).`;
-    const k = r.username.toLowerCase();
-    if (seen.has(k)) return `${r.username} is listed twice.`;
-    seen.add(k);
+    for (const name of r.drivers?.length ? r.drivers.map((s) => s.username) : [r.username]) {
+      if (!cleanUsername(name)) return `"${name}" is not a Roblox username (3-20 letters, numbers or underscores).`;
+    }
+    // A driver scores in one result row only (a car lists a driver once per stint, which is fine).
+    for (const name of driversOf(r)) {
+      const k = name.toLowerCase();
+      if (seen.has(k)) return `${name} is listed twice.`;
+      seen.add(k);
+    }
   }
   if (ev.windowMs != null && !(ev.windowMs >= 1 && ev.windowMs <= MAX_WINDOW_MS)) return "The window must be between 1 ms and 10 minutes.";
   if (ev.mode === "window" && offsetsOf([...ev.results].sort((a, b) => a.position - b.position)) == null) return "Windows need a run time for every driver, or an interval for every driver after the winner.";

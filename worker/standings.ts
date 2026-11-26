@@ -1,6 +1,7 @@
 import type { Hono, MiddlewareHandler } from "hono";
 import type { Me } from "../shared/types";
 import type { AdminEnv } from "./admin";
+import { groupResults, resultQueries } from "./session-results";
 import { classify, type RaceState } from "../shared/race";
 import { cleanUsername, configProblem, DEFAULT_CONFIG, eventProblem, MAX_ROWS, type ChampEvent, type PointsConfig, type ResultRow, type StandingsData } from "../shared/standings";
 
@@ -28,10 +29,22 @@ interface SessionEv {
   windowMs: number | null;
 }
 
+/** The points settings, or the defaults. */
+export async function loadConfig(db: D1Database): Promise<PointsConfig> {
+  const row = await db.prepare("SELECT value FROM settings WHERE key = ?").bind(KEY).first<{ value: string }>();
+  try {
+    const saved = JSON.parse(row?.value ?? "null") as PointsConfig | null;
+    if (saved && !configProblem(saved)) return saved;
+  } catch {
+    // an unreadable setting falls back to the defaults
+  }
+  return DEFAULT_CONFIG;
+}
+
 /** Settings, hand-entered events, and the sessions marked for the championship, scored from their finished runs. */
 export async function loadStandings(env: { DB: D1Database; RACE: DurableObjectNamespace }): Promise<StandingsData> {
   const db = env.DB;
-  const [cfg, events, results, sessions] = await db.batch([
+  const [cfg, events, results, sessions, enteredRows, enteredStints] = await db.batch([
     db.prepare("SELECT value FROM settings WHERE key = ?").bind(KEY),
     db.prepare("SELECT id, name, held_at AS heldAt, half, mode, window_ms AS windowMs FROM championship_events ORDER BY held_at, name"),
     db.prepare(
@@ -42,6 +55,7 @@ export async function loadStandings(env: { DB: D1Database; RACE: DurableObjectNa
       `SELECT s.id, s.name, r.name AS raceName, s.starts_at AS startsAt, s.half_points AS halfPoints, s.scoring, s.window_ms AS windowMs
        FROM sessions s JOIN races r ON r.id = s.race_id WHERE s.championship = 1 AND s.starts_at <= ?`,
     ).bind(Date.now()),
+    ...resultQueries(db),
   ]);
   let config: PointsConfig = DEFAULT_CONFIG;
   try {
@@ -57,12 +71,15 @@ export async function loadStandings(env: { DB: D1Database; RACE: DurableObjectNa
     byEvent.set(eventId, list);
   }
   const manual: ChampEvent[] = (events.results as unknown as EventRow[]).map((e) => ({ ...e, half: !!e.half, results: byEvent.get(e.id) ?? [] }));
-  const live = await Promise.all((sessions.results as unknown as SessionEv[]).map((s) => sessionEvent(env, s)));
+  const entered = groupResults(enteredRows.results as never, enteredStints.results as never);
+  const live = await Promise.all((sessions.results as unknown as SessionEv[]).map((s) => sessionEvent(env, s, entered.get(s.id))));
   return { config, events: [...manual, ...live.filter((e): e is ChampEvent => e != null)] };
 }
 
-/** One session as a scored event: its best finished run per driver, in order of final time. Null while nobody has finished. */
-async function sessionEvent(env: { RACE: DurableObjectNamespace }, s: SessionEv): Promise<ChampEvent | null> {
+/** One session as a scored event: the results typed in, or else its best finished run per driver, in order of final time. Null while there are none. */
+async function sessionEvent(env: { RACE: DurableObjectNamespace }, s: SessionEv, typed: ResultRow[] | undefined): Promise<ChampEvent | null> {
+  // Results typed in against the session win over its timing.
+  if (typed && typed.length > 0) return { id: s.id, sessionId: s.id, entered: true, name: `${s.raceName} · ${s.name}`, heldAt: s.startsAt, half: !!s.halfPoints, mode: s.scoring, windowMs: s.windowMs, results: typed };
   try {
     const res = await env.RACE.get(env.RACE.idFromName(s.id)).fetch("http://do/state");
     const { state } = (await res.json()) as { state: RaceState };
