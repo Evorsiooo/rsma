@@ -1,6 +1,6 @@
 import type { RaceSummary, SessionInfo, SessionSummary } from "../shared/types";
 
-const SESSION_COLS = "id, race_id AS raceId, name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed, staging, championship, half_points AS halfPoints, scoring, window_ms AS windowMs";
+const SESSION_COLS = "id, race_id AS raceId, name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed, staging, championship, half_points AS halfPoints, scoring, window_ms AS windowMs, qualifying_session AS qualifyingSession";
 
 type SessionRow = Omit<SessionSummary, "selfTimed" | "staging" | "championship" | "halfPoints"> & { selfTimed: number; staging: number; championship: number; halfPoints: number };
 const toSession = (r: SessionRow): SessionSummary => ({ ...r, selfTimed: !!r.selfTimed, staging: !!r.staging, championship: !!r.championship, halfPoints: !!r.halfPoints });

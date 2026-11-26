@@ -9,6 +9,7 @@ import { NotFound } from "./NotFound";
 import { Bd, Box, FlagBar, ResultsTable } from "./site/parts";
 import { EnteredResults } from "./EnteredResults";
 import { SessionSelect } from "./SessionSelect";
+import { StartingGrid } from "./StartingGrid";
 import { useTrack } from "./TrackPanel";
 import { TrackMap } from "./TrackMap";
 import { sessionCountdown, useClock } from "./ui";
@@ -72,6 +73,7 @@ export function RacePage() {
   );
   const results = (
     <>
+      {info?.session.type === "race" && <StartingGrid sessionId={id} />}
       {entered && (
         <Box title={race?.name ?? "\u00A0"} right="Results">
           <Bd flush><EnteredResults results={entered.results} points={entered.points} /></Bd>

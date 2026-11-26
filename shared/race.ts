@@ -282,6 +282,25 @@ export function classify(runs: Run[]): Row[] {
   return selected;
 }
 
+/**
+ * Endurance: a car takes one row in the tables. Its other finished runs (the other drivers' times, which have no place of
+ * their own) are folded under it until the car is opened. `hidden` counts them per car, only for cars that have a ranked row.
+ */
+export function foldCars(rows: Row[], open: ReadonlySet<string>): { rows: Row[]; hidden: Map<string, number> } {
+  const ranked = new Set(rows.filter((r) => r.entry && r.rank != null).map((r) => r.entry!));
+  const folded = (r: Row) => !!r.entry && r.rank == null && r.status === "finished" && ranked.has(r.entry);
+  const hidden = new Map<string, number>();
+  const under = new Map<string, Row[]>();
+  for (const r of rows) {
+    if (!folded(r)) continue;
+    hidden.set(r.entry!, (hidden.get(r.entry!) ?? 0) + 1);
+    under.set(r.entry!, [...(under.get(r.entry!) ?? []), r]);
+  }
+  // An opened car lists its other drivers right under it, fastest first.
+  const shown = rows.flatMap((r) => (folded(r) ? [] : r.entry && r.rank != null && open.has(r.entry) ? [r, ...(under.get(r.entry) ?? [])] : [r]));
+  return { rows: shown, hidden };
+}
+
 /** The car's label in the tables: the team and the car it runs. */
 export const carText = (r: Pick<Run, "teamName" | "car">) => [r.teamName, r.car].filter(Boolean).join(" ");
 

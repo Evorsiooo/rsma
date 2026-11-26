@@ -95,7 +95,7 @@ export const admin = {
   removeSteward: (raceId: string, userId: string) => send("DELETE", `/api/admin/races/${raceId}/stewards/${userId}`),
   createSession: (raceId: string, s: { name: string; type: SessionType; startsAt: number; endsAt: number; selfTimed?: boolean } & ChampFields) =>
     send("POST", `/api/admin/races/${raceId}/sessions`, s),
-  patchSession: (id: string, patch: { name?: string; type?: SessionType; startsAt?: number; endsAt?: number; selfTimed?: boolean; staging?: boolean } & ChampFields) =>
+  patchSession: (id: string, patch: { name?: string; type?: SessionType; startsAt?: number; endsAt?: number; selfTimed?: boolean; staging?: boolean; qualifyingSession?: string | null } & ChampFields) =>
     send("PATCH", `/api/admin/sessions/${id}`, patch),
   deleteSession: (id: string) => send("DELETE", `/api/admin/sessions/${id}`),
   teams: () => get<AdminTeam[]>("/api/admin/teams"),

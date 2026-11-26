@@ -12,6 +12,7 @@ import { segmentLabelOf, tracks } from "./tracks";
 import { syncRegistered, teamWithCar } from "./stage";
 import { loadConfig, loadStandings } from "./standings";
 import { publicResults } from "./session-results";
+import { gridView } from "./grid";
 import { loadRaces, loadSession } from "./sessions";
 import { notifyStewardMessage } from "./discord";
 import { timedDb, waitedMs, type DbStats } from "./db-timing";
@@ -84,6 +85,12 @@ app.get("/api/races/:id", async (c) => {
 // Public: the results typed in for a session, with the points when it counts for the championship.
 app.get("/api/sessions/:id/results", async (c) => {
   return c.json(await publicResults(c.env.DB, c.req.param("id"), await loadConfig(c.env.DB)));
+});
+
+// Public: the starting grid of a race, from its qualifying session and who is racing.
+app.get("/api/sessions/:id/grid", async (c) => {
+  const grid = await gridView(c.env, c.req.param("id"));
+  return grid ? c.json(grid) : c.json({ error: "not_found" }, 404);
 });
 
 app.get("/api/sessions/:id", async (c) => {

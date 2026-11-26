@@ -20,6 +20,8 @@ export interface SessionSummary {
   scoring: "position" | "window";
   /** Window width in ms; null uses the default of the points settings. */
   windowMs: number | null;
+  /** Races: the session whose times set the starting grid. null picks the latest timed event before it, "none" has no grid. */
+  qualifyingSession: string | null;
 }
 
 export interface RaceSummary {

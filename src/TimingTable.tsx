@@ -1,4 +1,5 @@
-import { carText, fmtPenalty, fmtTime, type Row } from "../shared/race";
+import { useState } from "react";
+import { carText, fmtPenalty, fmtTime, foldCars, type Row } from "../shared/race";
 import { fmtLive } from "./ui";
 
 const STATUS_TEXT = { queued: "Queued", onstage: "On stage", finished: "Finished", dnf: "DNF" } as const;
@@ -24,9 +25,13 @@ interface Props {
 }
 
 /** Timing table shared by the steward and team panels. */
-export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeLabel, onRadio }: Props) {
+export function TimingTable({ rows: all, now, selId, onSelect, bestFinal, mine, modeLabel, onRadio }: Props) {
   // Endurance: the car comes first (team and car), then the person driving it.
-  const endurance = rows.some((r) => r.entry);
+  const endurance = all.some((r) => r.entry);
+  // The other drivers' times of a car are folded under the car's row until its tag is pressed.
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const { rows, hidden } = foldCars(all, open);
+  const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (!n.delete(id)) n.add(id); return n; });
   return (
     <table className="r-table">
       <thead>
@@ -69,7 +74,19 @@ export function TimingTable({ rows, now, selId, onSelect, bestFinal, mine, modeL
             <td className="is-left">{r.number ?? ""}</td>
             {endurance ? (
               <>
-                <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis", ...(mine?.(r) ? { color: "var(--r-teal)" } : undefined) }}>{carText(r)}</td>
+                <td className="is-left" style={{ overflow: "hidden", textOverflow: "ellipsis", ...(mine?.(r) ? { color: "var(--r-teal)" } : undefined) }}>{carText(r)}
+                  {r.entry && hidden.has(r.entry) && r.rank != null && (
+                    <button
+                      className={`r-tag${open.has(r.entry) ? " is-green" : ""}`}
+                      style={{ marginLeft: 6, cursor: "pointer" }}
+                      aria-expanded={open.has(r.entry)}
+                      title="Show the times of the car's other drivers"
+                      onClick={(e) => { e.stopPropagation(); toggle(r.entry!); }}
+                    >
+                      {open.has(r.entry) ? "Hide" : "+"} {hidden.get(r.entry)} {hidden.get(r.entry) === 1 ? "driver" : "drivers"}
+                    </button>
+                  )}
+                </td>
                 <td className="is-left" style={mine?.(r) ? { color: "var(--r-teal)" } : undefined}>
                   {r.name}
                   {onRadio && (!mine || mine(r)) && (
