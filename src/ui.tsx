@@ -55,12 +55,14 @@ interface DialogProps {
   title: string;
   onClose: () => void;
   size?: "s" | "l";
+  /** Width in px, for a dialog wider than the large size (the kit sets it with --w). */
+  width?: number;
   children: ReactNode;
   foot: ReactNode;
 }
 
 /** Modal dialog: Esc closes, focus moves in and returns, Tab stays inside. */
-export function Dialog({ title, onClose, size, children, foot }: DialogProps) {
+export function Dialog({ title, onClose, size, width, children, foot }: DialogProps) {
   const box = useRef<HTMLDivElement>(null);
   // Parents pass a new onClose every render; keep it in a ref so the focus effect runs once, on open.
   const close = useRef(onClose);
@@ -93,7 +95,7 @@ export function Dialog({ title, onClose, size, children, foot }: DialogProps) {
   }, []);
   return (
     <div className="r-backdrop">
-      <div className={`r-dialog${size ? ` r-dialog--${size}` : ""}`} role="dialog" aria-modal="true" aria-label={title} ref={box}>
+      <div className={`r-dialog${size ? ` r-dialog--${size}` : ""}`} style={width ? ({ "--w": `${width}px` } as React.CSSProperties) : undefined} role="dialog" aria-modal="true" aria-label={title} ref={box}>
         <div className="r-header">{title}</div>
         <div className="r-dialog__body">{children}</div>
         <div className="r-dialog__foot">{foot}</div>

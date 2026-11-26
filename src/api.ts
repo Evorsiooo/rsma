@@ -4,6 +4,7 @@ import type { TeamRole } from "../shared/teams";
 import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
 import type { StandingsData, PointsConfig, ResultRow } from "../shared/standings";
 import type { Command } from "../shared/commands";
+import type { TrackGeometry, TrackInfo, TrackListItem } from "../shared/track";
 import type { RaceState } from "../shared/race";
 
 /** Requests index.html already sent; each answer is used once, by the first caller that asks for that path. */
@@ -28,6 +29,7 @@ export const api = {
   pastRaces: () => get<RaceSummary[]>("/api/races/past"),
   teams: () => get<Team[]>("/api/teams"),
   standings: () => get<StandingsData>("/api/standings"),
+  track: (id: string) => get<TrackInfo>(`/api/tracks/${id}`),
 };
 
 export async function sendCommand(raceId: string, cmd: Command): Promise<string | null> {
@@ -87,7 +89,7 @@ export const admin = {
   races: () => get<AdminRace[]>("/api/admin/races"),
   deleteRace: (id: string) => send("DELETE", `/api/admin/races/${id}`),
   createRace: (name: string, expiresAt: number) => send("POST", "/api/admin/races", { name, expiresAt }),
-  patchRace: (id: string, patch: { name?: string; expiresAt?: number; status?: "active" | "archived" }) =>
+  patchRace: (id: string, patch: { name?: string; expiresAt?: number; status?: "active" | "archived"; trackId?: string | null }) =>
     send("PATCH", `/api/admin/races/${id}`, patch),
   addSteward: (raceId: string, username: string) => send("POST", `/api/admin/races/${raceId}/stewards`, { username }),
   removeSteward: (raceId: string, userId: string) => send("DELETE", `/api/admin/races/${raceId}/stewards/${userId}`),
@@ -114,6 +116,11 @@ export const admin = {
   sessionResults: (sid: string) => get<{ results: ResultRow[] }>(`/api/admin/sessions/${sid}/results`),
   saveSessionResults: (sid: string, results: object[]) => send("PUT", `/api/admin/sessions/${sid}/results`, { results }),
   clearSessionResults: (sid: string) => send("DELETE", `/api/admin/sessions/${sid}/results`),
+  tracks: () => get<TrackListItem[]>("/api/admin/tracks"),
+  trackFull: (id: string) => get<TrackInfo & { image: string | null }>(`/api/admin/tracks/${id}`),
+  createTrack: (t: { name: string; geometry: TrackGeometry; image: string | null }) => send("POST", "/api/admin/tracks", t),
+  saveTrack: (id: string, t: { name: string; geometry: TrackGeometry; image: string | null }) => send("PUT", `/api/admin/tracks/${id}`, t),
+  deleteTrack: (id: string) => send("DELETE", `/api/admin/tracks/${id}`),
   system: () => get<SystemInfo>("/api/admin/system"),
   setAiVoice: (on: boolean) => send("PUT", "/api/admin/system/ai-voice", { on }),
   setTokenMode: (on: boolean) => send("PUT", "/api/admin/system/token-mode", { on }),

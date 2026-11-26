@@ -4,7 +4,7 @@ import { DEFAULT_EMBED, embedTags, raceEmbed, routeOf, sessionEmbed } from "../s
 import type { RaceSummary, SessionInfo } from "../shared/types.ts";
 
 const session = { id: "s1", raceId: "r1", name: "Practice 1", type: "practice" as const, startsAt: 0, endsAt: 1, selfTimed: false, staging: false };
-const race = (over: Partial<RaceSummary> = {}): RaceSummary => ({ id: "r1", name: "Test Race", expiresAt: 0, sessions: [session], ended: false, ...over });
+const race = (over: Partial<RaceSummary> = {}): RaceSummary => ({ id: "r1", name: "Test Race", expiresAt: 0, sessions: [session], ended: false, trackId: null, ...over });
 
 test("public pages have their own preview and everything else gets the site-wide card", () => {
   assert.equal((routeOf("/driver-registration") as { embed: { title: string } }).embed.title, "Become a Driver");

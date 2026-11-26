@@ -4,7 +4,7 @@ const SESSION_COLS = "id, race_id AS raceId, name, type, starts_at AS startsAt, 
 
 type SessionRow = Omit<SessionSummary, "selfTimed" | "staging" | "championship" | "halfPoints"> & { selfTimed: number; staging: number; championship: number; halfPoints: number };
 const toSession = (r: SessionRow): SessionSummary => ({ ...r, selfTimed: !!r.selfTimed, staging: !!r.staging, championship: !!r.championship, halfPoints: !!r.halfPoints });
-const RACE_COLS = "id, name, expires_at AS expiresAt, (status = 'archived' OR expires_at <= ?1) AS ended";
+const RACE_COLS = "id, name, expires_at AS expiresAt, track_id AS trackId, (status = 'archived' OR expires_at <= ?1) AS ended";
 
 type RaceRow = Omit<RaceSummary, "ended" | "sessions"> & { ended: number };
 

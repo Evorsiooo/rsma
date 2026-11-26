@@ -129,7 +129,7 @@ export async function loadEventData(env: AuthEnv, c: Context | null, by: Selecto
   const inRace = `(SELECT id FROM sessions WHERE race_id = ${rid})`;
   const now = Date.now();
   const stmts = [
-    db.prepare(`SELECT id, name, expires_at AS expiresAt, (status = 'archived' OR expires_at <= ?2) AS ended FROM races WHERE id = ${rid}`).bind(arg, now),
+    db.prepare(`SELECT id, name, expires_at AS expiresAt, track_id AS trackId, (status = 'archived' OR expires_at <= ?2) AS ended FROM races WHERE id = ${rid}`).bind(arg, now),
     db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE race_id = ${rid} ORDER BY starts_at, position`).bind(arg),
     db
       .prepare(
@@ -164,7 +164,7 @@ export async function loadEventData(env: AuthEnv, c: Context | null, by: Selecto
   if (withTeams) stmts.push(db.prepare("SELECT id, name, kind, car, factory_id AS factoryId FROM teams"));
   const out = await db.batch(stmts);
   const rows = <T>(i: number) => (out[i]?.results ?? []) as T[];
-  const raceRow = rows<{ id: string; name: string; expiresAt: number; ended: number }>(0)[0];
+  const raceRow = rows<{ id: string; name: string; expiresAt: number; trackId: string | null; ended: number }>(0)[0];
   const sessions = rows<Omit<SessionSummary, "selfTimed" | "staging"> & { selfTimed: number; staging: number }>(1).map((r) => ({ ...r, selfTimed: !!r.selfTimed, staging: !!r.staging }));
   const members = sub ? rows<MemberRow>(9) : [];
   const me = !sub

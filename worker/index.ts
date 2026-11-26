@@ -8,6 +8,7 @@ import { admin } from "./admin";
 import { myTeams } from "./my-team";
 import { attendance } from "./attendance";
 import { registration } from "./registration";
+import { tracks } from "./tracks";
 import { syncRegistered, teamWithCar } from "./stage";
 import { loadConfig, loadStandings } from "./standings";
 import { publicResults } from "./session-results";
@@ -50,6 +51,7 @@ app.route("/api/admin", admin);
 app.route("/api/my-teams", myTeams);
 app.route("/api/registration", registration);
 app.route("/api/attendance", attendance);
+app.route("/api/tracks", tracks);
 
 app.get("/api/config", async (c) => {
   const [token, aiVoice] = await Promise.all([tokenMode(c.env.DB), aiVoiceOn(c.env.DB)]);

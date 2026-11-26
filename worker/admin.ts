@@ -10,6 +10,7 @@ import { ATTENDANCE_DEFAULT_CLOSES, ATTENDANCE_DEFAULT_OPENS, cleanCloses, clean
 import { rootOf } from "./registration";
 import { regSessionsOf, syncRegistered, syncSessions } from "./stage";
 import { aiVoiceOn, issueCode, revokeCode, setAiVoice, setTokenMode, tokenMode } from "./access-codes";
+import { mountTracksAdmin } from "./tracks";
 import { mountStandingsAdmin } from "./standings";
 import { formatDiscordStewardMessage, getDiscordWebhook, sendDiscordWebhook, setDiscordWebhook } from "./discord";
 import { pruneStatements } from "./entries";
@@ -62,6 +63,7 @@ export const cleanUsername = (v: unknown) => (typeof v === "string" && /^[A-Za-z
 
 mountStandingsAdmin(admin, guard("races") as MiddlewareHandler);
 mountSessionResults(admin, guard("races") as MiddlewareHandler);
+mountTracksAdmin(admin, guard("races") as MiddlewareHandler);
 
 // ---- Users ----------------------------------------------------------------
 
@@ -178,7 +180,7 @@ admin.put("/users/:id/roles", guard("users"), async (c) => {
 
 async function loadRaces(env: AdminEnv): Promise<AdminRace[]> {
   const { results } = await env.DB.prepare(
-    "SELECT id, name, status, expires_at AS expiresAt FROM races ORDER BY status ASC, expires_at DESC",
+    "SELECT id, name, status, expires_at AS expiresAt, track_id AS trackId FROM races ORDER BY status ASC, expires_at DESC",
   ).all<Omit<AdminRace, "stewards" | "sessions">>();
   const sessions = await sessionsOf(env.DB, results.map((r) => r.id));
   const stew = (
@@ -210,7 +212,7 @@ admin.post("/races", guard("races"), async (c) => {
 
 admin.patch("/races/:id", guard("races"), async (c) => {
   const id = c.req.param("id");
-  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; expiresAt?: unknown; status?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; expiresAt?: unknown; status?: unknown; trackId?: unknown };
   const sets: string[] = [];
   const vals: unknown[] = [];
   if (body.name !== undefined) {
@@ -229,6 +231,11 @@ admin.patch("/races/:id", guard("races"), async (c) => {
     if (body.status !== "active" && body.status !== "archived") return c.json({ error: "invalid" }, 400);
     sets.push("status = ?");
     vals.push(body.status);
+  }
+  if (body.trackId !== undefined) {
+    if (body.trackId !== null && (typeof body.trackId !== "string" || !(await c.env.DB.prepare("SELECT 1 FROM tracks WHERE id = ?").bind(body.trackId).first()))) return c.json({ error: "invalid" }, 400);
+    sets.push("track_id = ?");
+    vals.push(body.trackId);
   }
   if (!sets.length) return c.json({ error: "invalid" }, 400);
   const res = await c.env.DB.prepare(`UPDATE races SET ${sets.join(", ")} WHERE id = ?`).bind(...vals, id).run();

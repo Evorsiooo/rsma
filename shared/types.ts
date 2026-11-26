@@ -30,6 +30,8 @@ export interface RaceSummary {
   sessions: SessionSummary[];
   /** Archived or past its expiry: results stay visible, nothing can be changed. */
   ended: boolean;
+  /** The saved track the event runs on (GET /api/tracks/:id), if one is picked. */
+  trackId: string | null;
 }
 
 export type Role = "admin" | "users" | "races" | "steward";
@@ -85,6 +87,7 @@ export interface AdminRace {
   name: string;
   status: "active" | "archived";
   expiresAt: number;
+  trackId: string | null;
   sessions: SessionSummary[];
   stewards: { id: string; username: string }[];
 }

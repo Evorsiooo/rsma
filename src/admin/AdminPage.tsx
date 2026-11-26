@@ -13,6 +13,7 @@ import { AddMember, MemberTable } from "../TeamMembers";
 import { StandingsTab } from "./StandingsTab";
 import { RegistrationsTab } from "./RegistrationsTab";
 import { ResultsDialog } from "./ResultsDialog";
+import { TrackDialog } from "./TrackDialog";
 import { CodeDialog, useTokenMode } from "../access";
 
 type Tab = "users" | "races" | "registrations" | "standings" | "teams" | "system";
@@ -209,7 +210,7 @@ function Registrations() {
 
 // ---- Races ------------------------------------------------------------------
 
-type RaceDialog = { kind: "stewards" | "expiry" | "sessions" | "delete"; raceId: string } | null;
+type RaceDialog = { kind: "stewards" | "expiry" | "sessions" | "delete" | "track"; raceId: string } | null;
 
 function Races() {
   const nav = useNavigate();
@@ -259,7 +260,7 @@ function Races() {
                 <th className="is-left" style={{ width: 90 }}>Status</th>
                 <th className="is-left" style={{ width: 170 }}>Expires</th>
                 <th style={{ width: 70 }}>Stewards</th>
-                <th style={{ width: 450 }} />
+                <th style={{ width: 520 }} />
               </tr>
             </thead>
             <tbody>
@@ -274,7 +275,7 @@ function Races() {
                     <td className="is-left">{dateFmt.format(r.expiresAt)}</td>
                     <td>{r.stewards.length || ""}</td>
                     <td style={{ padding: 2 }}>
-                      <div className="r-grid" style={{ ["--cols" as string]: 5 }}>
+                      <div className="r-grid" style={{ ["--cols" as string]: 6 }}>
                         <button
                           className="r-cell"
                           disabled={!r.sessions.length}
@@ -282,6 +283,7 @@ function Races() {
                         >
                           Panel
                         </button>
+                        <button className="r-cell" onClick={() => setDialog({ kind: "track", raceId: r.id })}>Track</button>
                         <button className="r-cell" onClick={() => setDialog({ kind: "sessions", raceId: r.id })}>Sessions</button>
                         <button className="r-cell" onClick={() => setDialog({ kind: "stewards", raceId: r.id })}>Stewards</button>
                         <button className="r-cell" onClick={() => setDialog({ kind: "expiry", raceId: r.id })}>Expiry</button>
@@ -299,6 +301,7 @@ function Races() {
         )}
       </div>
       {dialog?.kind === "sessions" && dialogRace && <SessionsDialog race={dialogRace} onChange={reload} onClose={() => setDialog(null)} />}
+      {dialog?.kind === "track" && dialogRace && <TrackDialog race={dialogRace} onChange={reload} onClose={() => setDialog(null)} />}
       {dialog?.kind === "stewards" && dialogRace && <StewardsDialog race={dialogRace} onChange={reload} onClose={() => setDialog(null)} />}
       {dialog?.kind === "delete" && dialogRace && (
         <Dialog
