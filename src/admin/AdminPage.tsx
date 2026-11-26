@@ -12,6 +12,7 @@ import { NotFound } from "../NotFound";
 import { AddMember, MemberTable } from "../TeamMembers";
 import { StandingsTab } from "./StandingsTab";
 import { RegistrationsTab } from "./RegistrationsTab";
+import { ResultsDialog } from "./ResultsDialog";
 import { CodeDialog, useTokenMode } from "../access";
 
 type Tab = "users" | "races" | "registrations" | "standings" | "teams" | "system";
@@ -336,10 +337,12 @@ function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
   const [form, setForm] = useState<{ session?: SessionSummary } | null>(null);
   const [del, setDel] = useState<SessionSummary | null>(null);
   const [regFor, setRegFor] = useState<SessionSummary | null>(null);
+  const [resFor, setResFor] = useState<SessionSummary | null>(null);
   return (
     <>
+      {resFor && <ResultsDialog session={resFor} onClose={() => setResFor(null)} />}
       {regFor && <RegistrationDialog session={regFor} sessions={race.sessions} onClose={() => { setRegFor(null); onChange(); }} />}
-      {!form && !del && !regFor && (
+      {!form && !del && !regFor && !resFor && (
       <Dialog title={`Sessions: ${race.name}`} size="l" onClose={onClose} foot={<><button className="r-btn" onClick={() => setForm({})}>Add session</button><button className="r-btn" onClick={onClose}>Close</button></>}>
         {race.sessions.length === 0 ? (
           <div className="r-empty">No sessions.</div>
@@ -360,10 +363,11 @@ function SessionsDialog({ race, onChange, onClose }: { race: AdminRace; onChange
                     <div>{dateFmt.format(s.startsAt)}</div>
                     <div style={{ color: "var(--r-text-dim)" }}>{dateFmt.format(s.endsAt)}</div>
                   </td>
-                  <td style={{ width: 260, padding: 2 }}>
-                    <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
+                  <td style={{ width: 340, padding: 2 }}>
+                    <div className="r-grid" style={{ ["--cols" as string]: 4 }}>
                       <button className="r-cell" onClick={() => setForm({ session: s })}>Edit</button>
                       <button className="r-cell" onClick={() => setRegFor(s)}>Registration</button>
+                      <button className="r-cell" onClick={() => setResFor(s)}>Results</button>
                       <button className="r-cell r-cell--red" onClick={() => setDel(s)}>Delete</button>
                     </div>
                   </td>

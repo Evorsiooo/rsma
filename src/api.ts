@@ -2,7 +2,7 @@ import type { AttendanceStatus, AttendanceView } from "../shared/attendance";
 import type { EventView, GroupStatus, RegKind, RegSettings, RegSummary, RegistrationView } from "../shared/registration";
 import type { TeamRole } from "../shared/teams";
 import type { AdminRace, AdminTeam, AdminUser, Me, MyTeam, RaceSummary, Role, SessionInfo, SessionType, SystemInfo, Team } from "../shared/types";
-import type { StandingsData, PointsConfig } from "../shared/standings";
+import type { StandingsData, PointsConfig, ResultRow } from "../shared/standings";
 import type { Command } from "../shared/commands";
 import type { RaceState } from "../shared/race";
 
@@ -111,6 +111,9 @@ export const admin = {
   saveEvent: (id: string, e: object) => send("PUT", `/api/admin/standings/events/${id}`, e),
   setHalf: (id: string, half: boolean) => send("PATCH", `/api/admin/standings/events/${id}`, { half }),
   deleteEvent: (id: string) => send("DELETE", `/api/admin/standings/events/${id}`),
+  sessionResults: (sid: string) => get<{ results: ResultRow[] }>(`/api/admin/sessions/${sid}/results`),
+  saveSessionResults: (sid: string, results: object[]) => send("PUT", `/api/admin/sessions/${sid}/results`, { results }),
+  clearSessionResults: (sid: string) => send("DELETE", `/api/admin/sessions/${sid}/results`),
   system: () => get<SystemInfo>("/api/admin/system"),
   setAiVoice: (on: boolean) => send("PUT", "/api/admin/system/ai-voice", { on }),
   setTokenMode: (on: boolean) => send("PUT", "/api/admin/system/token-mode", { on }),

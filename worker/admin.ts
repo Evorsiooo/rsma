@@ -13,6 +13,7 @@ import { aiVoiceOn, issueCode, revokeCode, setAiVoice, setTokenMode, tokenMode }
 import { mountStandingsAdmin } from "./standings";
 import { formatDiscordStewardMessage, getDiscordWebhook, sendDiscordWebhook, setDiscordWebhook } from "./discord";
 import { pruneStatements } from "./entries";
+import { clearStatements, mountSessionResults } from "./session-results";
 
 export interface AdminEnv extends AuthEnv {
   /** Local development only: point username lookups at a mock server. */
@@ -60,6 +61,7 @@ const cleanName = (v: unknown) => (typeof v === "string" ? v.trim().slice(0, 60)
 export const cleanUsername = (v: unknown) => (typeof v === "string" && /^[A-Za-z0-9_]{3,20}$/.test(v.trim()) ? v.trim() : "");
 
 mountStandingsAdmin(admin, guard("races") as MiddlewareHandler);
+mountSessionResults(admin, guard("races") as MiddlewareHandler);
 
 // ---- Users ----------------------------------------------------------------
 
@@ -245,6 +247,8 @@ admin.delete("/races/:id", guard("races"), async (c) => {
     c.env.DB.prepare("DELETE FROM attendance WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
+    c.env.DB.prepare("DELETE FROM session_results WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
+    c.env.DB.prepare("DELETE FROM session_result_drivers WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
     c.env.DB.prepare("DELETE FROM race_stewards WHERE race_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM sessions WHERE race_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM races WHERE id = ?").bind(id),
@@ -331,6 +335,7 @@ admin.delete("/sessions/:id", guard("races"), async (c) => {
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sid),
+    ...clearStatements(c.env.DB, sid),
     ...pruneStatements(c.env.DB),
   ]);
   await syncSessions(c.env, followers);

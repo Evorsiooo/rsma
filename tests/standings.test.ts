@@ -94,3 +94,28 @@ test("a driver who raced for several teams: each result scores for its own team,
   assert.deepEqual(s.drivers.map((d) => [d.name, d.points, d.team]), [["aaa", 68, "Blue"], ["bbb", 43, "Red"]]);
   assert.deepEqual(s.teams.map((t) => [t.name, t.points]), [["Red", 50], ["Blue", 36]]);
 });
+
+test("a car's points are split equally between the drivers who drove it, once each however many stints", () => {
+  const car = (position: number, name: string, drivers: string[], teamName: string) => row(position, drivers[0], { car: name, drivers: drivers.map((username) => ({ username })), teamId: null, teamName });
+  const e = ev("e", 1, [car(1, "#1 A", ["aaa", "bbb", "aaa"], "Red"), car(2, "#2 B", ["ccc", "ddd", "eee"], "Blue")]);
+  const c = { points: [25, 18], windowMs: 50 };
+  const s = computeStandings([e], c);
+  assert.deepEqual(s.drivers.map((d) => [d.name, d.points]), [["aaa", 12.5], ["bbb", 12.5], ["ccc", 6], ["ddd", 6], ["eee", 6]]);
+  // The team gets the car's whole score.
+  assert.deepEqual(s.teams.map((t) => [t.name, t.points]), [["Red", 25], ["Blue", 18]]);
+  assert.equal(s.drivers[0].wins, 1);
+});
+
+test("a split that does not divide evenly is rounded to two decimals", () => {
+  const e = ev("e", 1, [row(1, "aaa", { car: "#1", drivers: [{ username: "aaa" }, { username: "bbb" }, { username: "ccc" }] })]);
+  const s = computeStandings([e], { points: [25], windowMs: 50 });
+  assert.deepEqual(s.drivers.map((d) => d.points), [8.33, 8.33, 8.33]);
+  assert.equal(fmtPoints(8.33), "8.33");
+  assert.equal(fmtPoints(12.5), "12.5");
+});
+
+test("a driver cannot score in two result rows", () => {
+  const e = ev("e", 1, [row(1, "aaa", { drivers: [{ username: "aaa" }, { username: "bbb" }] }), row(2, "ccc", { drivers: [{ username: "ccc" }, { username: "bbb" }] })]);
+  assert.match(eventProblem(e) ?? "", /bbb is listed twice/);
+  assert.equal(eventProblem({ ...e, results: [e.results[0]] }), null);
+});
