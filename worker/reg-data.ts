@@ -17,6 +17,7 @@ import {
   type RegKind,
   type EventView,
 } from "../shared/registration";
+import type { AttendanceStatus } from "../shared/attendance";
 import { hasAny, MANAGER_ROLES, parseRoles, type TeamRole } from "../shared/teams";
 import { buildMe, ME_ROLES, ME_TEAMS, ME_USER, getMe, type AuthEnv, type MeTeamRow, type MeUser } from "./auth";
 import { readSession, SESSION_COOKIE } from "./auth/session";
@@ -41,6 +42,9 @@ export interface SettingsRow {
   teamLimit: number | null;
   pickCutoff: number | null;
   follows: string | null;
+  attendance: number;
+  attendanceOpens: number;
+  attendanceCloses: number;
 }
 
 export interface RegRow {
@@ -56,6 +60,14 @@ export interface RegRow {
   at: number;
 }
 
+export interface AttendanceRowDb {
+  sessionId: string;
+  userId: string;
+  status: AttendanceStatus;
+  at: number;
+  by: string;
+}
+
 export interface MemberRow {
   teamId: string;
   id: string;
@@ -69,6 +81,8 @@ export interface EventData {
   settings: Map<string, SettingsRow>;
   regs: RegRow[];
   picks: { sessionId: string; userId: string }[];
+  /** Answers given through the attendance link (or set by staff), for every session of the event. */
+  attendance: AttendanceRowDb[];
   factories: Set<string>;
   members: MemberRow[];
   /** Every team with its car, only when asked for (staging the queue needs it). */
@@ -95,7 +109,7 @@ export async function loadEventData(env: AuthEnv, c: Context | null, by: Selecto
     db.prepare(`SELECT ${SESSION_COLS} FROM sessions WHERE race_id = ${rid} ORDER BY starts_at, position`).bind(arg),
     db
       .prepare(
-        `SELECT session_id AS sessionId, opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows
+        `SELECT session_id AS sessionId, opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows, attendance, attendance_opens AS attendanceOpens, attendance_closes AS attendanceCloses
          FROM session_registration WHERE session_id IN ${inRace}`,
       )
       .bind(arg),
@@ -108,6 +122,7 @@ export async function loadEventData(env: AuthEnv, c: Context | null, by: Selecto
       .bind(arg),
     db.prepare(`SELECT session_id AS sessionId, roblox_id AS userId FROM session_picks WHERE session_id IN ${inRace}`).bind(arg),
     db.prepare("SELECT id FROM teams WHERE kind = 'factory'"),
+    db.prepare(`SELECT session_id AS sessionId, roblox_id AS userId, status, at, by FROM attendance WHERE session_id IN ${inRace}`).bind(arg),
   ];
   if (sub) {
     stmts.push(
@@ -125,16 +140,17 @@ export async function loadEventData(env: AuthEnv, c: Context | null, by: Selecto
   const rows = <T>(i: number) => (out[i]?.results ?? []) as T[];
   const raceRow = rows<{ id: string; name: string; expiresAt: number; ended: number }>(0)[0];
   const sessions = rows<Omit<SessionSummary, "selfTimed" | "staging"> & { selfTimed: number; staging: number }>(1).map((r) => ({ ...r, selfTimed: !!r.selfTimed, staging: !!r.staging }));
-  const members = sub ? rows<MemberRow>(6) : [];
+  const members = sub ? rows<MemberRow>(7) : [];
   const me = !sub
     ? null
-    : (tokenMe ?? buildMe(claims!, rows<MeUser>(7)[0] ?? null, rows<{ role: never }>(8), rows<MeTeamRow>(9)));
+    : (tokenMe ?? buildMe(claims!, rows<MeUser>(8)[0] ?? null, rows<{ role: never }>(9), rows<MeTeamRow>(10)));
   return {
     me,
     race: raceRow ? { ...raceRow, ended: !!raceRow.ended, sessions } : null,
     settings: new Map(rows<SettingsRow>(2).map((r) => [r.sessionId, r])),
     regs: rows<RegRow>(3),
     picks: rows<{ sessionId: string; userId: string }>(4),
+    attendance: rows<AttendanceRowDb>(6),
     factories: new Set(rows<{ id: string }>(5).map((t) => t.id)),
     members,
     teams: new Map(withTeams ? rows<{ id: string; name: string; kind: string; car: string | null; factoryId: string | null }>(out.length - 1).map((t) => [t.id, t]) : []),
@@ -174,6 +190,10 @@ export function settingsIn(d: EventData, sid: string): RegSettings | null {
     ...shared,
     independents: !!r.independents,
     follows: root === sid ? null : r.follows,
+    // Attendance is each session's own, even when the registration is shared.
+    attendance: !!r.attendance,
+    attendanceOpens: r.attendanceOpens,
+    attendanceCloses: r.attendanceCloses,
   };
 }
 
@@ -209,6 +229,20 @@ export function regsIn(d: EventData, sid: string, s: RegSettings, group: ReturnT
   const regs = eligibleFor(groupRegs(d, group).regs, s, group.members.length > 1);
   const picks = new Set(d.picks.filter((p) => p.sessionId === sid).map((p) => p.userId));
   return applyTeamLimit(regs, s.teamLimit, picks);
+}
+
+/**
+ * The drivers who may confirm attendance for one session, and who are staged when attendance is off: the registered
+ * drivers who are In for it. One place, so changes to who takes part (such as cars with ranked drivers) reach both.
+ */
+export function driversIn(d: EventData, sid: string): Registration[] {
+  const s = settingsIn(d, sid);
+  return s ? regsIn(d, sid, s, groupIn(d, sid)).filter((r) => r.kind === "driver" && r.cut === "in") : [];
+}
+
+/** What each driver answered for one session. */
+export function attendanceOf(d: EventData, sid: string): Map<string, AttendanceStatus> {
+  return new Map(d.attendance.filter((a) => a.sessionId === sid).map((a) => [a.userId, a.status]));
 }
 
 export const isStaff = (me: Me | null) => hasRole(me, "races", "steward");

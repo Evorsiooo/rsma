@@ -11,6 +11,7 @@ test("public pages have their own preview and everything else gets the site-wide
   assert.equal((routeOf("/standings") as { embed: { title: string; image: string } }).embed.image, "standings");
   assert.equal((routeOf("/schedule") as { embed: { title: string } }).embed.title, "Schedule");
   assert.equal((routeOf("/terms/") as { embed: { title: string } }).embed.title, "Terms of service");
+  assert.equal((routeOf("/attend/s1") as { embed: { title: string } }).embed.title, "Confirm attendance");
   for (const gated of ["/admin", "/my-team", "/my-team/t1", "/session/s1/steward", "/session/s1/driver", "/session/s1/team/t1", "/session/s1/register", "/nope"]) {
     assert.deepEqual(routeOf(gated), { kind: "static", embed: DEFAULT_EMBED }, gated);
   }

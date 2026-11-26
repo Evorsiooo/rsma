@@ -50,6 +50,9 @@ interface SettingsRow {
   teamLimit: number | null;
   pickCutoff: number | null;
   follows: string | null;
+  attendance: number;
+  attendanceOpens: number;
+  attendanceCloses: number;
 }
 
 /** The session whose registration a session shares: itself, or the first of the sessions it follows. */
@@ -74,7 +77,7 @@ export async function rootOf(env: AdminEnv, sid: string): Promise<string> {
 export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSettings | null> {
   const [r, root] = await Promise.all([
     env.DB.prepare(
-      `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows
+      `SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, independents, team_cap AS teamCap, team_limit AS teamLimit, pick_cutoff AS pickCutoff, follows, attendance, attendance_opens AS attendanceOpens, attendance_closes AS attendanceCloses
        FROM session_registration WHERE session_id = ?`,
     )
       .bind(sid)
@@ -88,10 +91,10 @@ export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSetti
       "SELECT opens_at AS opensAt, deadline, drivers, employees, spectators, factory_reserved AS factoryReserved, team_cap AS teamCap FROM session_registration WHERE session_id = ?",
     )
       .bind(root)
-      .first<Omit<SettingsRow, "independents" | "follows" | "teamLimit" | "pickCutoff">>();
+      .first<Omit<SettingsRow, "independents" | "follows" | "teamLimit" | "pickCutoff" | "attendance" | "attendanceOpens" | "attendanceCloses">>();
     if (w) Object.assign(r, w);
   }
-  return { ...r, independents: !!r.independents, follows: root === sid ? null : r.follows };
+  return { ...r, independents: !!r.independents, attendance: !!r.attendance, follows: root === sid ? null : r.follows };
 }
 
 /** The sessions one registration covers, in start order, and the session where it is stored. */

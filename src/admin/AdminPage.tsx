@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { currentSession } from "../../shared/sessions";
 import type { AdminRace, AdminTeam, AdminUser, Role, SessionSummary, SessionType, SystemInfo } from "../../shared/types";
 import { admin, registrationApi } from "../api";
+import { ATTENDANCE_DEFAULT_CLOSES, ATTENDANCE_DEFAULT_OPENS, ATTENDANCE_MAX_MINUTES } from "../../shared/attendance";
 import type { RegSettings } from "../../shared/registration";
 import { useMe } from "../me";
 import { VERSION } from "../Shell";
@@ -899,6 +900,9 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
   const [teamCap, setTeamCap] = useState("");
   const [teamLimit, setTeamLimit] = useState("");
   const [pickCutoff, setPickCutoff] = useState("");
+  const [attend, setAttend] = useState(false);
+  const [attendOpens, setAttendOpens] = useState(String(ATTENDANCE_DEFAULT_OPENS));
+  const [attendCloses, setAttendCloses] = useState(String(ATTENDANCE_DEFAULT_CLOSES));
   useEffect(() => {
     const others = sessions.filter((o) => o.id !== session.id);
     Promise.all(others.map((o) => registrationApi.get(o.id).then((v) => (v.settings ? o : null), () => null))).then((l) =>
@@ -917,6 +921,9 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
         setDeadline(toLocalInput(s.deadline));
         setN({ drivers: String(s.drivers), employees: String(s.employees), spectators: String(s.spectators), factoryReserved: String(s.factoryReserved) });
         setIndependents(s.independents);
+        setAttend(s.attendance);
+        setAttendOpens(String(s.attendanceOpens));
+        setAttendCloses(String(s.attendanceCloses));
       }
       setLoaded(true);
     }, () => setLoaded(true));
@@ -934,8 +941,11 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
     teamLimit: teamLimit.trim() === "" ? null : num(teamLimit),
     pickCutoff: teamLimit.trim() === "" || pickCutoff === "" ? null : fromLocalInput(pickCutoff),
     follows,
+    attendance: attend,
+    attendanceOpens: num(attendOpens),
+    attendanceCloses: num(attendCloses),
   };
-  const valid = [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt);
+  const valid = [settings.attendanceOpens, settings.attendanceCloses].every((m) => Number.isFinite(m) && m <= ATTENDANCE_MAX_MINUTES) && [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt);
   const save = async () => {
     const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
     if (!r.ok) return say(r.error);
@@ -1023,6 +1033,25 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
             <input type="checkbox" checked={independents} onChange={(e) => setIndependents(e.target.checked)} />
             <span>{follows !== null ? "Independent drivers can take part in this session" : "Independent drivers can register"}</span>
           </label>
+          <label className="r-check">
+            <input type="checkbox" checked={attend} onChange={(e) => setAttend(e.target.checked)} />
+            <span>Take attendance for this session (only drivers who confirm are staged)</span>
+          </label>
+          {attend && (
+            <>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Link opens, minutes before the start</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance opens, minutes before the start" value={attendOpens} onChange={(e) => setAttendOpens(e.target.value)} />
+              </label>
+              <label className="r-row" style={{ alignItems: "center" }}>
+                <span style={{ width: 240, flex: "none" }}>Closes, minutes after the start</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance closes, minutes after the start" value={attendCloses} onChange={(e) => setAttendCloses(e.target.value)} />
+              </label>
+              <div style={{ color: "var(--r-text-dim)" }}>
+                Link: <b>{location.origin}/attend/{session.id}</b>. Drivers sign in with Roblox and confirm. Nobody who has not confirmed is staged. Staff can mark anyone present or absent under Registrations.
+              </div>
+            </>
+          )}
         </>
       )}
       <label className="r-check">

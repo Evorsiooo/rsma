@@ -1,5 +1,6 @@
 import type { AdminEnv } from "./admin";
-import { groupIn, loadEventData, regsIn, settingsIn, type EventData } from "./reg-data";
+import { whoIsPresent } from "../shared/attendance";
+import { attendanceOf, driversIn, groupIn, loadEventData, settingsIn, type EventData } from "./reg-data";
 
 export async function teamWithCar(db: D1Database, id: string) {
   const t = await db.prepare("SELECT id, name, kind, car, factory_id AS factoryId FROM teams WHERE id = ?").bind(id).first<{ id: string; name: string; kind: string; car: string | null; factoryId: string | null }>();
@@ -13,7 +14,8 @@ export async function teamWithCar(db: D1Database, id: string) {
 async function syncOne(env: AdminEnv, d: EventData, sid: string): Promise<void> {
   const settings = settingsIn(d, sid);
   if (!settings) return;
-  const staged = regsIn(d, sid, settings, groupIn(d, sid)).filter((r) => r.kind === "driver" && r.cut === "in");
+  // Registered drivers who are In; with attendance on, only those who confirmed they are here.
+  const staged = whoIsPresent(driversIn(d, sid), settings, attendanceOf(d, sid));
   const team = (id: string) => {
     const t = d.teams.get(id);
     if (!t) return undefined;

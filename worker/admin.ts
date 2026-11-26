@@ -6,6 +6,7 @@ import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { sessionsOf } from "./sessions";
 import { resolveUserId } from "./roblox-users";
+import { ATTENDANCE_DEFAULT_CLOSES, ATTENDANCE_DEFAULT_OPENS, cleanMinutes } from "../shared/attendance";
 import { rootOf } from "./registration";
 import { regSessionsOf, syncRegistered, syncSessions } from "./stage";
 import { aiVoiceOn, issueCode, revokeCode, setAiVoice, setTokenMode, tokenMode } from "./access-codes";
@@ -240,6 +241,7 @@ admin.delete("/races/:id", guard("races"), async (c) => {
   const ids = (await c.env.DB.prepare("SELECT id FROM sessions WHERE race_id = ?").bind(id).all<{ id: string }>()).results.map((r) => r.id);
   await c.env.DB.batch([
     c.env.DB.prepare("DELETE FROM session_picks WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
+    c.env.DB.prepare("DELETE FROM attendance WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id IN (SELECT id FROM sessions WHERE race_id = ?1)").bind(id),
     c.env.DB.prepare("DELETE FROM race_stewards WHERE race_id = ?").bind(id),
@@ -324,6 +326,7 @@ admin.delete("/sessions/:id", guard("races"), async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE session_registration SET follows = NULL WHERE follows = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM session_picks WHERE session_id = ?").bind(sid),
+    c.env.DB.prepare("DELETE FROM attendance WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sid),
@@ -374,12 +377,15 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
   if ((b.teamLimit != null && teamLimit === null) || (pickCutoff !== null && !Number.isFinite(pickCutoff))) return c.json({ error: "invalid" }, 400);
   const teamCap = capIn === null || capIn === undefined ? null : num(capIn);
   if (drivers === null || employees === null || spectators === null || reserved === null || (capIn != null && teamCap === null)) return c.json({ error: "invalid" }, 400);
+  const attendOpens = b.attendanceOpens === undefined ? ATTENDANCE_DEFAULT_OPENS : cleanMinutes(b.attendanceOpens);
+  const attendCloses = b.attendanceCloses === undefined ? ATTENDANCE_DEFAULT_CLOSES : cleanMinutes(b.attendanceCloses);
+  if (attendOpens === null || attendCloses === null) return c.json({ error: "invalid" }, 400);
   await c.env.DB.prepare(
-    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows, team_cap, team_limit, pick_cutoff)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
-     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8, follows = ?9, team_cap = ?10, team_limit = ?11, pick_cutoff = ?12`,
+    `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows, team_cap, team_limit, pick_cutoff, attendance, attendance_opens, attendance_closes)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)
+     ON CONFLICT(session_id) DO UPDATE SET opens_at = ?2, deadline = ?3, drivers = ?4, employees = ?5, spectators = ?6, factory_reserved = ?7, independents = ?8, follows = ?9, team_cap = ?10, team_limit = ?11, pick_cutoff = ?12, attendance = ?13, attendance_opens = ?14, attendance_closes = ?15`,
   )
-    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0, follows, teamCap, teamLimit, pickCutoff)
+    .bind(id, opensAt, deadline, drivers, employees, spectators, reserved, b.independents === true ? 1 : 0, follows, teamCap, teamLimit, pickCutoff, b.attendance === true ? 1 : 0, attendOpens, attendCloses)
     .run();
   await syncRegistered(c.env, id);
   return c.json({ ok: true });
@@ -392,6 +398,7 @@ admin.delete("/sessions/:id/registration", guard("races"), async (c) => {
   await c.env.DB.batch([
     c.env.DB.prepare("UPDATE session_registration SET follows = NULL WHERE follows = ?").bind(id),
     c.env.DB.prepare("DELETE FROM session_picks WHERE session_id = ?").bind(id),
+    c.env.DB.prepare("DELETE FROM attendance WHERE session_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(id),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(id),
   ]);
