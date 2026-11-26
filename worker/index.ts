@@ -283,10 +283,10 @@ app.post("/api/sessions/:id/team/:teamId/pit", async (c) => {
 app.post("/api/sessions/:id/team/:teamId/zone", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;
-  const body = (await c.req.json().catch(() => ({}))) as { seg?: unknown; car?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { seg?: unknown; car?: unknown; clear?: unknown };
   const label = await segmentLabelOf(c.env.DB, r.info.race.trackId, body.seg);
   if (!label) return c.json({ error: "invalid" }, 400);
-  const cmd = { type: "zoneReport", team: r.team.id, teamName: r.team.name, seg: body.seg, label, car: typeof body.car === "string" ? body.car : undefined };
+  const cmd = { type: "zoneReport", team: r.team.id, teamName: r.team.name, seg: body.seg, label, clear: body.clear === true, car: typeof body.car === "string" ? body.car : undefined };
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 

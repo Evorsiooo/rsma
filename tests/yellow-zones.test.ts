@@ -61,3 +61,15 @@ test("stage reset clears yellows and reports", () => {
   s = run(s, { type: "reset" });
   assert.equal(s.zones.length + s.zoneReports.length, 0);
 });
+
+test("a team reports a confirmed yellow clear, the stewards confirm, and clearing answers the report", () => {
+  let s = run(emptyState(), report);
+  assert.ok("error" in applyCommand(s, { ...report, clear: true }, ctx), "nothing to clear while the segment is not yellow");
+  s = run(s, { type: "zoneConfirm", seg: "a1", label: "turn 3" });
+  assert.ok("error" in applyCommand(s, report, ctx), "a yellow segment takes no yellow report");
+  s = run(s, { ...report, clear: true });
+  assert.equal(s.zoneReports[0].kind, "clear");
+  s = run(s, { type: "zoneClear", seg: "a1", label: "turn 3" });
+  assert.deepEqual(s.zones, []);
+  assert.deepEqual(s.zoneReports, []);
+});

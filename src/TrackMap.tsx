@@ -67,7 +67,8 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
     for (const [x, y] of pts) {
       x0 = Math.min(x0, x); y0 = Math.min(y0, y); x1 = Math.max(x1, x); y1 = Math.max(y1, y);
     }
-    const pad = Math.max(x1 - x0, y1 - y0) * 0.09 + 10;
+    const pad0 = Math.max(x1 - x0, y1 - y0) * 0.09 + 10;
+    const pad = Math.max(pad0, 30 * ((x1 - x0 + 2 * pad0) / width));
     // A point of interest near the edge makes room for its label on both sides.
     const kEst = (x1 - x0 + 2 * pad) / width;
     for (const q of g.pois ?? []) {
@@ -146,7 +147,7 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
           <g key={s.id} className={onSegments ? "tm-h" : undefined}>
             {edge && <path d={path} fill="none" stroke={c.edge} strokeWidth={s.pit ? 6 : 9} vectorEffect="non-scaling-stroke" />}
             <path className="tm-v" d={path} fill="none" stroke={isY ? c.yellow : s.pit ? c.pit : c.track} strokeWidth={s.pit ? 3 : 6} vectorEffect="non-scaling-stroke" />
-            {isP && <path className="tm-b" d={path} fill="none" stroke={c.yellow} strokeWidth={s.pit ? 3 : 6} strokeDasharray="5 5" vectorEffect="non-scaling-stroke" />}
+            {isP && <path className="tm-b" d={path} fill="none" stroke={isY ? c.track : c.yellow} strokeWidth={s.pit ? 3 : 6} strokeDasharray="5 5" vectorEffect="non-scaling-stroke" />}
             {paint?.ids.includes(s.id) && <path d={path} fill="none" stroke={c.hover} strokeWidth={s.pit ? 3 : 6} strokeDasharray={paint.kind === "context" ? "5 5" : undefined} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
             {onSegments && (
               <path data-seg={s.id} d={path} fill="none" stroke="transparent" strokeWidth={s.pit ? 12 : 18} vectorEffect="non-scaling-stroke" style={{ cursor: "pointer" }} onPointerDown={begin(s.id)} />
@@ -164,11 +165,10 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
         </>
       )}
       {labels &&
-        labelSet.extra.map((m) => {
+        labelSet.extra.filter((m) => m.ok).map((m) => {
           const s = flagged.find((q) => q.id === m.key)!;
           return (
             <g key={m.key}>
-              {m.d > 22 * k + 0.01 && <line x1={m.ax} y1={m.ay} x2={m.x - m.ux * fs * 0.55} y2={m.y - m.uy * fs * 0.55} stroke={c.dim} strokeWidth={1} vectorEffect="non-scaling-stroke" />}
               <text x={m.x} y={m.y + fs * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fs} fill={yel.has(s.id) ? c.yellow : c.dim}>
                 {s.name}
               </text>
@@ -185,9 +185,9 @@ export function TrackMap({ geometry: g, width, theme = "dark", yellow = [], pend
       ))}
       {turnLabels.map((t) => (
         <g key={t.n}>
-          {t.d > 15 * k + 0.01 && <line x1={t.ax} y1={t.ay} x2={t.x - t.ux * fs * 0.55} y2={t.y - t.uy * fs * 0.55} stroke={c.dim} strokeWidth={1} vectorEffect="non-scaling-stroke" />}
+          {t.d > 24 * k && <line x1={t.ax} y1={t.ay} x2={t.x - t.ux * fs * 0.6} y2={t.y - t.uy * fs * 0.6} stroke={c.dim} strokeWidth={1} vectorEffect="non-scaling-stroke" />}
           <text x={t.x} y={t.y + fs * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fs} fill={c.text}>
-            {t.n}
+            {t.text}
           </text>
         </g>
       ))}
