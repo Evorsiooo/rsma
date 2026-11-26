@@ -9,6 +9,7 @@ import { NotFound } from "./NotFound";
 import { Bd, Box, FlagBar, ResultsTable } from "./site/parts";
 import { EnteredResults } from "./EnteredResults";
 import { SessionSelect } from "./SessionSelect";
+import { StartingGrid } from "./StartingGrid";
 import { sessionCountdown, useClock } from "./ui";
 import { useRaceLive } from "./useRaceLive";
 
@@ -85,6 +86,7 @@ export function RacePage() {
       <FlagBar flag={state?.flag} ended={race?.ended} live={live} />
       {info?.session.type === "race" && !race?.ended && !entered && <div className="notice">Live timing is not available for races.</div>}
       {info?.session.selfTimed && !race?.ended && <div className="notice">Self-timed session. Times are recorded by the teams.</div>}
+      {info?.session.type === "race" && <StartingGrid sessionId={id} />}
       {entered && (
         <Box title={race?.name ?? "\u00A0"} right="Results">
           <Bd flush><EnteredResults results={entered.results} points={entered.points} /></Bd>

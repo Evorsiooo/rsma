@@ -155,6 +155,9 @@ body.is-site .st.run { color: #fff; border-color: var(--s-blue-dd); background: 
 body.is-site .st.dnf { color: #fff; border-color: #7d0a1e; background: var(--s-red); }
 body.is-site .st.que { color: #4b5670; border-color: #8d97ae; background: #eceff5; }
 body.is-site .fr { display: inline-block; margin-left: 4px; padding: 0 3px; background: var(--s-purple); color: #fff; font: bold 9px/13px var(--s-sans); vertical-align: 1px; }
+body.is-site .fold { margin-left: 8px; padding: 0 5px; border: 1px solid var(--s-blue); background: none; color: var(--s-blue); font: bold 10px/14px var(--s-sans); cursor: pointer; }
+body.is-site .fold[aria-expanded="true"] { background: var(--s-blue); color: #fff; }
+body.is-site tr.subrow td { color: var(--s-dim, #5b6785); background: #f6f8fd; }
 body.is-site .num { display: inline-block; min-width: 22px; text-align: center; background: var(--s-blue); color: #fff; font: italic 800 11px/16px var(--s-disp); padding: 0 3px; margin-right: 6px; clip-path: polygon(4px 0, 100% 0, calc(100% - 4px) 100%, 0 100%); }
 
 /* ---- buttons and fields (mockup classes and kit classes share one look) ---- */

@@ -307,9 +307,9 @@ admin.post("/races/:id/sessions", guard("races"), async (c) => {
 
 admin.patch("/sessions/:id", guard("races"), async (c) => {
   const id = c.req.param("id");
-  const cur = await c.env.DB.prepare("SELECT name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed, staging, championship, half_points AS halfPoints, scoring, window_ms AS windowMs FROM sessions WHERE id = ?").bind(id).first<Pick<SessionSummary, "name" | "type" | "startsAt" | "endsAt" | "scoring" | "windowMs"> & { selfTimed: number; staging: number; championship: number; halfPoints: number }>();
+  const cur = await c.env.DB.prepare("SELECT name, type, starts_at AS startsAt, ends_at AS endsAt, self_timed AS selfTimed, staging, championship, half_points AS halfPoints, scoring, window_ms AS windowMs, qualifying_session AS qualifyingSession FROM sessions WHERE id = ?").bind(id).first<Pick<SessionSummary, "name" | "type" | "startsAt" | "endsAt" | "scoring" | "windowMs" | "qualifyingSession"> & { selfTimed: number; staging: number; championship: number; halfPoints: number }>();
   if (!cur) return c.json({ error: "not_found" }, 404);
-  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown; staging?: unknown; championship?: unknown; halfPoints?: unknown; scoring?: unknown; windowMs?: unknown };
+  const body = (await c.req.json().catch(() => ({}))) as { name?: unknown; type?: unknown; startsAt?: unknown; endsAt?: unknown; selfTimed?: unknown; staging?: unknown; championship?: unknown; halfPoints?: unknown; scoring?: unknown; windowMs?: unknown; qualifyingSession?: unknown };
   const name = body.name !== undefined ? cleanName(body.name) : cur.name;
   const type = body.type !== undefined ? (body.type as SessionType) : cur.type;
   const startsAt = body.startsAt !== undefined ? Number(body.startsAt) : cur.startsAt;
@@ -319,8 +319,16 @@ admin.patch("/sessions/:id", guard("races"), async (c) => {
   const staging = body.staging !== undefined ? body.staging === true : !!cur.staging;
   const selfTimed = type === "practice" && (body.selfTimed !== undefined ? body.selfTimed === true : !!cur.selfTimed);
   const ch = champFields(body, { championship: !!cur.championship, halfPoints: !!cur.halfPoints, scoring: cur.scoring, windowMs: cur.windowMs }, type);
-  await c.env.DB.prepare("UPDATE sessions SET name = ?, type = ?, starts_at = ?, ends_at = ?, self_timed = ?, staging = ?, championship = ?, half_points = ?, scoring = ?, window_ms = ? WHERE id = ?")
-    .bind(name, type, startsAt, endsAt, selfTimed ? 1 : 0, staging ? 1 : 0, ch.championship ? 1 : 0, ch.halfPoints ? 1 : 0, ch.scoring, ch.windowMs, id)
+  // The grid comes from another session of the same race, or automatically, or not at all.
+  let qualifying = cur.qualifyingSession;
+  if (body.qualifyingSession !== undefined) {
+    const q = body.qualifyingSession;
+    if (q === null || q === "none") qualifying = q;
+    else if (typeof q === "string" && q !== id && (await c.env.DB.prepare("SELECT 1 FROM sessions WHERE id = ? AND race_id = (SELECT race_id FROM sessions WHERE id = ?)").bind(q, id).first())) qualifying = q;
+    else return c.json({ error: "invalid" }, 400);
+  }
+  await c.env.DB.prepare("UPDATE sessions SET name = ?, type = ?, starts_at = ?, ends_at = ?, self_timed = ?, staging = ?, championship = ?, half_points = ?, scoring = ?, window_ms = ?, qualifying_session = ? WHERE id = ?")
+    .bind(name, type, startsAt, endsAt, selfTimed ? 1 : 0, staging ? 1 : 0, ch.championship ? 1 : 0, ch.halfPoints ? 1 : 0, ch.scoring, ch.windowMs, qualifying, id)
     .run();
   return c.json({ ok: true });
 });
@@ -334,6 +342,7 @@ admin.delete("/sessions/:id", guard("races"), async (c) => {
     c.env.DB.prepare("DELETE FROM attendance WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM session_registration WHERE session_id = ?").bind(sid),
+    c.env.DB.prepare("UPDATE sessions SET qualifying_session = NULL WHERE qualifying_session = ?").bind(sid),
     c.env.DB.prepare("DELETE FROM sessions WHERE id = ?").bind(sid),
     ...clearStatements(c.env.DB, sid),
     ...pruneStatements(c.env.DB),

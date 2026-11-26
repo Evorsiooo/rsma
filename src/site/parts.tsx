@@ -1,7 +1,7 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Flag, Row } from "../../shared/race";
-import { carText, fmtPenalty, fmtTime } from "../../shared/race";
+import { carText, fmtPenalty, fmtTime, foldCars } from "../../shared/race";
 import { fmtPoints } from "../../shared/standings";
 import { useBootSteps, type BootData } from "../Boot";
 
@@ -104,7 +104,11 @@ const STATUS: Record<Row["status"], { text: string; cls: string }> = {
 };
 
 /** Classification table of the live timing page: finished runs ranked, then on stage, queued, DNF. */
-export function ResultsTable({ rows, mine, points }: { rows: Row[]; mine?: (r: Row) => boolean; points?: Map<string, number> }) {
+export function ResultsTable({ rows: all, mine, points }: { rows: Row[]; mine?: (r: Row) => boolean; points?: Map<string, number> }) {
+  // Endurance: other drivers' times of a car are folded under the car's row until it is opened.
+  const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
+  const { rows, hidden } = foldCars(all, open);
+  const toggle = (id: string) => setOpen((o) => { const n = new Set(o); if (!n.delete(id)) n.add(id); return n; });
   const teams = rows.some((r) => r.teamName);
   const cars = rows.some((r) => r.car);
   // Endurance: the car first, then the person driving it.
@@ -138,13 +142,18 @@ export function ResultsTable({ rows, mine, points }: { rows: Row[]; mine?: (r: R
       </thead>
       <tbody>
         {rows.map((r) => (
-          <tr key={r.id} className={mine?.(r) ? "mine" : undefined}>
+          <tr key={r.id} className={[mine?.(r) ? "mine" : "", r.entry && r.rank == null && r.status === "finished" ? "subrow" : ""].filter(Boolean).join(" ") || undefined}>
             <td className="pos">{r.rank ?? "–"}</td>
             {endurance ? (
               <>
                 <td>
                   {r.number && <span className="num">{r.number}</span>}
                   {carText(r)}
+                  {r.entry && hidden.has(r.entry) && r.rank != null && (
+                    <button className="fold" aria-expanded={open.has(r.entry)} onClick={() => toggle(r.entry!)} title="Show the times of the car's other drivers">
+                      {open.has(r.entry) ? "Hide" : "+"} {hidden.get(r.entry)} {hidden.get(r.entry) === 1 ? "driver" : "drivers"}
+                    </button>
+                  )}
                 </td>
                 <td>
                   {r.name}

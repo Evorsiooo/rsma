@@ -408,6 +408,7 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
   const [champ, setChamp] = useState(session?.championship ?? false);
   const [half, setHalf] = useState(session?.halfPoints ?? false);
   const [scoring, setScoring] = useState<"position" | "window">(session?.scoring ?? "position");
+  const [grid, setGrid] = useState<string>(session?.qualifyingSession ?? "auto");
   const [win, setWin] = useState(session?.windowMs != null ? String(session.windowMs / 1000) : "");
   const winMs = win.trim() ? Math.round(Number(win.replace(",", ".")) * 1000) : null;
   const winOk = winMs == null || (Number.isFinite(winMs) && winMs >= 1 && winMs <= 600000);
@@ -418,7 +419,7 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
     if (!ok) return;
     const ch = { championship: type !== "practice" && champ, halfPoints: half, scoring, windowMs: scoring === "window" ? winMs : null };
     const r = session
-      ? await admin.patchSession(session.id, { name: name.trim() || session.name, type, startsAt, endsAt, selfTimed: type === "practice" && selfTimed, ...ch })
+      ? await admin.patchSession(session.id, { name: name.trim() || session.name, type, startsAt, endsAt, selfTimed: type === "practice" && selfTimed, qualifyingSession: grid === "auto" ? null : grid, ...ch })
       : await admin.createSession(race.id, { name: name.trim(), type, startsAt, endsAt, selfTimed: type === "practice" && selfTimed, ...ch });
     if (!r.ok) return say(r.error);
     onDone();
@@ -465,6 +466,18 @@ function SessionForm({ race, session, onDone, onClose }: { race: AdminRace; sess
           <input className="r-field" style={{ colorScheme: "dark" }} type="datetime-local" aria-label="End" value={end} onChange={(e) => setEnd(e.target.value)} />
         </div>
       </div>
+      {type === "race" && session && (
+        <div className="r-form-field">
+          <span className="r-label">Starting grid from</span>
+          <div className="r-select">
+            <select aria-label="Starting grid from" value={grid} onChange={(e) => setGrid(e.target.value)}>
+              <option value="auto">Automatic (latest timed event before this race)</option>
+              <option value="none">No starting grid</option>
+              {race.sessions.filter((o) => o.id !== session.id).map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
+            </select>
+          </div>
+        </div>
+      )}
       {type !== "practice" && (
         <>
           <label className="r-check">
@@ -1040,14 +1053,14 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
                 <input className="r-field r-fill" inputMode="numeric" aria-label="Cars per team" value={cars.carsPerTeam} onChange={(e) => setCars({ ...cars, carsPerTeam: e.target.value })} />
               </label>
               <label className="r-row" style={{ alignItems: "center" }}>
-                <span style={{ width: 240, flex: "none" }}>Drivers racing per car</span>
-                <input className="r-field r-fill" inputMode="numeric" aria-label="Drivers racing per car" value={cars.seatsPerCar} onChange={(e) => setCars({ ...cars, seatsPerCar: e.target.value })} />
+                <span style={{ width: 240, flex: "none" }}>Most drivers racing per car</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Most drivers racing per car" value={cars.seatsPerCar} onChange={(e) => setCars({ ...cars, seatsPerCar: e.target.value })} />
               </label>
               <label className="r-row" style={{ alignItems: "center" }}>
                 <span style={{ width: 240, flex: "none" }}>Lineups lock (blank for session start)</span>
                 <input className="r-field r-fill" type="datetime-local" aria-label="Lineups lock" value={pickCutoff} onChange={(e) => setPickCutoff(e.target.value)} />
               </label>
-              <div style={{ color: "var(--r-text-dim)" }}>The car spots above count cars, and no team can have more cars than the limit above. A team ranks as many drivers as it wants on each car: the top ones race and the rest are reserve. Team managers change lineups until the lock; after it only staff can. The same limits apply to every team. Existing team drivers stay unassigned until they are put in a car.</div>
+              <div style={{ color: "var(--r-text-dim)" }}>The car spots above count cars, and no team can have more cars than the limit above. A team ranks as many drivers as it wants on each car: the top ones race and the rest are reserve. Team managers change lineups until the lock; after it only staff can. A car can race with fewer drivers. The same limits apply to every team. Existing team drivers stay unassigned until they are put in a car.</div>
             </>
           )}
           </>}
