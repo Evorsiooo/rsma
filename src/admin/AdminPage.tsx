@@ -1008,7 +1008,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
           {field(endurance ? "Car spots" : "Driver spots", "drivers")}
           {field("Reserved per factory team", "factoryReserved")}
           <label className="r-row" style={{ alignItems: "center" }}>
-            <span style={{ width: 240, flex: "none" }}>Team driver cap (blank for none)</span>
+            <span style={{ width: 240, flex: "none" }}>{endurance ? "Team car cap (blank for none)" : "Team driver cap (blank for none)"}</span>
             <input className="r-field r-fill" inputMode="numeric" aria-label="Team driver cap" value={teamCap} onChange={(e) => setTeamCap(e.target.value)} />
           </label>
           {field("Employee spots", "employees")}

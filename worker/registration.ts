@@ -526,8 +526,8 @@ registration.post("/:sid/cars", async (c) => {
   const own = d.entries.filter((e) => e.rootSession === root && e.teamId === b.teamId);
   if (own.length >= s.carsPerTeam) return c.json({ error: "car_limit" }, 409);
   const label = cleanText(b.label, 40, /^[^\n]+$/) ?? `Car ${own.length + 1}`;
-  const number = cleanText(b.number, 4, /^[A-Za-z0-9]+$/);
-  const plate = cleanText(b.plate, 12, /^[A-Za-z0-9 -]+$/);
+  const number = b.number === undefined ? null : cleanText(b.number, 4, /^[A-Za-z0-9]+$/);
+  const plate = b.plate === undefined ? null : cleanText(b.plate, 12, /^[A-Za-z0-9 -]+$/);
   const seats = b.seats === undefined ? s.seatsPerCar : b.seats;
   if (number === undefined || plate === undefined || !Number.isInteger(seats) || (seats as number) < 1 || (seats as number) > s.seatsPerCar) return c.json({ error: "invalid" }, 400);
   if (number && d.entries.some((e) => e.rootSession === root && e.number === number)) return c.json({ error: "number_taken" }, 409);

@@ -297,7 +297,7 @@ function CarDialog({ view, car, onSave, onClose }: { view: RegistrationView; car
         <span style={{ width: 240, flex: "none" }}>Drivers racing (at most {s.seatsPerCar})</span>
         <input className="r-field r-fill" inputMode="numeric" aria-label="Drivers racing" value={v.seats} onChange={(e) => setV({ ...v, seats: e.target.value })} />
       </label>
-      <div className="r-section"><span>Drivers, in rank order</span></div>
+      <div style={dim}>Drivers, in rank order</div>
       {drivers.length === 0 ? (
         <div className="r-empty">No drivers yet.</div>
       ) : (
