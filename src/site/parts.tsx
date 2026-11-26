@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 import type { Flag, Row } from "../../shared/race";
-import { fmtPenalty, fmtTime } from "../../shared/race";
+import { carText, fmtPenalty, fmtTime } from "../../shared/race";
 import { fmtPoints } from "../../shared/standings";
 import { useBootSteps, type BootData } from "../Boot";
 
@@ -107,16 +107,28 @@ const STATUS: Record<Row["status"], { text: string; cls: string }> = {
 export function ResultsTable({ rows, mine, points }: { rows: Row[]; mine?: (r: Row) => boolean; points?: Map<string, number> }) {
   const teams = rows.some((r) => r.teamName);
   const cars = rows.some((r) => r.car);
+  // Endurance: the car first, then the person driving it.
+  const endurance = rows.some((r) => r.entry);
   const best = Math.min(...rows.filter((r) => r.status === "finished" && r.rawMs != null).map((r) => r.rawMs!));
   return (
     <table className={points ? "t rank" : "t"}>
       <thead>
         <tr>
           <th className="pos">Pos</th>
-          <th>Driver</th>
-          <th>Plate</th>
-          {teams && <th>Team</th>}
-          {cars && <th>Car</th>}
+          {endurance ? (
+            <>
+              <th>Car</th>
+              <th>Driving</th>
+              <th>Plate</th>
+            </>
+          ) : (
+            <>
+              <th>Driver</th>
+              <th>Plate</th>
+              {teams && <th>Team</th>}
+              {cars && <th>Car</th>}
+            </>
+          )}
           <th>Status</th>
           <th className="n">Raw time</th>
           <th className="n">Penalties</th>
@@ -128,14 +140,30 @@ export function ResultsTable({ rows, mine, points }: { rows: Row[]; mine?: (r: R
         {rows.map((r) => (
           <tr key={r.id} className={mine?.(r) ? "mine" : undefined}>
             <td className="pos">{r.rank ?? "–"}</td>
-            <td>
-              {r.number && <span className="num">{r.number}</span>}
-              {r.name}
-              {r.status === "finished" && r.rawMs === best && <span className="fr" title="Fastest raw time">FR</span>}
-            </td>
-            <td>{r.plate}</td>
-            {teams && <td>{r.teamName ?? ""}</td>}
-            {cars && <td>{r.car ?? ""}</td>}
+            {endurance ? (
+              <>
+                <td>
+                  {r.number && <span className="num">{r.number}</span>}
+                  {carText(r)}
+                </td>
+                <td>
+                  {r.name}
+                  {r.status === "finished" && r.rawMs === best && <span className="fr" title="Fastest raw time">FR</span>}
+                </td>
+                <td>{r.plate}</td>
+              </>
+            ) : (
+              <>
+                <td>
+                  {r.number && <span className="num">{r.number}</span>}
+                  {r.name}
+                  {r.status === "finished" && r.rawMs === best && <span className="fr" title="Fastest raw time">FR</span>}
+                </td>
+                <td>{r.plate}</td>
+                {teams && <td>{r.teamName ?? ""}</td>}
+                {cars && <td>{r.car ?? ""}</td>}
+              </>
+            )}
             <td><span className={`st ${STATUS[r.status].cls}`}>{STATUS[r.status].text}</span></td>
             <td className="n">{r.rawMs != null ? fmtTime(r.rawMs) : "–"}</td>
             <td className="n">{r.penaltyMs > 0 ? <span className="pen">{fmtPenalty(r.penaltyMs)}</span> : "–"}</td>

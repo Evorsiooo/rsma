@@ -24,8 +24,10 @@ export interface Run {
   teamName?: string;
   /** Car the driver runs, taken from the team when staged. */
   car?: string;
-  /** Driver number. */
+  /** Driver number. In an endurance event the number and plate belong to the car and are copied from it. */
   number?: string;
+  /** Endurance: the car (entry) this driver runs in. Several drivers' runs share one car. */
+  entry?: string;
   /** Staged from registration; follows the registration cut while still queued. */
   reg?: boolean;
   /** Quali: one lap, then stop. Long run: several laps counted with Lap, the best lap is the time. */
@@ -93,6 +95,18 @@ export interface PitWindow {
   teamName: string;
   fromMs: number;
   toMs: number;
+  /** Endurance: the car the window is for; absent means every car of the team. */
+  entry?: string;
+}
+
+/** Endurance: who drives a car from a given time, in milliseconds from the session start. Lasts until the next entry. */
+export interface DriverPlan {
+  id: string;
+  team: string;
+  teamName: string;
+  entry: string;
+  driver: string;
+  fromMs: number;
 }
 
 export interface RaceState {
@@ -113,6 +127,8 @@ export interface RaceState {
   notes: DriverNote[];
   /** Visible to staff and to the team they belong to. */
   pitWindows: PitWindow[];
+  /** Endurance: who drives each car and when. Visible to staff and to the team they belong to. */
+  plan: DriverPlan[];
   /** Usernames of active driver radio listeners. */
   onRadio?: string[];
 }
@@ -136,6 +152,7 @@ export const emptyState = (): RaceState => ({
   log: [],
   notes: [],
   pitWindows: [],
+  plan: [],
   onRadio: [],
 });
 
@@ -153,7 +170,7 @@ export interface Viewer {
  */
 export function viewFor(s: RaceState, v: Viewer): RaceState {
   if (v.staff) return s;
-  const base: RaceState = { ...s, log: [], notes: s.notes.filter((n) => !!n.team && v.teams.includes(n.team)), radio: [], pitWindows: s.pitWindows.filter((w) => v.teams.includes(w.team)) };
+  const base: RaceState = { ...s, log: [], notes: s.notes.filter((n) => !!n.team && v.teams.includes(n.team)), radio: [], pitWindows: s.pitWindows.filter((w) => v.teams.includes(w.team)), plan: (s.plan ?? []).filter((p) => v.teams.includes(p.team)) };
   // Not signed in: the Public radio, which only carries Global messages.
   if (!v.user) return { ...base, radio: s.radio.filter((m) => m.to === "all") };
   const mine = s.runs.filter((r) => r.name.toLowerCase() === v.user);
@@ -224,9 +241,32 @@ export function classify(runs: Run[]): Row[] {
     return (entryIndex.get(a.id) ?? 0) - (entryIndex.get(b.id) ?? 0);
   });
 
+  // Endurance: a car takes one place, its fastest driver's. The car's other finished runs are listed without a rank.
+  const carBest = new Map<string, string>();
+  for (const r of selected) {
+    if (!r.entry || r.status !== "finished" || r.finalMs == null) continue;
+    const cur = carBest.get(r.entry);
+    if (!cur || r.finalMs < selected.find((x) => x.id === cur)!.finalMs!) carBest.set(r.entry, r.id);
+  }
   let rank = 0;
-  for (const r of selected) if (r.status === "finished" && r.finalMs != null) r.rank = ++rank;
+  for (const r of selected) {
+    if (r.status !== "finished" || r.finalMs == null) continue;
+    if (r.entry && carBest.get(r.entry) !== r.id) continue;
+    r.rank = ++rank;
+  }
   return selected;
+}
+
+/** The car's label in the tables: the team and the car it runs. */
+export const carText = (r: Pick<Run, "teamName" | "car">) => [r.teamName, r.car].filter(Boolean).join(" ");
+
+/**
+ * The run a release starts: the first queued one (of one team when given), skipping a driver whose car already has a
+ * driver on stage. A car holds one driver on stage at a time.
+ */
+export function releasable(runs: Run[], team?: string): Run | undefined {
+  const busy = new Set(runs.filter((r) => r.status === "onstage" && r.entry).map((r) => r.entry));
+  return runs.find((r) => r.status === "queued" && (!team || r.team === team) && !(r.entry && busy.has(r.entry)));
 }
 
 /** mm:ss.mmm */

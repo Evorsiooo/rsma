@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { Command } from "../../shared/commands";
-import { classify, fmtPenalty, fmtTime, type Flag, type Run } from "../../shared/race";
+import { classify, fmtPenalty, fmtTime, releasable, type Flag, type Run } from "../../shared/race";
 import type { SessionInfo, Team } from "../../shared/types";
 import { api, raceAccess, sendCommand } from "../api";
 import { Lcd } from "../Lcd";
@@ -15,6 +15,7 @@ import { useRaceLive } from "../useRaceLive";
 import { AssignDialog, AttributeDialog, ConfirmDelete, ConfirmDnf, ConfirmReset, NotesDialog, PenaltyDialog, RecipientsDialog, EditInfoDialog, RulesDialog, SetTimeDialog, TeamsDialog } from "./Dialogs";
 import { AudioSettingsDialog, useRadioTTS } from "../AudioSettings";
 import { startBeeps } from "../audio";
+import { CarDrivers, carTitle } from "../car";
 
 const ERRORS: Record<string, string> = {
   not_queued: "Only queued drivers can be removed.",
@@ -32,6 +33,8 @@ const ERRORS: Record<string, string> = {
   staging_off: "Staging is off for this session.",
   not_finished: "Only finished or DNF runs can be deleted.",
   already_queued: "That driver is already in the queue or on stage.",
+  car_busy: "Every queued driver's car already has a driver on stage.",
+  number_taken: "Another car of this event has that number.",
 };
 
 type DialogState =
@@ -208,7 +211,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
   const queued = state.runs.filter((r) => r.status === "queued");
   const onTrack = state.runs.filter((r) => r.status === "onstage");
   const byId = (id: string) => state.runs.find((r) => r.id === id);
-  const next = queued[0];
+  const next = releasable(state.runs);
   const counting = onTrack.filter((r) => r.startedAt! > now);
   const releaseLeft = state.lastReleaseAt ? Math.max(0, state.lastReleaseAt + state.cadenceSec * 1000 - now) : null;
   const sel = selId ? byId(selId) : undefined;
@@ -404,8 +407,9 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
 
               <div className="r-panel" style={{ width: 340 }}>
                 <div className="r-header">Selected car</div>
-                <div className="r-log r-log--title">{sel ? [sel.name, sel.number ? `#${sel.number}` : "", sel.plate].filter(Boolean).join("  ") : ""}</div>
+                <div className="r-log r-log--title">{sel ? carTitle(sel) : ""}</div>
                 <div className="r-log" style={{ flex: "1 1 0", minHeight: 0 }}>
+                  {sel && <CarDrivers runs={state.runs} sel={sel} />}
                   {sel?.penalties.map((p, i) => (
                     <div className="r-log__line is-red" key={i}>{fmtPenalty(p.ms)} {p.name}</div>
                   ))}
