@@ -435,7 +435,7 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
   const showNames = step === 5;
   const fsz = px(FONT);
   const L = closed
-    ? layoutLabels(g, lap, pit, { cx: g.w / 2, cy: g.h / 2, k, fs: fsz, bounds: { x0: 0, y0: 0, x1: g.w, y1: g.h }, turnBase: px(18), extra: showNames ? g.splits.map((q) => ({ key: q.id, u: q.u, chars: 3, base: px(26) })) : [] })
+    ? layoutLabels(g, lap, pit, { cx: g.w / 2, cy: g.h / 2, k, fs: fsz, bounds: { x0: 0, y0: 0, x1: g.w, y1: g.h }, turnBase: px(18), group: step !== 4, extra: showNames ? g.splits.map((q) => ({ key: q.id, u: q.u, chars: 3, base: px(26) })) : [] })
     : null;
   const turnSpots = L?.turns ?? [];
   const splitSpot = (id: string) => L?.extra.find((e) => e.key === id);
@@ -533,25 +533,25 @@ export function TrackEditor({ trackId, onClose, onSaved }: { trackId: string | n
                 })()}
               </>
             )}
-            {closed && turns.map((t, i) => {
+            {L?.turns.map((sp) => {
+              const lit = step === 4 && hot === `t${g.turns.indexOf(turns.find((t) => t.n === sp.n)?.u ?? -1)}`;
+              return (
+                <g key={`t${sp.n}`}>
+                  {step === 4 && sp.d > px(18) + 0.01 && <line x1={sp.ax} y1={sp.ay} x2={sp.x} y2={sp.y} stroke="#8d9396" strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
+                  <text x={sp.x} y={sp.y + fsz * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fsz} fill={lit ? (del ? RED : TEAL) : "#f0f0e8"} style={{ pointerEvents: "none" }}>
+                    {sp.text}
+                  </text>
+                </g>
+              );
+            })}
+            {closed && step === 4 && turns.map((t) => {
               const a = at(lap, t.u);
-              const sp = turnSpots[i];
               const key = `t${g.turns.indexOf(t.u)}`;
               const lit = (sel?.kind === "turn" && g.turns[sel.i] === t.u) || hot === key;
               return (
-                <g key={`t${t.n}`}>
-                  {sp && sp.d > px(18) + 0.01 && <line x1={a.x} y1={a.y} x2={sp.x} y2={sp.y} stroke="#8d9396" strokeWidth={1} vectorEffect="non-scaling-stroke" style={{ pointerEvents: "none" }} />}
-                  {sp && (
-                    <text x={sp.x} y={sp.y + fsz * 0.35} textAnchor="middle" fontFamily="PerfectDOSVGA, monospace" fontSize={fsz} fill={lit && step === 4 ? (del ? RED : TEAL) : "#f0f0e8"} style={{ pointerEvents: "none" }}>
-                      {t.n}
-                    </text>
-                  )}
-                  {step === 4 && (
-                    <g onPointerDown={(e) => grab(e, { kind: "turn", i: g.turns.indexOf(t.u) })} onPointerEnter={() => setHot(key)} onPointerLeave={() => setHot((h) => (h === key ? null : h))} style={{ cursor: del ? "pointer" : "grab" }}>
-                      <circle cx={a.x} cy={a.y} r={px(9)} fill="transparent" />
-                      <circle cx={a.x} cy={a.y} r={px(4)} fill={lit ? (del ? RED : "#f0f0e8") : TEAL} />
-                    </g>
-                  )}
+                <g key={`h${t.n}`} onPointerDown={(e) => grab(e, { kind: "turn", i: g.turns.indexOf(t.u) })} onPointerEnter={() => setHot(key)} onPointerLeave={() => setHot((h) => (h === key ? null : h))} style={{ cursor: del ? "pointer" : "grab" }}>
+                  <circle cx={a.x} cy={a.y} r={px(9)} fill="transparent" />
+                  <circle cx={a.x} cy={a.y} r={px(4)} fill={lit ? (del ? RED : "#f0f0e8") : TEAL} />
                 </g>
               );
             })}

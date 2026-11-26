@@ -126,6 +126,8 @@ export interface ZoneReport {
   /** The car selected in the team panel when it reported, e.g. "#7". */
   car?: string;
   at: number;
+  /** "clear": the team says a confirmed yellow is over, for the stewards to confirm. */
+  kind?: "clear";
 }
 
 export interface RaceState {

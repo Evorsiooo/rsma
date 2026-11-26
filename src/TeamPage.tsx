@@ -347,8 +347,8 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                 state={state}
                 team={team.id}
                 disabled={race.ended}
-                report={async (seg) => {
-                  const err = await reportYellow(sessionId, team.id, seg, sel ? (sel.number ? `#${sel.number}` : sel.name) : undefined);
+                report={async (seg, clear) => {
+                  const err = await reportYellow(sessionId, team.id, seg, sel ? (sel.number ? `#${sel.number}` : sel.name) : undefined, clear);
                   if (err) toast(ERRORS[err] ?? "Report not sent.");
                 }}
                 withdraw={async (rid) => {

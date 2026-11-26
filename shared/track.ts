@@ -214,35 +214,39 @@ export interface LabelSpot {
  * outer side, then the inner side, then one `step` further out, and so on; the first free spot wins. `d` tells how far
  * from its point a label ended up, so the caller can draw a leader line when it had to move.
  */
-export function placeLabels(items: LabelSpot[], o: { h: number; base: number; step: number; tries?: number; gap?: number; avoid?: Box[] }): { x: number; y: number; d: number }[] {
+export function placeLabels(items: LabelSpot[], o: { h: number; base: number; step: number; tries?: number; gap?: number; avoid?: Box[]; bounds?: { x0: number; y0: number; x1: number; y1: number } }): { x: number; y: number; d: number; ok: boolean }[] {
   const tries = o.tries ?? 6;
   const gap = o.gap ?? o.h * 0.15;
-  const out: { x: number; y: number; d: number }[] = [];
+  const out: { x: number; y: number; d: number; ok: boolean }[] = [];
   for (const it of items) {
-    let best: { x: number; y: number; d: number } | null = null;
+    let best: { x: number; y: number; d: number; ok: boolean } | null = null;
     search: for (let j = 0; j < tries; j++) {
       const d = (it.base ?? o.base) + j * o.step;
       for (const side of [1, -1]) {
         const x = it.x + it.nx * side * d;
         const y = it.y + it.ny * side * d;
+        const b = o.bounds;
+        const outside = !!b && (x - it.w / 2 < b.x0 || x + it.w / 2 > b.x1 || y - o.h / 2 < b.y0 || y + o.h / 2 > b.y1);
         const clash =
+          outside ||
           out.some((q, i) => Math.abs(q.x - x) < (items[i].w + it.w) / 2 + gap && Math.abs(q.y - y) < o.h + gap) ||
           (o.avoid ?? []).some((b) => Math.abs(b.x - x) < (b.w + it.w) / 2 + gap && Math.abs(b.y - y) < (b.h + o.h) / 2 + gap);
         if (!clash) {
-          best = { x, y, d };
+          best = { x, y, d, ok: true };
           break search;
         }
       }
     }
-    out.push(best ?? { x: it.x + it.nx * (it.base ?? o.base), y: it.y + it.ny * (it.base ?? o.base), d: it.base ?? o.base });
+    out.push(best ?? { x: it.x + it.nx * (it.base ?? o.base), y: it.y + it.ny * (it.base ?? o.base), d: it.base ?? o.base, ok: false });
   }
   return out;
 }
 
 /** Where each label of a map goes: turn numbers (and any `extra` labels on the lap), then the points of interest. */
 export interface MapLabels {
-  turns: { n: number; ax: number; ay: number; x: number; y: number; d: number; ux: number; uy: number }[];
-  extra: { key: string; ax: number; ay: number; x: number; y: number; d: number; ux: number; uy: number }[];
+  /** Turn numbers; `text` is "8" or, for numbers too close to tell apart, a range like "13-15". */
+  turns: { n: number; text: string; ax: number; ay: number; x: number; y: number; d: number; ux: number; uy: number }[];
+  extra: { key: string; ax: number; ay: number; x: number; y: number; d: number; ux: number; uy: number; ok: boolean }[];
   pois: { id: string; label: string; x: number; y: number; tx: number; ty: number; anchor: "start" | "middle" | "end" }[];
 }
 
@@ -259,7 +263,7 @@ export function layoutLabels(
   g: TrackGeometry,
   lap: Sampled,
   pit: Sampled | null,
-  o: { cx: number; cy: number; k: number; fs: number; bounds: { x0: number; y0: number; x1: number; y1: number }; turnBase?: number; extra?: { key: string; u: number; chars: number; base: number; inward?: boolean }[] },
+  o: { cx: number; cy: number; k: number; fs: number; bounds: { x0: number; y0: number; x1: number; y1: number }; turnBase?: number; group?: boolean; extra?: { key: string; u: number; chars: number; base: number; inward?: boolean }[] },
 ): MapLabels {
   const { k, fs, bounds } = o;
   const cw = fs * CHAR_EM;
@@ -318,21 +322,42 @@ export function layoutLabels(
     const out = (nx * (p.x - o.cx) + ny * (p.y - o.cy) > 0 ? 1 : -1) * (inward ? -1 : 1);
     return { p, nx: nx * out, ny: ny * out };
   };
+  const cwTurn = (text: string) => text.length * cw;
+  const turnBase = o.turnBase ?? 15 * k;
+  // Turns whose numbers would touch share one label ("13-15"), so a tight complex reads as one thing.
+  let groups: { n: number; u: number; text: string }[] = turnsOf(g).map((t) => ({ n: t.n, u: t.u, text: String(t.n) }));
+  if (o.group !== false && groups.length > 1) {
+    const at0 = turnsOf(g).map((t) => {
+      const { p, nx, ny } = normal(t.u);
+      return { x: p.x + nx * turnBase, y: p.y + ny * turnBase, w: cwTurn(String(t.n)) };
+    });
+    const touch = (a: (typeof at0)[number], b: (typeof at0)[number]) => Math.abs(a.x - b.x) < (a.w + b.w) / 2 + fs * 0.9 && Math.abs(a.y - b.y) < fs * 1.5;
+    const runs: number[][] = [[0]];
+    for (let i = 1; i < at0.length; i++) (touch(at0[i - 1], at0[i]) ? runs[runs.length - 1] : runs[runs.push([]) - 1]).push(i);
+    if (runs.length > 1 && touch(at0[at0.length - 1], at0[0])) runs[runs.length - 1].push(...runs.shift()!);
+    const ts = turnsOf(g);
+    groups = runs.map((r) => {
+      const first = ts[r[0]].n;
+      const last = ts[r[r.length - 1]].n;
+      return { n: first, u: ts[r[Math.floor(r.length / 2)]].u, text: r.length === 1 ? String(first) : `${first}-${last}` };
+    });
+  }
   const spots = [
-    ...turnsOf(g).map((t) => ({ t: t.n, u: t.u, chars: String(t.n).length, base: o.turnBase ?? 15 * k, inward: false })),
-    ...(o.extra ?? []).map((e) => ({ t: e.key, u: e.u, chars: e.chars, base: e.base, inward: !!e.inward })),
+    ...groups.map((t) => ({ t: t.n, text: t.text, u: t.u, chars: t.text.length, base: turnBase, inward: false })),
+    ...(o.extra ?? []).map((e) => ({ t: e.key, text: "", u: e.u, chars: e.chars, base: e.base, inward: !!e.inward })),
   ].map((s) => {
     const { p, nx, ny } = normal(s.u, s.inward);
     return { s, p, nx, ny, w: s.chars * cw };
   });
-  const placed = placeLabels(spots.map((q) => ({ x: q.p.x, y: q.p.y, nx: q.nx, ny: q.ny, w: q.w, base: q.s.base })), { h: fs, base: o.turnBase ?? 15 * k, step: fs * 0.95, avoid: [...dots, ...poiBoxes] });
+  const placed = placeLabels(spots.map((q) => ({ x: q.p.x, y: q.p.y, nx: q.nx, ny: q.ny, w: q.w, base: q.s.base })), { h: fs, base: o.turnBase ?? 15 * k, step: fs * 0.95, tries: 4, avoid: [...dots, ...poiBoxes], bounds });
   const out = spots.map((q, i) => {
     const dx = placed[i].x - q.p.x;
     const dy = placed[i].y - q.p.y;
     const len = Math.hypot(dx, dy) || 1;
-    return { t: q.s.t, ax: q.p.x, ay: q.p.y, x: placed[i].x, y: placed[i].y, d: placed[i].d, ux: dx / len, uy: dy / len };
+    return { t: q.s.t, text: q.s.text, ok: placed[i].ok, ax: q.p.x, ay: q.p.y, x: placed[i].x, y: placed[i].y, d: placed[i].d, ux: dx / len, uy: dy / len };
   });
-  const nTurns = turnsOf(g).length;
+
+  const nTurns = groups.length;
   return {
     turns: out.slice(0, nTurns).map((q) => ({ ...q, n: q.t as number })),
     extra: out.slice(nTurns).map((q) => ({ ...q, key: q.t as string })),

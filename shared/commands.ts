@@ -59,7 +59,7 @@ export type Command =
   | { type: "zoneClear"; seg: string; label: string }
   | { type: "zoneDismiss"; seg: string; label?: string }
   | { type: "zoneClearAll" }
-  | { type: "zoneReport"; team: string; teamName: string; seg: string; car?: string; label?: string }
+  | { type: "zoneReport"; team: string; teamName: string; seg: string; car?: string; label?: string; clear?: boolean }
   | { type: "zoneWithdraw"; team: string; id: string }
   | { type: "reset" };
 
@@ -657,6 +657,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const label = clean(cmd.label, 40);
       if (!label || !s.zones.some((z) => z.seg === seg)) return { error: "not_found" };
       s.zones = s.zones.filter((z) => z.seg !== seg);
+      s.zoneReports = s.zoneReports.filter((z) => z.seg !== seg);
       auto("all", `Yellow flag cleared, ${label}.`, undefined, "green");
       note(`Yellow cleared, ${label}`, "green");
       break;
@@ -680,12 +681,13 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
       const seg = clean(cmd.seg, 20);
       const team = clean(cmd.team, 60);
       if (!seg || !team) return { error: "invalid" };
-      // A team has one report per segment; a segment already yellow needs none.
-      if (s.zones.some((z) => z.seg === seg)) return { error: "already_yellow" };
+      // A team has one report per segment. A segment already yellow needs no yellow report, and only a yellow one can be reported clear.
+      const yellow = s.zones.some((z) => z.seg === seg);
+      if (cmd.clear ? !yellow : yellow) return { error: cmd.clear ? "not_yellow" : "already_yellow" };
       s.zoneReports = s.zoneReports.filter((z) => !(z.seg === seg && z.team === team));
-      s.zoneReports.push({ id: ctx.newId(), seg, team, teamName: clean(cmd.teamName, 40), car: clean(cmd.car, 24) || undefined, at: ctx.now });
+      s.zoneReports.push({ id: ctx.newId(), seg, team, teamName: clean(cmd.teamName, 40), car: clean(cmd.car, 24) || undefined, at: ctx.now, ...(cmd.clear ? { kind: "clear" as const } : {}) });
       if (s.zoneReports.length > 100) s.zoneReports.splice(0, s.zoneReports.length - 100);
-      note(`Yellow reported, ${clean(cmd.label, 40) || seg}: ${clean(cmd.teamName, 40) || team}${clean(cmd.car, 24) ? ` ${clean(cmd.car, 24)}` : ""}`, "yellow");
+      note(`Yellow ${cmd.clear ? "clear " : ""}reported, ${clean(cmd.label, 40) || seg}: ${clean(cmd.teamName, 40) || team}${clean(cmd.car, 24) ? ` ${clean(cmd.car, 24)}` : ""}`, "yellow");
       break;
     }
     case "zoneWithdraw": {
