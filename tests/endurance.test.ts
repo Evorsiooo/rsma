@@ -90,3 +90,20 @@ test("wording", () => {
   assert.equal(carName({ label: "Team car", number: "12" }), "#12 Team car");
   assert.equal(carName({ label: "Team car", number: null }), "Team car");
 });
+
+test("lineup lock is the pick cutoff, or the session start", async () => {
+  const { lineupLockAt } = await import("../shared/registration.ts");
+  assert.equal(lineupLockAt(500, 900), 500);
+  assert.equal(lineupLockAt(null, 900), 900);
+  assert.equal(lineupLockAt(null, null), null);
+});
+
+test("moveRank swaps neighbours and leaves the list at its ends", async () => {
+  const { moveRank } = await import("../shared/registration.ts");
+  const l = ["a", "b", "c"];
+  assert.deepEqual(moveRank(l, 1, -1), ["b", "a", "c"]);
+  assert.deepEqual(moveRank(l, 1, 1), ["a", "c", "b"]);
+  assert.equal(moveRank(l, 0, -1), l);
+  assert.equal(moveRank(l, 2, 1), l);
+  assert.deepEqual(l, ["a", "b", "c"]);
+});

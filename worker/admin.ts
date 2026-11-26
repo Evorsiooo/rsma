@@ -384,8 +384,9 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
   if ((b.teamLimit != null && teamLimit === null) || (pickCutoff !== null && !Number.isFinite(pickCutoff))) return c.json({ error: "invalid" }, 400);
   if (endurance) {
     // The lineups replace the per-team driver limit. Its stored value is kept, so switching endurance off brings it back.
-    const old = await c.env.DB.prepare("SELECT team_limit AS teamLimit, pick_cutoff AS pickCutoff FROM session_registration WHERE session_id = ?").bind(id).first<{ teamLimit: number | null; pickCutoff: number | null }>();
-    ({ teamLimit, pickCutoff } = old ?? { teamLimit: null, pickCutoff: null });
+    // The cutoff is when team managers' lineups lock (blank for the session start).
+    const old = await c.env.DB.prepare("SELECT team_limit AS teamLimit FROM session_registration WHERE session_id = ?").bind(id).first<{ teamLimit: number | null }>();
+    teamLimit = old?.teamLimit ?? null;
   }
   const teamCap = capIn === null || capIn === undefined ? null : num(capIn);
   if (drivers === null || employees === null || spectators === null || reserved === null || (capIn != null && teamCap === null)) return c.json({ error: "invalid" }, 400);

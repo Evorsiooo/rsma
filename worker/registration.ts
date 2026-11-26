@@ -25,7 +25,7 @@ import { SESSION_COOKIE } from "./auth/session";
 import { pruneStatements } from "./entries";
 import { syncRegistered } from "./stage";
 import { cleanUsername, resolveUser, type AdminEnv } from "./admin";
-import { eventIn, loadEventData, managedTeams, pickUntilIn, rootIn, settingsIn, viewIn, type EventData } from "./reg-data";
+import { eventIn, loadEventData, lineupLockIn, managedTeams, pickUntilIn, rootIn, settingsIn, viewIn, type EntryRow, type EventData } from "./reg-data";
 
 type E = { Bindings: AdminEnv; Variables: { me: Me | null } };
 type C = Context<E>;
@@ -516,14 +516,9 @@ async function carsDone(c: C) {
   return done(c, await loadEventData(c.env, c, { sessionId: sid }));
 }
 
-/** Staff enter a car for a team, up to the event's cars per team. */
-registration.post("/:sid/cars", async (c) => {
-  const gate = await carGate(c);
-  if (gate instanceof Response) return gate;
-  const { d, root, s } = gate;
-  const b = (await c.req.json().catch(() => ({}))) as CarBody;
-  if (typeof b.teamId !== "string" || !(await teamOk(c, b.teamId))) return c.json({ error: "invalid" }, 400);
-  const own = d.entries.filter((e) => e.rootSession === root && e.teamId === b.teamId);
+/** Enters a car for a team, up to the event's cars per team. Used by staff and by the team's managers. */
+async function addCar(c: C, d: EventData, root: string, s: RegSettings, teamId: string, b: CarBody) {
+  const own = d.entries.filter((e) => e.rootSession === root && e.teamId === teamId);
   if (own.length >= s.carsPerTeam) return c.json({ error: "car_limit" }, 409);
   const label = cleanText(b.label, 40, /^[^\n]+$/) ?? `Car ${own.length + 1}`;
   const number = b.number === undefined ? null : cleanText(b.number, 4, /^[A-Za-z0-9]+$/);
@@ -531,24 +526,18 @@ registration.post("/:sid/cars", async (c) => {
   const seats = b.seats === undefined ? s.seatsPerCar : b.seats;
   if (number === undefined || plate === undefined || !Number.isInteger(seats) || (seats as number) < 1 || (seats as number) > s.seatsPerCar) return c.json({ error: "invalid" }, 400);
   if (number && d.entries.some((e) => e.rootSession === root && e.number === number)) return c.json({ error: "number_taken" }, 409);
-  const ids = b.drivers === undefined ? [] : checkLineup(d, root, b.teamId, null, b.drivers);
+  const ids = b.drivers === undefined ? [] : checkLineup(d, root, teamId, null, b.drivers);
   if (typeof ids === "string") return c.json({ error: ids }, ids === "in_other_car" ? 409 : 400);
   const id = crypto.randomUUID();
   await c.env.DB.batch([
-    c.env.DB.prepare("INSERT INTO entries (id, root_session, team_id, label, number, plate, seats, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, root, b.teamId, label, number, plate, seats, Date.now()),
+    c.env.DB.prepare("INSERT INTO entries (id, root_session, team_id, label, number, plate, seats, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)").bind(id, root, teamId, label, number, plate, seats, Date.now()),
     ...lineupStatements(c, root, id, ids).slice(1),
   ]);
   return carsDone(c);
-});
+}
 
-/** Staff change a car's label, number, plate, race seats or its whole ranked lineup. */
-registration.put("/:sid/cars/:id", async (c) => {
-  const gate = await carGate(c);
-  if (gate instanceof Response) return gate;
-  const { d, root, s } = gate;
-  const cur = d.entries.find((e) => e.id === c.req.param("id") && e.rootSession === root);
-  if (!cur) return c.json({ error: "not_found" }, 404);
-  const b = (await c.req.json().catch(() => ({}))) as CarBody;
+/** Changes a car's label, number, plate, race seats or its whole ranked lineup. */
+async function editCar(c: C, d: EventData, root: string, s: RegSettings, cur: EntryRow, b: CarBody) {
   const label = cleanText(b.label, 40, /^[^\n]+$/);
   const number = cleanText(b.number, 4, /^[A-Za-z0-9]+$/);
   const plate = cleanText(b.plate, 12, /^[A-Za-z0-9 -]+$/);
@@ -562,12 +551,68 @@ registration.put("/:sid/cars/:id", async (c) => {
     ...(ids ? lineupStatements(c, root, cur.id, ids) : []),
   ]);
   return carsDone(c);
+}
+
+const removeCar = async (c: C, root: string, id: string) => {
+  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM entry_drivers WHERE entry_id = ?").bind(id), c.env.DB.prepare("DELETE FROM entries WHERE id = ? AND root_session = ?").bind(id, root)]);
+  return carsDone(c);
+};
+
+/** Staff enter a car for a team. Staff can change cars at any time, also after the lineups lock. */
+registration.post("/:sid/cars", async (c) => {
+  const gate = await carGate(c);
+  if (gate instanceof Response) return gate;
+  const b = (await c.req.json().catch(() => ({}))) as CarBody;
+  if (typeof b.teamId !== "string" || !(await teamOk(c, b.teamId))) return c.json({ error: "invalid" }, 400);
+  return addCar(c, gate.d, gate.root, gate.s, b.teamId, b);
+});
+
+registration.put("/:sid/cars/:id", async (c) => {
+  const gate = await carGate(c);
+  if (gate instanceof Response) return gate;
+  const cur = gate.d.entries.find((e) => e.id === c.req.param("id") && e.rootSession === gate.root);
+  if (!cur) return c.json({ error: "not_found" }, 404);
+  return editCar(c, gate.d, gate.root, gate.s, cur, (await c.req.json().catch(() => ({}))) as CarBody);
 });
 
 registration.delete("/:sid/cars/:id", async (c) => {
   const gate = await carGate(c);
   if (gate instanceof Response) return gate;
-  const id = c.req.param("id");
-  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM entry_drivers WHERE entry_id = ?").bind(id), c.env.DB.prepare("DELETE FROM entries WHERE id = ? AND root_session = ?").bind(id, gate.root)]);
-  return carsDone(c);
+  return removeCar(c, gate.root, c.req.param("id"));
+});
+
+/** Loads the event and checks the caller manages the team, the event is an endurance event and the lineups are not locked. */
+async function lineupGate(c: C): Promise<{ d: EventData; team: { id: string; name: string }; root: string; s: RegSettings } | Response> {
+  const gate = await teamGate(c);
+  if (gate instanceof Response) return gate;
+  const { d, team, sid } = gate;
+  const s = settingsIn(d, sid);
+  if (!s) return c.json({ error: "no_registration" }, 404);
+  if (!s.endurance) return c.json({ error: "not_endurance" }, 409);
+  const lock = lineupLockIn(d, sid);
+  if (lock !== null && Date.now() > lock) return c.json({ error: "lineup_locked" }, 409);
+  return { d, team, root: rootIn(d, sid), s };
+}
+
+/** A team's managers enter a car and rank its drivers until the lineups lock; after that only staff change them. */
+registration.post("/:sid/team/:teamId/cars", async (c) => {
+  const g = await lineupGate(c);
+  if (g instanceof Response) return g;
+  return addCar(c, g.d, g.root, g.s, g.team.id, (await c.req.json().catch(() => ({}))) as CarBody);
+});
+
+registration.put("/:sid/team/:teamId/cars/:id", async (c) => {
+  const g = await lineupGate(c);
+  if (g instanceof Response) return g;
+  const cur = g.d.entries.find((e) => e.id === c.req.param("id") && e.rootSession === g.root && e.teamId === g.team.id);
+  if (!cur) return c.json({ error: "not_found" }, 404);
+  return editCar(c, g.d, g.root, g.s, cur, (await c.req.json().catch(() => ({}))) as CarBody);
+});
+
+registration.delete("/:sid/team/:teamId/cars/:id", async (c) => {
+  const g = await lineupGate(c);
+  if (g instanceof Response) return g;
+  const cur = g.d.entries.find((e) => e.id === c.req.param("id") && e.rootSession === g.root && e.teamId === g.team.id);
+  if (!cur) return carsDone(c);
+  return removeCar(c, g.root, cur.id);
 });
