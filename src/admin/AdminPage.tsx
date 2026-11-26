@@ -932,7 +932,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
         if (s.endurance) setCars({ carsPerTeam: String(s.carsPerTeam), seatsPerCar: String(s.seatsPerCar) });
         setAttend(s.attendance);
         setAttendOpens(String(s.attendanceOpens));
-        setAttendCloses(String(s.attendanceCloses));
+        setAttendCloses(String(-s.attendanceCloses));
       }
       setLoaded(true);
     }, () => setLoaded(true));
@@ -946,18 +946,18 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
     spectators: num(n.spectators),
     factoryReserved: num(n.factoryReserved),
     independents,
-    teamCap: teamCap.trim() === "" ? null : num(teamCap),
+    teamCap: endurance ? num(cars.carsPerTeam) : teamCap.trim() === "" ? null : num(teamCap),
     teamLimit: teamLimit.trim() === "" ? null : num(teamLimit),
     pickCutoff: (!endurance && teamLimit.trim() === "") || pickCutoff === "" ? null : fromLocalInput(pickCutoff),
     follows,
     endurance,
     attendance: attend,
     attendanceOpens: num(attendOpens),
-    attendanceCloses: num(attendCloses),
+    attendanceCloses: -num(attendCloses),
     carsPerTeam: endurance ? num(cars.carsPerTeam) : 0,
     seatsPerCar: endurance ? num(cars.seatsPerCar) : 0,
   };
-  const valid = [settings.attendanceOpens, settings.attendanceCloses].every((m) => Number.isFinite(m) && m <= ATTENDANCE_MAX_MINUTES) && [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt) && (!endurance || follows !== null || (settings.carsPerTeam >= 1 && settings.seatsPerCar >= 1));
+  const valid = [settings.attendanceOpens, settings.attendanceCloses].every((m) => Number.isFinite(m) && Math.abs(m) <= ATTENDANCE_MAX_MINUTES) && settings.attendanceCloses <= 0 && -settings.attendanceCloses < settings.attendanceOpens && [settings.opensAt, settings.deadline, settings.drivers, settings.employees, settings.spectators, settings.factoryReserved].every(Number.isFinite) && (settings.teamCap === null || Number.isFinite(settings.teamCap)) && (settings.teamLimit === null || Number.isFinite(settings.teamLimit)) && (follows !== null || settings.deadline > settings.opensAt) && (!endurance || follows !== null || (settings.carsPerTeam >= 1 && settings.seatsPerCar >= 1));
   const save = async () => {
     const r = on ? await admin.setRegistration(session.id, settings) : await admin.clearRegistration(session.id);
     if (!r.ok) return say(r.error);
@@ -1019,12 +1019,14 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
             <input className="r-field r-fill" type="datetime-local" aria-label="Registration deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
           </label></>}
           {follows === null && <>
-          {field(endurance ? "Car spots" : "Driver spots", "drivers")}
+          {field(endurance ? "Car spots (total cars in the event, all teams)" : "Driver spots", "drivers")}
           {field("Reserved per factory team", "factoryReserved")}
-          <label className="r-row" style={{ alignItems: "center" }}>
-            <span style={{ width: 240, flex: "none" }}>{endurance ? "Team car cap (blank for none)" : "Team driver cap (blank for none)"}</span>
-            <input className="r-field r-fill" inputMode="numeric" aria-label="Team driver cap" value={teamCap} onChange={(e) => setTeamCap(e.target.value)} />
-          </label>
+          {!endurance && (
+            <label className="r-row" style={{ alignItems: "center" }}>
+              <span style={{ width: 240, flex: "none" }}>Team driver cap (blank for none)</span>
+              <input className="r-field r-fill" inputMode="numeric" aria-label="Team driver cap" value={teamCap} onChange={(e) => setTeamCap(e.target.value)} />
+            </label>
+          )}
           {field("Employee spots", "employees")}
           {field("Spectator spots", "spectators")}
           <label className="r-check">
@@ -1034,7 +1036,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
           {endurance && (
             <>
               <label className="r-row" style={{ alignItems: "center" }}>
-                <span style={{ width: 240, flex: "none" }}>Cars per team</span>
+                <span style={{ width: 240, flex: "none" }}>Cars per team (most cars one team can enter)</span>
                 <input className="r-field r-fill" inputMode="numeric" aria-label="Cars per team" value={cars.carsPerTeam} onChange={(e) => setCars({ ...cars, carsPerTeam: e.target.value })} />
               </label>
               <label className="r-row" style={{ alignItems: "center" }}>
@@ -1045,7 +1047,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
                 <span style={{ width: 240, flex: "none" }}>Lineups lock (blank for session start)</span>
                 <input className="r-field r-fill" type="datetime-local" aria-label="Lineups lock" value={pickCutoff} onChange={(e) => setPickCutoff(e.target.value)} />
               </label>
-              <div style={{ color: "var(--r-text-dim)" }}>The driver spots above count cars, and so does the team cap. A team ranks as many drivers as it wants on each car: the top ones race and the rest are reserve. Team managers change lineups until the lock; after it only staff can. The same limits apply to every team. Existing team drivers stay unassigned until they are put in a car.</div>
+              <div style={{ color: "var(--r-text-dim)" }}>The car spots above count cars, and no team can have more cars than the limit above. A team ranks as many drivers as it wants on each car: the top ones race and the rest are reserve. Team managers change lineups until the lock; after it only staff can. The same limits apply to every team. Existing team drivers stay unassigned until they are put in a car.</div>
             </>
           )}
           </>}
@@ -1074,15 +1076,15 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
           {attend && (
             <>
               <label className="r-row" style={{ alignItems: "center" }}>
-                <span style={{ width: 240, flex: "none" }}>Link opens, minutes before the start</span>
-                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance opens, minutes before the start" value={attendOpens} onChange={(e) => setAttendOpens(e.target.value)} />
+                <span style={{ width: 240, flex: "none" }}>Link opens (minutes before the session starts)</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance opens, minutes before the session starts" value={attendOpens} onChange={(e) => setAttendOpens(e.target.value)} />
               </label>
               <label className="r-row" style={{ alignItems: "center" }}>
-                <span style={{ width: 240, flex: "none" }}>Closes, minutes after the start</span>
-                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance closes, minutes after the start" value={attendCloses} onChange={(e) => setAttendCloses(e.target.value)} />
+                <span style={{ width: 240, flex: "none" }}>Link closes (minutes before the session starts)</span>
+                <input className="r-field r-fill" inputMode="numeric" aria-label="Attendance closes, minutes before the session starts" value={attendCloses} onChange={(e) => setAttendCloses(e.target.value)} />
               </label>
               <div style={{ color: "var(--r-text-dim)" }}>
-                Link: <b>{location.origin}/attend/{session.id}</b>. Drivers sign in with Roblox and confirm. Nobody who has not confirmed is staged. Staff can mark anyone present or absent under Registrations.
+                Link: <b>{location.origin}/attend/{session.id}</b>. 0 closes it exactly when the session starts; 5 closes it five minutes before. It must close after it opens. Drivers sign in with Roblox and confirm. Nobody who has not confirmed is staged. Staff can mark anyone present or absent under Registrations.
               </div>
             </>
           )}

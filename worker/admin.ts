@@ -6,7 +6,7 @@ import { getMe, hasRole, type AuthEnv } from "./auth";
 import { SESSION_COOKIE } from "./auth/session";
 import { sessionsOf } from "./sessions";
 import { resolveUserId } from "./roblox-users";
-import { ATTENDANCE_DEFAULT_CLOSES, ATTENDANCE_DEFAULT_OPENS, cleanMinutes } from "../shared/attendance";
+import { ATTENDANCE_DEFAULT_CLOSES, ATTENDANCE_DEFAULT_OPENS, cleanCloses, cleanMinutes } from "../shared/attendance";
 import { rootOf } from "./registration";
 import { regSessionsOf, syncRegistered, syncSessions } from "./stage";
 import { aiVoiceOn, issueCode, revokeCode, setAiVoice, setTokenMode, tokenMode } from "./access-codes";
@@ -399,7 +399,7 @@ admin.put("/sessions/:id/registration", guard("races"), async (c) => {
   const teamCap = capIn === null || capIn === undefined ? null : num(capIn);
   if (drivers === null || employees === null || spectators === null || reserved === null || (capIn != null && teamCap === null)) return c.json({ error: "invalid" }, 400);
   const attendOpens = b.attendanceOpens === undefined ? ATTENDANCE_DEFAULT_OPENS : cleanMinutes(b.attendanceOpens);
-  const attendCloses = b.attendanceCloses === undefined ? ATTENDANCE_DEFAULT_CLOSES : cleanMinutes(b.attendanceCloses);
+  const attendCloses = attendOpens === null ? null : b.attendanceCloses === undefined ? ATTENDANCE_DEFAULT_CLOSES : cleanCloses(b.attendanceCloses, attendOpens);
   if (attendOpens === null || attendCloses === null) return c.json({ error: "invalid" }, 400);
   await c.env.DB.prepare(
     `INSERT INTO session_registration (session_id, opens_at, deadline, drivers, employees, spectators, factory_reserved, independents, follows, team_cap, team_limit, pick_cutoff, endurance, cars_per_team, seats_per_car, attendance, attendance_opens, attendance_closes)

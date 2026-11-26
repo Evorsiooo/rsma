@@ -28,6 +28,11 @@ export function attendancePhase(s: AttendanceSettings | null, startsAt: number, 
   return now < w.opensAt ? "upcoming" : now < w.closesAt ? "open" : "closed";
 }
 
+/** attendanceCloses is stored as minutes after the start and never positive: the link closes at the start (0) or before it (negative), and after it opens. */
+export function cleanCloses(v: unknown, opens: number): number | null {
+  return Number.isInteger(v) && (v as number) <= 0 && -(v as number) <= ATTENDANCE_MAX_MINUTES && -(v as number) < opens ? (v as number) : null;
+}
+
 /** Whole minutes in a form field: null when it is not a number from 0 to the maximum. */
 export function cleanMinutes(v: unknown): number | null {
   return Number.isInteger(v) && (v as number) >= 0 && (v as number) <= ATTENDANCE_MAX_MINUTES ? (v as number) : null;

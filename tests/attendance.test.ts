@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { attendancePhase, attendanceWindow, cleanMinutes, whoIsPresent, type AttendanceSettings, type AttendanceStatus } from "../shared/attendance.ts";
+import { attendancePhase, attendanceWindow, cleanCloses, cleanMinutes, whoIsPresent, type AttendanceSettings, type AttendanceStatus } from "../shared/attendance.ts";
 
 const start = Date.UTC(2026, 10, 28, 18, 0);
 const on: AttendanceSettings = { attendance: true, attendanceOpens: 10, attendanceCloses: 0 };
@@ -35,4 +35,16 @@ test("minutes must be whole numbers in range", () => {
   assert.equal(cleanMinutes(-1), null);
   assert.equal(cleanMinutes(1.5), null);
   assert.equal(cleanMinutes("5"), null);
+});
+
+test("the link can close before the session starts, and only after it opens", () => {
+  const start = 1_000_000_000;
+  assert.deepEqual(attendanceWindow({ attendanceOpens: 30, attendanceCloses: -5 }, start), { opensAt: start - 30 * MIN, closesAt: start - 5 * MIN });
+  assert.equal(attendancePhase({ attendance: true, attendanceOpens: 30, attendanceCloses: -5 }, start, start - 2 * MIN), "closed");
+  assert.equal(cleanCloses(-5, 30), -5);
+  assert.equal(cleanCloses(0, 30), 0);
+  assert.equal(cleanCloses(-30, 30), null);
+  assert.equal(cleanCloses(-45, 30), null);
+  assert.equal(cleanCloses(1.5, 30), null);
+  assert.equal(cleanCloses(5, 30), null);
 });
