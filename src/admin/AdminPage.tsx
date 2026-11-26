@@ -1019,7 +1019,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
             <input className="r-field r-fill" type="datetime-local" aria-label="Registration deadline" value={deadline} onChange={(e) => setDeadline(e.target.value)} />
           </label></>}
           {follows === null && <>
-          {field(endurance ? "Car spots" : "Driver spots", "drivers")}
+          {field(endurance ? "Car spots (total cars in the event, all teams)" : "Driver spots", "drivers")}
           {field("Reserved per factory team", "factoryReserved")}
           {!endurance && (
             <label className="r-row" style={{ alignItems: "center" }}>
@@ -1036,7 +1036,7 @@ function RegistrationDialog({ session, sessions, onClose }: { session: SessionSu
           {endurance && (
             <>
               <label className="r-row" style={{ alignItems: "center" }}>
-                <span style={{ width: 240, flex: "none" }}>Cars per team (the most one team can enter)</span>
+                <span style={{ width: 240, flex: "none" }}>Cars per team (most cars one team can enter)</span>
                 <input className="r-field r-fill" inputMode="numeric" aria-label="Cars per team" value={cars.carsPerTeam} onChange={(e) => setCars({ ...cars, carsPerTeam: e.target.value })} />
               </label>
               <label className="r-row" style={{ alignItems: "center" }}>
