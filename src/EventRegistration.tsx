@@ -354,7 +354,7 @@ function CarsBox({ team, root, rv, ord, act, open }: { team: RegTeam; root: stri
   return (
     <Box title={`${team.name} · Cars`}>
       <Bd>
-        <div><b>{cars.length} of {s.carsPerTeam} cars entered.</b> Up to {s.seatsPerCar} drivers race in a car, the first ones in its list. Any others you add are reserves.</div>
+        <div><b>{cars.length} of {s.carsPerTeam} cars entered.</b> Choose for each car how many drivers race (up to {s.seatsPerCar}). They are the first ones in its list, and any others are reserves.</div>
         <div className="mute">
           {rv.lineupLock !== null && !locked ? `Change lineups until ${fmt.format(rv.lineupLock)}. ` : ""}
           Putting a driver in a car registers them. Drivers must <a href={GROUP_URL} target="_blank" rel="noreferrer">join the RSMA Roblox group</a> (a pending request counts) before the deadline, or they cannot race.
@@ -370,6 +370,14 @@ function CarsBox({ team, root, rv, ord, act, open }: { team: RegTeam; root: stri
               <span style={{ flex: 1 }}>
                 <b>Car {n + 1}</b> <span className="mute">· {lineupLine(ids.length, c.seats)} · {status}</span>
               </span>
+              <label className="bar">
+                <span>Drivers racing</span>
+                <select aria-label={`Drivers racing in car ${n + 1}`} value={c.seats} disabled={locked || !open} onChange={(e) => act(() => registrationApi.teamCarEdit(root, team.id, c.id, { seats: Number(e.target.value) }))}>
+                  {Array.from({ length: Math.max(s.seatsPerCar, c.seats) }, (_, k) => k + 1).map((k) => (
+                    <option key={k} value={k}>{k}</option>
+                  ))}
+                </select>
+              </label>
               <button className="btn sm red" disabled={locked || !open} onClick={() => act(() => registrationApi.teamCarRemove(root, team.id, c.id))}>Remove car</button>
             </Bd>
             {ids.length > 0 && (
@@ -385,7 +393,7 @@ function CarsBox({ team, root, rv, ord, act, open }: { team: RegTeam; root: stri
                   <tbody>
                     {ids.map((u, i) => (
                       <tr key={u}>
-                        <td style={{ whiteSpace: "nowrap" }}>{i < c.seats ? `Race ${i + 1}` : `Reserve ${i + 1 - c.seats}`}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>{i < c.seats ? `Driver ${i + 1}` : `Reserve ${i + 1 - c.seats}`}</td>
                         <td>{name.get(u) ?? c.drivers.find((d) => d.userId === u)?.username ?? u}</td>
                         <td className="n" style={{ whiteSpace: "nowrap" }}>
                           <button className="btn sm" disabled={locked || !open || i === 0} onClick={() => setOrder(c, moveRank(ids, i, -1))}>Up</button>{" "}

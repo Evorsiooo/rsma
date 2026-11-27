@@ -85,8 +85,8 @@ test("seat rule: the first seats drivers by rank race, absent drivers are skippe
 test("wording", () => {
   assert.equal(spotsLine({ spots: 12, taken: 3, waiting: 0, held: 0 }, "cars"), "3 of 12 cars taken, 9 free");
   assert.equal(spotsLine({ spots: 10, taken: 8, waiting: 0, held: 0 }), "8 of 10 taken, 2 free");
-  assert.equal(lineupLine(5, 3), "Race: 3 · Reserve: 2");
-  assert.equal(lineupLine(2, 3), "Race: 2 · Reserve: 0");
+  assert.equal(lineupLine(5, 3), "Racing: 3 · Reserve: 2");
+  assert.equal(lineupLine(2, 3), "Racing: 2 · Reserve: 0");
   assert.equal(carName({ label: "Team car", number: "12" }), "#12 Team car");
   assert.equal(carName({ label: "Team car", number: null }), "Team car");
 });
