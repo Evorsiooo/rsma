@@ -99,7 +99,7 @@ export async function loadSettings(env: AdminEnv, sid: string): Promise<RegSetti
     if (w) Object.assign(r, w);
   }
   const out = { ...r, independents: !!r.independents, endurance: !!r.endurance, attendance: !!r.attendance, follows: root === sid ? null : r.follows };
-  return out.endurance ? { ...out, teamLimit: null, pickCutoff: null } : out;
+  return out.endurance ? { ...out, teamLimit: null } : out;
 }
 
 /** The sessions one registration covers, in start order, and the session where it is stored. */
