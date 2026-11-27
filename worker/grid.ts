@@ -3,7 +3,7 @@ import { whoIsPresent } from "../shared/attendance";
 import { computeGrid, qualifyingOf, type GridRow } from "../shared/grid";
 import { classify, type RaceState } from "../shared/race";
 import { loadSession } from "./sessions";
-import { attendanceOf, driversIn, loadEventData, settingsIn } from "./reg-data";
+import { attendanceOf, driversIn, groupIn, groupRegs, loadEventData, settingsIn } from "./reg-data";
 
 export interface GridView {
   /** The session whose times set the grid; null when this session has none. */
@@ -28,5 +28,12 @@ export async function gridView(env: AdminEnv, sid: string): Promise<GridView | n
   const settings = settingsIn(d, sid);
   const names = whoIsPresent(driversIn(d, sid), settings, attendanceOf(d, sid)).map((r) => r.username.toLowerCase());
   const present = settings?.attendance ? new Set(names) : null;
-  return { from: { id: q.id, name: q.name }, attendance: !!settings?.attendance, rows: computeGrid(classify(state.runs), present) };
+  // Practice and time trials stage every driver as a car of their own, so the registered car of each driver groups them here.
+  const carOf = new Map<string, { id: string; number: string | null; plate: string | null }>();
+  for (const c of groupRegs(d, groupIn(d, sid)).cars) for (const x of c.drivers) carOf.set(x.username.toLowerCase(), c);
+  const rows = classify(state.runs).map((r) => {
+    const c = r.entry ? undefined : carOf.get(r.name.toLowerCase());
+    return c ? { ...r, entry: c.id, number: c.number ?? undefined, plate: c.plate ?? "" } : r;
+  });
+  return { from: { id: q.id, name: q.name }, attendance: !!settings?.attendance, rows: computeGrid(rows, present) };
 }
