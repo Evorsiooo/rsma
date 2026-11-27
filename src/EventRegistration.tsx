@@ -289,7 +289,7 @@ function TeamBox({ team, root, sessions, views, opt, ord, act }: { team: RegTeam
           </Bd>
         ))}
       </Box>}
-      {endurance && <CarsBox team={team} root={root} rv={rv} ord={ord} act={act} />}
+      {endurance && <CarsBox team={team} root={root} rv={rv} ord={ord} act={act} open={open} regIds={new Set(regs.filter((r) => r.kind === "driver").map((r) => r.userId))} />}
       {(staff.length > 0 || guests.length > 0 || open) && (
         <Box title={`${team.name} · Staff and guests`}>
           <Bd flush>
@@ -339,14 +339,15 @@ function TeamBox({ team, root, sessions, views, opt, ord, act }: { team: RegTeam
  * Endurance events: the team's cars, each with its drivers in rank order. The top seats race, the rest are reserve.
  * A car is just a car (the number and plate are filled in on Flagman), and putting a driver in a car registers them.
  */
-function CarsBox({ team, root, rv, ord, act }: { team: RegTeam; root: string; rv: RegistrationView; ord: Record<string, string[]>; act: Act }) {
+function CarsBox({ team, root, rv, ord, act, open, regIds }: { team: RegTeam; root: string; rv: RegistrationView; ord: Record<string, string[]>; act: Act; open: boolean; regIds: Set<string> }) {
   const s = rv.settings!;
   const locked = rv.lineupLock !== null && Date.now() > rv.lineupLock;
   const cars = rv.cars.filter((c) => c.teamId === team.id).sort((a, b) => a.at - b.at);
   const name = new Map(team.members.map((m) => [m.id, m.username]));
   const inCar = new Set(cars.flatMap((c) => c.drivers.map((d) => d.userId)));
   // The team's drivers who are in no car yet.
-  const free = team.members.filter((m) => m.roles.includes("driver") && !inCar.has(m.id));
+  // Once registration closes no new driver can be added: only drivers already registered can be put in a car or moved between cars.
+  const free = team.members.filter((m) => m.roles.includes("driver") && !inCar.has(m.id) && (open || regIds.has(m.id)));
   const full = cars.length >= s.carsPerTeam;
   const order = (c: Car) => ord[c.id] ?? c.drivers.map((d) => d.userId);
   const setOrder = (c: Car, ids: string[]) => act(() => registrationApi.teamCarEdit(root, team.id, c.id, { drivers: ids }), { car: c.id, order: ids });
@@ -356,7 +357,7 @@ function CarsBox({ team, root, rv, ord, act }: { team: RegTeam; root: string; rv
     setWant((w) => ({ ...w, [c.id]: seats }));
     void act(() => registrationApi.teamCarEdit(root, team.id, c.id, { seats })).then(() => setWant((w) => Object.fromEntries(Object.entries(w).filter(([k]) => k !== c.id))));
   };
-  const sorry = locked ? "Lineups are locked. Only the stewards can change them now." : "";
+  const sorry = locked ? "Lineups are locked. Only the stewards can change them now." : !open ? "Registration is closed: you can reorder drivers and move registered drivers between cars, but not add new drivers." : "";
   return (
     <Box title={`${team.name} · Cars`}>
       <Bd>
@@ -414,7 +415,7 @@ function CarsBox({ team, root, rv, ord, act }: { team: RegTeam; root: string; rv
             )}
             <Bd top bar>
               <select aria-label={`Add a driver to car ${n + 1}`} style={{ flex: 1, minWidth: 180 }} value="" disabled={locked || free.length === 0} onChange={(e) => e.target.value && setOrder(c, [...ids, e.target.value])}>
-                <option value="">{free.length ? "Add a driver…" : "Every driver of your team is in a car"}</option>
+                <option value="">{free.length ? (open ? "Add a driver…" : "Put a registered driver here…") : open ? "Every driver of your team is in a car" : "No registered driver is waiting for a car"}</option>
                 {free.map((m) => (
                   <option key={m.id} value={m.id}>{m.username}</option>
                 ))}
