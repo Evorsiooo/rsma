@@ -25,6 +25,8 @@ export interface GridRow {
   ms: number;
   /** Faster drivers of the same car who are not racing, so the time used is a later one. */
   skipped: string[];
+  /** Registered after qualifying: starts from the pit lane, after the qualified cars. */
+  pit?: boolean;
 }
 
 /**

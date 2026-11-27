@@ -30,14 +30,14 @@ export function StartingGrid({ sessionId, refresh }: { sessionId: string; refres
             <tbody>
               {g.rows.map((r) => (
                 <tr key={r.entry ?? r.driver}>
-                  <td className="pos">{r.position}</td>
+                  <td className="pos">{r.pit ? "Pit" : r.position}</td>
                   <td>
                     {r.number && <span className="num">{r.number}</span>}
                     {cars ? r.car : r.driver}
                   </td>
                   {cars && <td>{r.driver}</td>}
-                  <td className="n fin">{fmtTime(r.ms)}</td>
-                  <td>{r.skipped.length > 0 ? <span className="mute">Time of {r.driver}; {r.skipped.join(", ")} not racing</span> : ""}</td>
+                  <td className="n fin">{r.pit ? "Pit lane" : fmtTime(r.ms)}</td>
+                  <td>{r.pit ? <span className="mute">Registered after qualifying</span> : r.skipped.length > 0 ? <span className="mute">Time of {r.driver}; {r.skipped.join(", ")} not racing</span> : ""}</td>
                 </tr>
               ))}
             </tbody>
