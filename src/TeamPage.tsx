@@ -293,54 +293,8 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
         <span className="r-text r-text--dim">{race.name}</span>
         <SessionSelect sessions={race.sessions} current={session.id} suffix={`/team/${team.id}`} width={180} />
       </Topbar>
-      <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
-        {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended.</div>}
-        {session.type === "race" && !race.ended && <div className="r-banner is-teal" style={{ flex: "none" }}>Race timing is not available. Races are run separately.</div>}
-        <div className="r-row" style={{ height: 90, flex: "none" }}>
-          <div className="r-module" style={{ width: 84 }}>
-            <div className="r-header">Link</div>
-            <div className="r-module__well r-module__well--bare">
-              {live ? <div className="r-lamp r-lamp--fixed">LIVE</div> : <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>}
-            </div>
-          </div>
-          <div className="r-module" style={{ width: 150 }}>
-            <SessionClockLcd session={session} offset={offset} />
-          </div>
-          <div className="r-module" style={{ width: 170 }}>
-            <div className="r-header">Next release</div>
-            <div className="r-module__well">
-              <Lcd value={releaseAt == null ? "--:--" : mmss(Math.max(0, releaseAt - now))} h={36} label="Time to team's next release" />
-            </div>
-          </div>
-          <div className="r-module" style={{ width: 76 }}>
-            <div className="r-header">On track</div>
-            <div className="r-module__well"><Lcd value={String(mineOnTrack)} h={32} ghost={1} label="Team cars on track" /></div>
-          </div>
-          <div className="r-module" style={{ width: 76 }}>
-            <div className="r-header">Queued</div>
-            <div className="r-module__well"><Lcd value={String(mineQueued)} h={32} ghost={1} label="Team cars queued" /></div>
-          </div>
-        </div>
-
-        <div className="r-row" style={{ height: 42, flex: "none" }}>
-          {session.selfTimed && (
-            <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!nextCar || race.ended || now < session.startsAt || now >= session.endsAt} onClick={() => timing("go")}>
-              <span>Go</span>
-            </button>
-          )}
-          <div className={`r-plate is-${state.flag}`} style={{ width: 120 }}>{FLAG_WORD[state.flag]}</div>
-          <div className="r-plate r-fill">
-            {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : session.selfTimed && nextCar ? [nextCar.name, nextCar.number ? `#${nextCar.number}` : "", nextCar.plate].filter(Boolean).join("  ") : ""}
-          </div>
-          {session.selfTimed && (
-            <button className="r-btn r-btn--advance" style={{ width: 150 }} disabled={race.ended || now < session.startsAt} onClick={() => timing("finish")}>
-              <span>Stop timer</span>
-            </button>
-          )}
-        </div>
-
-        <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
-          <div className="r-stack" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
+      <div className="r-row" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
+          <div className="r-stack side" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
             {track && (
               <TeamYellows
                 track={track}
@@ -487,7 +441,53 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
               <button className="r-btn" onClick={() => audio.setSettingsOpen(true)}>Settings</button>
             </div>
           </div>
+        <div className="r-stack r-fill" style={{ minHeight: 0, gap: 4 }}>
+        {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended.</div>}
+        {session.type === "race" && !race.ended && <div className="r-banner is-teal" style={{ flex: "none" }}>Race timing is not available. Races are run separately.</div>}
+        <div className="r-row" style={{ height: 90, flex: "none" }}>
+          <div className="r-module" style={{ width: 84 }}>
+            <div className="r-header">Link</div>
+            <div className="r-module__well r-module__well--bare">
+              {live ? <div className="r-lamp r-lamp--fixed">LIVE</div> : <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>}
+            </div>
+          </div>
+          <div className="r-module" style={{ width: 150 }}>
+            <SessionClockLcd session={session} offset={offset} />
+          </div>
+          <div className="r-module" style={{ width: 170 }}>
+            <div className="r-header">Next release</div>
+            <div className="r-module__well">
+              <Lcd value={releaseAt == null ? "--:--" : mmss(Math.max(0, releaseAt - now))} h={36} label="Time to team's next release" />
+            </div>
+          </div>
+          <div className="r-module" style={{ width: 76 }}>
+            <div className="r-header">On track</div>
+            <div className="r-module__well"><Lcd value={String(mineOnTrack)} h={32} ghost={1} label="Team cars on track" /></div>
+          </div>
+          <div className="r-module" style={{ width: 76 }}>
+            <div className="r-header">Queued</div>
+            <div className="r-module__well"><Lcd value={String(mineQueued)} h={32} ghost={1} label="Team cars queued" /></div>
+          </div>
+        </div>
 
+        <div className="r-row" style={{ height: 42, flex: "none" }}>
+          {session.selfTimed && (
+            <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!nextCar || race.ended || now < session.startsAt || now >= session.endsAt} onClick={() => timing("go")}>
+              <span>Go</span>
+            </button>
+          )}
+          <div className={`r-plate is-${state.flag}`} style={{ width: 120 }}>{FLAG_WORD[state.flag]}</div>
+          <div className="r-plate r-fill">
+            {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : session.selfTimed && nextCar ? [nextCar.name, nextCar.number ? `#${nextCar.number}` : "", nextCar.plate].filter(Boolean).join("  ") : ""}
+          </div>
+          {session.selfTimed && (
+            <button className="r-btn r-btn--advance" style={{ width: 150 }} disabled={race.ended || now < session.startsAt} onClick={() => timing("finish")}>
+              <span>Stop timer</span>
+            </button>
+          )}
+        </div>
+
+        <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
           <div className="r-stack r-fill">
             <div className="r-panel r-fill" style={{ overflow: "auto" }}>
               <TimingTable
@@ -502,7 +502,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
               />
             </div>
 
-            <div className="r-row" style={{ height: endurance ? 340 : 270, flex: "none" }}>
+            <div className="r-row" style={{ height: endurance ? "clamp(190px, 30vh, 340px)" : "clamp(170px, 24vh, 270px)", flex: "none" }}>
               <div className="r-panel r-fill">
                 <div className="r-header">Race log</div>
                 <div className="r-log r-log--wrap" ref={logRef} style={{ flex: "1 1 0", minHeight: 0 }}>
@@ -592,6 +592,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
               </div>
             </div>
           </div>
+        </div>
         </div>
       </div>
       {dialog?.kind === "notes" && dialogRun && <NotesDialog run={dialogRun} notes={state.notes} team={team.id} onClose={() => setDialog(null)} send={sendNote} />}
