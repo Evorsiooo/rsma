@@ -274,12 +274,12 @@ type Res2 = { ok: true } | { ok: false; error: string };
 function CarsSection({ view, sid, act }: { view: RegistrationView; sid: string; act: (p: Promise<Res2>) => Promise<boolean> }) {
   const [edit, setEdit] = useState<Car | "new" | null>(null);
   const s = view.settings!;
-  const indep = view.registrations.filter((r) => r.kind === "driver" && !r.teamId && r.cut !== "denied").length;
+  const indep = view.registrations.filter((r) => r.kind === "driver" && !r.teamId).sort((a, b) => a.at - b.at);
   const rows = [...view.cars].sort((a, b) => a.teamName.localeCompare(b.teamName) || a.at - b.at);
   return (
     <div className="r-panel">
       <div className="r-header">Cars</div>
-      {rows.length === 0 ? (
+      {rows.length + indep.length === 0 ? (
         <div className="r-empty">No car entered yet. Up to {s.carsPerTeam} per team, {s.seatsPerCar} drivers racing in each.</div>
       ) : (
         <table className="r-table">
@@ -307,10 +307,22 @@ function CarsSection({ view, sid, act }: { view: RegistrationView; sid: string; 
                 </td>
               </tr>
             ))}
+            {indep.map((r) => (
+              <tr key={r.userId}>
+                <td className="is-left" style={clip}>Independent</td>
+                <td className="is-left" style={clip}>Own car</td>
+                <td className="is-left" style={clip}>{r.username}</td>
+                <td>{statusText(r)}</td>
+                <td style={{ padding: 2 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: 1 }}>
+                    <button className="r-cell r-cell--red" onClick={() => act(registrationApi.staffRemove(sid, r.userId))}>Remove</button>
+                  </div>
+                </td>
+              </tr>
+            ))}
           </tbody>
         </table>
       )}
-      {indep > 0 && <div className="r-empty">{indep} independent driver{indep === 1 ? "" : "s"} not listed here: each runs their own car and takes one car spot.</div>}
       <div style={{ padding: 4 }}>
         <button className="r-btn" style={{ width: 160 }} onClick={() => setEdit("new")}>Add a car</button>
       </div>
