@@ -206,11 +206,18 @@ async function requireOpen(c: C): Promise<RegSettings | Response> {
 /** Insert one registration; a person can only be registered once per session. */
 async function insertReg(c: C, sid: string, userId: string, kind: RegKind, teamId: string | null, discord: string | null, group: GroupStatus) {
   const existing = await c.env.DB.prepare(
-    "SELECT t.name AS team FROM registrations r LEFT JOIN teams t ON t.id = r.team_id WHERE r.session_id = ? AND r.roblox_id = ?",
+    "SELECT t.name AS team, r.kind, r.team_id AS teamId FROM registrations r LEFT JOIN teams t ON t.id = r.team_id WHERE r.session_id = ? AND r.roblox_id = ?",
   )
     .bind(sid, userId)
-    .first<{ team: string | null }>();
-  if (existing) return c.json({ error: "taken", by: existing.team ?? "an independent registration" }, 409);
+    .first<{ team: string | null; kind: RegKind; teamId: string | null }>();
+  if (existing) {
+    // A driver can also be staff (and the other way round) in the same team: one registration holding both.
+    if (existing.teamId === teamId && ((existing.kind === "driver" && kind === "employee") || (existing.kind === "employee" && kind === "driver"))) {
+      await c.env.DB.prepare("UPDATE registrations SET kind = 'driver', also_staff = 1 WHERE session_id = ? AND roblox_id = ?").bind(sid, userId).run();
+      return null;
+    }
+    return c.json({ error: "taken", by: existing.team ?? "an independent registration" }, 409);
+  }
   await c.env.DB.prepare(
     "INSERT INTO registrations (session_id, roblox_id, kind, team_id, discord, grp, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
   )
@@ -275,6 +282,14 @@ registration.post("/:sid/team/:teamId", async (c) => {
   const existing = d.regs.find((r) => r.sessionId === root && r.userId === user.id);
   if (existing) {
     if (existing.teamId === team.id && existing.kind === kind) return done(c, d);
+    // A driver of the team can also be registered as staff, and staff as a driver: one registration holding both.
+    if (existing.teamId === team.id && !existing.denied && ((existing.kind === "driver" && kind === "employee") || (existing.kind === "employee" && kind === "driver"))) {
+      await c.env.DB.prepare("UPDATE registrations SET kind = 'driver', also_staff = 1 WHERE session_id = ? AND roblox_id = ?").bind(root, user.id).run();
+      existing.kind = "driver";
+      existing.alsoStaff = 1;
+      syncLater(c, sid);
+      return done(c, d);
+    }
     return c.json({ error: "taken", by: existing.teamName ?? "an independent registration" }, 409);
   }
   const at = Date.now();
@@ -284,7 +299,7 @@ registration.post("/:sid/team/:teamId", async (c) => {
     .bind(root, user.id, kind, team.id, at)
     .run();
   if (!r.meta.changes) return c.json({ error: "taken", by: "someone else a moment ago" }, 409);
-  d.regs.push({ sessionId: root, userId: user.id, username: user.username, kind, teamId: team.id, teamName: team.name, discord: null, group: "unverified", denied: 0, at });
+  d.regs.push({ sessionId: root, userId: user.id, username: user.username, kind, teamId: team.id, teamName: team.name, discord: null, group: "unverified", denied: 0, alsoStaff: 0, at });
   d.regs.sort((a, b) => a.at - b.at);
   syncLater(c, sid);
   return done(c, d);
@@ -298,10 +313,19 @@ registration.delete("/:sid/team/:teamId/:uid", async (c) => {
   if (s instanceof Response) return s;
   const root = rootIn(d, sid);
   const uid = c.req.param("uid");
-  const held = d.regs.some((r) => r.sessionId === root && r.userId === uid && r.teamId === team.id);
-  if (!held) return done(c, d);
-  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ?").bind(root, uid, team.id), ...pruneStatements(c.env.DB)]);
-  d.regs = d.regs.filter((r) => !(r.sessionId === root && r.userId === uid && r.teamId === team.id));
+  const row = d.regs.find((r) => r.sessionId === root && r.userId === uid && r.teamId === team.id);
+  if (!row) return done(c, d);
+  if (c.req.query("kind") === "employee" && row.kind === "driver") {
+    // Only the staff part of a driver's registration goes.
+    await c.env.DB.prepare("UPDATE registrations SET also_staff = 0 WHERE session_id = ? AND roblox_id = ? AND team_id = ?").bind(root, uid, team.id).run();
+    row.alsoStaff = 0;
+    return done(c, d);
+  }
+  await c.env.DB.batch([...dropStatements(c, root, team.id, [uid]), ...pruneStatements(c.env.DB)]);
+  if (row.kind === "driver" && row.alsoStaff) {
+    row.kind = "employee";
+    row.alsoStaff = 0;
+  } else d.regs = d.regs.filter((r) => r !== row);
   syncLater(c, sid);
   return done(c, d);
 });
@@ -463,7 +487,13 @@ registration.post("/:sid/staff/:uid/code", async (c) => {
 registration.delete("/:sid/staff/:uid", async (c) => {
   const me = await staff(c);
   if (me instanceof Response) return me;
-  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ?").bind(await rootOf(c.env, c.req.param("sid")), c.req.param("uid")), ...pruneStatements(c.env.DB)]);
+  const root = await rootOf(c.env, c.req.param("sid"));
+  if (c.req.query("kind") === "employee") {
+    // Only the staff part of a driver who is also staff.
+    await c.env.DB.prepare("UPDATE registrations SET also_staff = 0 WHERE session_id = ? AND roblox_id = ? AND kind = 'driver'").bind(root, c.req.param("uid")).run();
+    return c.json({ ok: true });
+  }
+  await c.env.DB.batch([c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ?").bind(root, c.req.param("uid")), ...pruneStatements(c.env.DB)]);
   syncLater(c, c.req.param("sid"));
   return c.json({ ok: true });
 });
@@ -488,18 +518,20 @@ const cleanText = (v: unknown, max: number, pattern: RegExp): string | null | un
  * Checks a ranked lineup against the team's drivers and the other cars; the error code, or the cleaned ids and which of them
  * are not registered yet. A team member with the Driver role is registered by being put in a car.
  */
-function checkLineup(d: EventData, root: string, teamId: string, entryId: string | null, v: unknown): { ids: string[]; fresh: { id: string; username: string }[] } | string {
+function checkLineup(d: EventData, root: string, teamId: string, entryId: string | null, v: unknown): { ids: string[]; fresh: { id: string; username: string; staff?: boolean }[] } | string {
   if (!Array.isArray(v) || v.some((x) => typeof x !== "string")) return "invalid";
   const ids = [...new Set(v as string[])];
   if (ids.length > MAX_LINEUP) return "too_many";
   const mine = new Set(d.regs.filter((r) => r.sessionId === root && r.teamId === teamId && r.kind === "driver" && !r.denied).map((r) => r.userId));
-  const fresh: { id: string; username: string }[] = [];
+  const fresh: { id: string; username: string; staff?: boolean }[] = [];
   for (const u of ids) {
     if (mine.has(u)) continue;
     const m = d.members.find((x) => x.teamId === teamId && x.id === u && parseRoles(x.roles).includes("driver"));
     if (!m) return "not_registered";
-    if (d.regs.some((r) => r.sessionId === root && r.userId === u)) return "taken";
-    fresh.push({ id: u, username: m.username });
+    const ex = d.regs.find((r) => r.sessionId === root && r.userId === u);
+    // Someone the team registered as staff can be put in a car: the registration then holds both.
+    if (ex && !(ex.kind === "employee" && ex.teamId === teamId && !ex.denied)) return "taken";
+    fresh.push({ id: u, username: m.username, staff: !!ex });
   }
   const taken = new Set(d.lineups.filter((l) => l.entryId !== entryId).map((l) => l.userId));
   if (ids.some((u) => taken.has(u))) return "in_other_car";
@@ -507,12 +539,24 @@ function checkLineup(d: EventData, root: string, teamId: string, entryId: string
 }
 
 /** Registrations for drivers a lineup brings in, and the removal of those it drops: team managers do both by editing a car. */
-function registerStatements(c: C, root: string, teamId: string, fresh: { id: string }[], dropped: string[]) {
+function registerStatements(c: C, root: string, teamId: string, fresh: { id: string; staff?: boolean }[], dropped: string[]) {
   const at = Date.now();
   return [
-    ...fresh.map((u) => c.env.DB.prepare("INSERT INTO registrations (session_id, roblox_id, kind, team_id, discord, grp, created_at) VALUES (?, ?, 'driver', ?, NULL, 'unverified', ?) ON CONFLICT DO NOTHING").bind(root, u.id, teamId, at)),
-    ...dropped.map((u) => c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ?").bind(root, u, teamId)),
+    ...fresh.map((u) =>
+      u.staff
+        ? c.env.DB.prepare("UPDATE registrations SET kind = 'driver', also_staff = 1 WHERE session_id = ? AND roblox_id = ? AND team_id = ? AND kind = 'employee'").bind(root, u.id, teamId)
+        : c.env.DB.prepare("INSERT INTO registrations (session_id, roblox_id, kind, team_id, discord, grp, created_at) VALUES (?, ?, 'driver', ?, NULL, 'unverified', ?) ON CONFLICT DO NOTHING").bind(root, u.id, teamId, at),
+    ),
+    ...dropStatements(c, root, teamId, dropped),
   ];
+}
+
+/** Takes drivers off a team's registration. Someone who is also staff stays registered, as staff only. */
+function dropStatements(c: C, root: string, teamId: string, userIds: string[]) {
+  return userIds.flatMap((u) => [
+    c.env.DB.prepare("DELETE FROM registrations WHERE session_id = ? AND roblox_id = ? AND team_id = ? AND NOT (kind = 'driver' AND also_staff = 1)").bind(root, u, teamId),
+    c.env.DB.prepare("UPDATE registrations SET kind = 'employee', also_staff = 0 WHERE session_id = ? AND roblox_id = ? AND team_id = ? AND kind = 'driver' AND also_staff = 1").bind(root, u, teamId),
+  ]);
 }
 
 async function carGate(c: C): Promise<{ me: Me; d: EventData; root: string; s: RegSettings } | Response> {

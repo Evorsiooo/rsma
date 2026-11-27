@@ -90,6 +90,10 @@ export interface Registration {
   discord: string | null;
   group: GroupStatus;
   denied: boolean;
+  /** A driver who is also registered as staff: the same registration also holds an employee spot. */
+  alsoStaff: boolean;
+  /** The Employee row of such a driver (a second line for the same person, in the lists and counts). */
+  staffRow?: boolean;
   at: number;
   cut: Cut;
   /** Place on the waiting list, 1 is next to move up. Only for people who are Waiting. In an endurance event a car's drivers share the car's place. */
