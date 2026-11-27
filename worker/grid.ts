@@ -34,7 +34,19 @@ export async function gridView(env: AdminEnv, sid: string): Promise<GridView | n
   for (const c of groupRegs(d, groupIn(d, sid)).cars) for (const x of c.drivers) carOf.set(x.username.toLowerCase(), c);
   const rows = classify(state.runs).map((r) => {
     const c = r.entry ? undefined : carOf.get(r.name.toLowerCase());
-    return c ? { ...r, entry: c.id, number: c.number ?? undefined, plate: c.plate ?? "" } : r;
+    return c ? { ...r, entry: c.id, number: r.number ?? c.number ?? undefined, plate: r.plate || (c.plate ?? "") } : r;
   });
-  return { from: { id: q.id, name: q.name }, attendance: !!settings?.attendance, rows: computeGrid(rows, present) };
+  // Anyone who registered after qualifying ended starts from the pit lane: an independent driver, or the whole car they were put in.
+  const g = groupRegs(d, groupIn(d, sid));
+  const lateIds = new Set(g.regs.filter((r) => r.kind === "driver" && !r.denied && r.at > q.endsAt).map((r) => r.userId));
+  const lateCars = new Map(g.cars.filter((c) => c.drivers.some((x) => lateIds.has(x.userId))).map((c) => [c.id, c]));
+  const inCar = new Set(g.cars.flatMap((c) => c.drivers.map((x) => x.userId)));
+  const lateSolo = g.regs.filter((r) => r.kind === "driver" && r.cut === "in" && lateIds.has(r.userId) && !inCar.has(r.userId));
+  const timed = computeGrid(rows, present);
+  const keep = timed.filter((r) => !(r.entry ? lateCars.has(r.entry) : lateSolo.some((x) => x.username.toLowerCase() === r.driver.toLowerCase())));
+  const pit: GridRow[] = [
+    ...[...lateCars.values()].filter((c) => c.cut === "in").map((c) => ({ position: 0, entry: c.id, number: c.number ?? undefined, car: [c.teamName, c.label].filter(Boolean).join(" "), driver: c.drivers.filter((x) => lateIds.has(x.userId)).map((x) => x.username).join(", "), ms: 0, skipped: [], pit: true })),
+    ...lateSolo.map((r) => ({ position: 0, entry: null, number: undefined, car: "", driver: r.username, ms: 0, skipped: [], pit: true })),
+  ];
+  return { from: { id: q.id, name: q.name }, attendance: !!settings?.attendance, rows: [...keep.map((r, i) => ({ ...r, position: i + 1 })), ...pit] };
 }
