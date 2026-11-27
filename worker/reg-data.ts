@@ -78,6 +78,8 @@ export interface RegRow {
   discord: string | null;
   group: GroupStatus;
   denied: number;
+  /** A driver who is also registered as staff: one employee spot, same registration. */
+  alsoStaff: number;
   at: number;
 }
 
@@ -139,7 +141,7 @@ export async function loadEventData(env: AuthEnv, c: Context | null, by: Selecto
       .bind(arg),
     db
       .prepare(
-        `SELECT r.session_id AS sessionId, r.roblox_id AS userId, u.username, r.kind, r.team_id AS teamId, t.name AS teamName, r.discord, r.grp AS "group", r.denied, r.created_at AS at
+        `SELECT r.session_id AS sessionId, r.roblox_id AS userId, u.username, r.kind, r.team_id AS teamId, t.name AS teamName, r.discord, r.grp AS "group", r.denied, r.also_staff AS alsoStaff, r.created_at AS at
          FROM registrations r JOIN users u ON u.roblox_id = r.roblox_id LEFT JOIN teams t ON t.id = r.team_id
          WHERE r.session_id IN ${inRace} ORDER BY r.created_at`,
       )
@@ -260,7 +262,18 @@ function groupEntries(d: EventData, root: string): { entries: (EntryRow & { driv
 export function groupRegs(d: EventData, group: ReturnType<typeof groupIn>): { regs: Registration[]; held: number; settings: RegSettings | null; cars: Car[] } {
   const gs = settingsIn(d, group.root);
   if (!gs) return { regs: [], held: 0, settings: null, cars: [] };
-  const rows = d.regs.filter((r) => r.sessionId === group.root).map(({ sessionId: _s, ...r }) => ({ ...r, denied: !!r.denied }));
+  const real = d.regs.filter((r) => r.sessionId === group.root).map(({ sessionId: _s, ...r }) => ({ ...r, denied: !!r.denied, alsoStaff: !!r.alsoStaff }));
+  // A driver who is also staff takes an employee spot too: worked out as a second row (its own id inside the cut), shown as the
+  // same person with the Employee kind.
+  const staffRows = real.filter((r) => r.kind === "driver" && r.alsoStaff && !r.denied).map((r) => ({ ...r, kind: "employee" as const, userId: STAFF_PREFIX + r.userId, staffRow: true }));
+  const rows = [...real, ...staffRows];
+  const out = groupRegsOf(d, group, gs, rows);
+  return { ...out, regs: out.regs.map((r) => (r.staffRow ? { ...r, userId: r.userId.slice(STAFF_PREFIX.length) } : r)) };
+}
+
+const STAFF_PREFIX = "staff:";
+
+function groupRegsOf(d: EventData, group: ReturnType<typeof groupIn>, gs: RegSettings, rows: (Omit<RegRow, "sessionId" | "denied" | "alsoStaff"> & { denied: boolean; alsoStaff: boolean; staffRow?: boolean })[]) {
   if (gs.endurance) return enduranceRegs(d, group.root, rows, gs);
   const cut = computeCut(rows, gs, d.factories);
   const withCut = rows.map((r) => ({ ...r, cut: cut.get(r.userId) ?? ("waitlist" as Cut) }));
@@ -268,7 +281,7 @@ export function groupRegs(d: EventData, group: ReturnType<typeof groupIn>): { re
   return { regs: withCut.map((r) => ({ ...r, waitPos: pos.get(r.userId) ?? null, carId: null, rank: null })), held: heldSpots(rows, gs, d.factories), settings: gs, cars: [] };
 }
 
-function enduranceRegs(d: EventData, root: string, rows: (Omit<RegRow, "sessionId" | "denied"> & { denied: boolean })[], gs: RegSettings) {
+function enduranceRegs(d: EventData, root: string, rows: (Omit<RegRow, "sessionId" | "denied" | "alsoStaff"> & { denied: boolean; alsoStaff: boolean; staffRow?: boolean })[], gs: RegSettings) {
   const { entries, inputs } = groupEntries(d, root);
   const r = computeEnduranceCut(rows, inputs, gs, d.factories);
   const lineups = lineupOf(inputs, rows);

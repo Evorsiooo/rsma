@@ -180,7 +180,7 @@ function TeamBox({ team, root, sessions, views, opt, ord, act }: { team: RegTeam
   const toggle = (m: { id: string; username: string }, kind: "driver" | "employee") => {
     const key = `${kind}:${m.id}`;
     const want = !shownOn(key, registered(m.id, kind));
-    return act(() => (want ? registrationApi.teamAdd(root, team.id, m.username, kind) : registrationApi.teamRemove(root, team.id, m.id)), { key, want });
+    return act(() => (want ? registrationApi.teamAdd(root, team.id, m.username, kind) : registrationApi.teamRemove(root, team.id, m.id, kind === "employee" ? "employee" : undefined)), { key, want });
   };
   const guests = regs.filter((r) => r.kind === "spectator");
   const [name, setName] = useState("");

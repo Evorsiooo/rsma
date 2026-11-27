@@ -185,7 +185,7 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
           </thead>
           <tbody>
             {rows.map((r) => (
-              <tr key={r.userId}>
+              <tr key={`${r.userId}:${r.kind}`}>
                 <td className="is-left" style={clip}>{r.username}</td>
                 <td className="is-left" style={clip}>{REG_KIND_LABEL[r.kind]}</td>
                 <td className="is-left" style={clip}>{r.teamName ?? "Independent"}</td>
@@ -195,10 +195,10 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
                 <td>{statusText(r)}</td>
                 <td style={{ padding: 2 }}>
                   <div className="r-grid" style={{ ["--cols" as string]: tokens ? 4 : 3 }}>
-                    <button className="r-cell" onClick={() => act(registrationApi.staffEdit(sid, r.userId, { denied: !r.denied }))}>{r.denied ? "Restore" : "Deny"}</button>
-                    <button className="r-cell" onClick={() => setEdit(r)}>Edit</button>
+                    <button className="r-cell" disabled={r.staffRow} onClick={() => act(registrationApi.staffEdit(sid, r.userId, { denied: !r.denied }))}>{r.denied ? "Restore" : "Deny"}</button>
+                    <button className="r-cell" disabled={r.staffRow} onClick={() => setEdit(r)}>Edit</button>
                     {tokens && <button className="r-cell" disabled={!!r.teamId} onClick={() => setCodeFor(r)}>Code</button>}
-                    <button className="r-cell r-cell--red" onClick={() => act(registrationApi.staffRemove(sid, r.userId))}>Remove</button>
+                    <button className="r-cell r-cell--red" onClick={() => act(registrationApi.staffRemove(sid, r.userId, r.staffRow ? "employee" : undefined))}>Remove</button>
                   </div>
                 </td>
               </tr>
