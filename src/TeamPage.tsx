@@ -537,14 +537,15 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                   <>
                     <div className="r-section"><span>Next driver</span></div>
                     <div className="r-grid" style={{ ["--cols" as string]: Math.min(carQueue.length, 3) }}>
-                      {carQueue.slice(0, 3).map((r, i) => (
-                        <button key={r.id} className={`r-cell${i === 0 ? " is-on" : ""}`} aria-pressed={i === 0} onClick={() => driverCmd("next", r.id)}>{r.name}</button>
+                      {/* The buttons keep a fixed order (by name); the next driver is the pressed one. */}
+                      {[...carQueue].sort((x, y) => x.name.localeCompare(y.name)).map((r) => (
+                        <button key={r.id} className={`r-cell${r.id === carQueue[0].id ? " is-on" : ""}`} aria-pressed={r.id === carQueue[0].id} onClick={() => driverCmd("next", r.id)}>{r.name}</button>
                       ))}
                     </div>
                   </>
                 )}
                 {sel && sel.team === team.id && !race.ended && (
-                  <div className="r-grid" style={{ ["--cols" as string]: sel.entry && session.selfTimed ? 2 : 1 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: sel.entry && session.selfTimed ? 2 : 1, marginTop: "var(--r-gap)" }}>
                     {sel.entry && session.selfTimed && (
                       <button className="r-cell" disabled={!carOnTrack || carQueue.length === 0} onClick={() => driverCmd("swap", carQueue[0].id)}>Swap driver</button>
                     )}
@@ -552,7 +553,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                   </div>
                 )}
                 {sel && session.selfTimed && sel.team === team.id && !race.ended && (
-                  <div className="r-grid" style={{ ["--cols" as string]: 2 }}>
+                  <div className="r-grid" style={{ ["--cols" as string]: 2, marginTop: "var(--r-gap)" }}>
                     {sel.status === "queued" && (
                       <>
                         <button className="r-cell" disabled={selOwnIdx === 0} onClick={() => moveCar(sel.id, -1)}>Up</button>

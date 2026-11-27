@@ -1,7 +1,7 @@
 import type { AdminEnv } from "./admin";
 import { whoIsPresent } from "../shared/attendance";
 import { raceDrivers } from "../shared/registration";
-import { attendanceOf, driversIn, groupIn, groupRegs, loadEventData, settingsIn, type EventData } from "./reg-data";
+import { attendanceOf, driversIn, groupIn, groupRegs, lineupLockIn, loadEventData, settingsIn, type EventData } from "./reg-data";
 
 export async function teamWithCar(db: D1Database, id: string) {
   const t = await db.prepare("SELECT id, name, kind, car, factory_id AS factoryId FROM teams WHERE id = ?").bind(id).first<{ id: string; name: string; kind: string; car: string | null; factoryId: string | null }>();
@@ -14,7 +14,7 @@ export async function teamWithCar(db: D1Database, id: string) {
 /**
  * Keep one session's queue in step with its registration. Everyone who makes the cut as a driver is staged. In an endurance
  * event only the drivers who hold a race seat of a car that is In are: the first `seats` of the lineup by rank, skipping
- * anyone absent. Each carries its car, which holds the number and plate. `present` is the set of drivers who confirmed
+ * anyone absent (all of the lineup in sessions that start before the lineups lock). Each carries its car, which holds the number and plate. `present` is the set of drivers who confirmed
  * attendance, or null when the session takes no attendance.
  */
 async function syncOne(env: AdminEnv, d: EventData, sid: string, present0: Set<string> | null = null): Promise<void> {
@@ -25,8 +25,12 @@ async function syncOne(env: AdminEnv, d: EventData, sid: string, present0: Set<s
   const staged = whoIsPresent(driversIn(d, sid), settings, attendanceOf(d, sid));
   const present = settings.attendance ? new Set(staged.map((r) => r.userId)) : present0;
   const cars = new Map(groupRegs(d, group).cars.map((c) => [c.id, c]));
+  // Sessions that start before the lineups lock take the reserves too; from the lock on only the race seats are staged.
+  const lock = lineupLockIn(d, sid);
+  const startsAt = d.race?.sessions.find((x) => x.id === sid)?.startsAt ?? null;
+  const early = lock !== null && startsAt !== null && startsAt < lock;
   const seated = new Set<string>();
-  for (const c of cars.values()) for (const u of raceDrivers(c.drivers.map((x) => x.userId), c.seats, present)) seated.add(u);
+  for (const c of cars.values()) for (const u of raceDrivers(c.drivers.map((x) => x.userId), early ? Infinity : c.seats, present)) seated.add(u);
   const team = (id: string) => {
     const t = d.teams.get(id);
     if (!t) return undefined;
