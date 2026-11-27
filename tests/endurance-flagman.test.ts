@@ -132,3 +132,13 @@ test("the driver plan and pit windows are per car, and only the team sees them",
   assert.equal(s.plan.length, 1);
   assert.equal(fails(s, { type: "planDel", team: "other", id: s.plan[0].id }), "not_found");
 });
+
+test("a session that stops sharing cars unlinks drivers staged on one car; a number then changes only that driver", () => {
+  let s = staged();
+  s = run(s, { type: "syncReg", drivers: ["alpha", "kiri", "pigeon", "sunny"].map((name) => ({ name, team })) });
+  assert.ok(s.runs.every((r) => !r.entry));
+  const kiri = byName(s, "kiri");
+  s = run(s, { type: "editInfo", runId: kiri.id, plate: "", number: "12", team: "t1" });
+  assert.deepEqual(s.runs.map((r) => [r.name, r.number]), [["alpha", "7"], ["kiri", "12"], ["pigeon", "7"], ["sunny", "8"]]);
+  assert.equal(fails(s, { type: "editInfo", runId: kiri.id, plate: "", number: "13", team: "other" }), "not_found");
+});

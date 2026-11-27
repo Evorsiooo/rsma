@@ -45,7 +45,7 @@ export type Command =
   | { type: "unattribute"; runId: string; team?: string }
   | { type: "reattribute"; fromRunId: string; runId: string; team?: string }
   | { type: "setTime"; runId: string; ms: number; team?: string }
-  | { type: "editInfo"; runId: string; plate?: string; number?: string }
+  | { type: "editInfo"; runId: string; plate?: string; number?: string; team?: string }
   | { type: "discard"; ts: number }
   | { type: "dnf"; runId: string; team?: string }
   | { type: "undnf"; runId: string; team?: string }
@@ -154,7 +154,14 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
         if (have.has(key)) {
           // A car's number and plate follow the car record; a driver moved to another car follows it while still queued.
           for (const r of s.runs.filter((x) => x.name.toLowerCase() === key)) {
-            if (!car) continue;
+            if (!car) {
+              // A session that no longer shares cars (practice, time trial) unlinks drivers staged before that: each keeps their own row and time.
+              if (r.entry) {
+                delete r.entry;
+                changed++;
+              }
+              continue;
+            }
             const moved = r.entry !== car.id;
             if (moved && r.status !== "queued") continue;
             if (moved || r.number !== car.number || r.plate !== car.plate) {
@@ -414,7 +421,7 @@ export function applyCommand(prev: RaceState, cmd: Command, ctx: Ctx): Result {
     }
     case "editInfo": {
       const r = run(cmd.runId);
-      if (!r) return { error: "not_found" };
+      if (!r || (cmd.team && (r.team !== cmd.team || r.entry))) return { error: "not_found" };
       const plate = clean(cmd.plate, 12).toUpperCase();
       const number = clean(cmd.number, 4) || undefined;
       if (!plate && !number) return { error: "invalid" };

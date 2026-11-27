@@ -340,8 +340,8 @@ app.post("/api/sessions/:id/driver/radio", async (c) => {
   return doOf(c.env, r.id).fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd, actor: r.me.username }) });
 });
 
-// Self-timed practice: a team fixes the times of its own cars (DNF, attribute or remove a time, enter a time).
-const TEAM_RUN_CMDS = ["cadence", "dnf", "undnf", "assign", "unattribute", "reattribute", "setTime", "setMode", "lap", "queueAgain"];
+// Self-timed practice: a team fixes the times of its own cars (DNF, attribute or remove a time, enter a time) and sets their numbers.
+const TEAM_RUN_CMDS = ["cadence", "dnf", "undnf", "assign", "unattribute", "reattribute", "setTime", "editInfo", "setMode", "lap", "queueAgain"];
 app.post("/api/sessions/:id/team/:teamId/run", async (c) => {
   const r = await teamSession(c);
   if ("error" in r) return r.error;

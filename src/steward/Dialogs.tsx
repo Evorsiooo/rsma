@@ -397,12 +397,12 @@ export function AttributeDialog({ run, state, team, onClose, send }: { run: Run;
 }
 
 /** Plate and driver number, filled in by stewards once the car is handed over. */
-export function EditInfoDialog({ run, onClose, send }: { run: Run; onClose: () => void; send: Send }) {
+export function EditInfoDialog({ run, team, onClose, send }: { run: Run; team?: string; onClose: () => void; send: Send }) {
   const [plate, setPlate] = useState(run.plate);
   const [number, setNumber] = useState(run.number ?? "");
   const ok = !!(plate.trim() || number.trim());
   const submit = async () => {
-    if (ok && (await send({ type: "editInfo", runId: run.id, plate, number }))) onClose();
+    if (ok && (await send({ type: "editInfo", runId: run.id, plate, number, team }))) onClose();
   };
   return (
     <Dialog
