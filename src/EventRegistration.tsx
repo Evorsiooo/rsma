@@ -350,6 +350,12 @@ function CarsBox({ team, root, rv, ord, act, open }: { team: RegTeam; root: stri
   const full = cars.length >= s.carsPerTeam;
   const order = (c: Car) => ord[c.id] ?? c.drivers.map((d) => d.userId);
   const setOrder = (c: Car, ids: string[]) => act(() => registrationApi.teamCarEdit(root, team.id, c.id, { drivers: ids }), { car: c.id, order: ids });
+  // The number of racing drivers a car shows while the change to it is on its way. Read the chosen value now: the call runs later.
+  const [want, setWant] = useState<Record<string, number>>({});
+  const setSeats = (c: Car, seats: number) => {
+    setWant((w) => ({ ...w, [c.id]: seats }));
+    void act(() => registrationApi.teamCarEdit(root, team.id, c.id, { seats })).then(() => setWant((w) => Object.fromEntries(Object.entries(w).filter(([k]) => k !== c.id))));
+  };
   const sorry = locked ? "Lineups are locked. Only the stewards can change them now." : !open ? "Registration is closed." : "";
   return (
     <Box title={`${team.name} · Cars`}>
@@ -368,11 +374,11 @@ function CarsBox({ team, root, rv, ord, act, open }: { team: RegTeam; root: stri
           <div key={c.id}>
             <Bd top bar>
               <span style={{ flex: 1 }}>
-                <b>Car {n + 1}</b> <span className="mute">· {lineupLine(ids.length, c.seats)} · {status}</span>
+                <b>Car {n + 1}</b> <span className="mute">· {lineupLine(ids.length, want[c.id] ?? c.seats)} · {status}</span>
               </span>
               <label className="bar">
                 <span>Drivers racing</span>
-                <select aria-label={`Drivers racing in car ${n + 1}`} value={c.seats} disabled={locked || !open} onChange={(e) => act(() => registrationApi.teamCarEdit(root, team.id, c.id, { seats: Number(e.target.value) }))}>
+                <select aria-label={`Drivers racing in car ${n + 1}`} value={want[c.id] ?? c.seats} disabled={locked || !open} onChange={(e) => setSeats(c, Number(e.target.value))}>
                   {Array.from({ length: Math.max(s.seatsPerCar, c.seats) }, (_, k) => k + 1).map((k) => (
                     <option key={k} value={k}>{k}</option>
                   ))}
@@ -393,7 +399,7 @@ function CarsBox({ team, root, rv, ord, act, open }: { team: RegTeam; root: stri
                   <tbody>
                     {ids.map((u, i) => (
                       <tr key={u}>
-                        <td style={{ whiteSpace: "nowrap" }}>{i < c.seats ? `Driver ${i + 1}` : `Reserve ${i + 1 - c.seats}`}</td>
+                        <td style={{ whiteSpace: "nowrap" }}>{i < (want[c.id] ?? c.seats) ? `Driver ${i + 1}` : `Reserve ${i + 1 - (want[c.id] ?? c.seats)}`}</td>
                         <td>{name.get(u) ?? c.drivers.find((d) => d.userId === u)?.username ?? u}</td>
                         <td className="n" style={{ whiteSpace: "nowrap" }}>
                           <button className="btn sm" disabled={locked || !open || i === 0} onClick={() => setOrder(c, moveRank(ids, i, -1))}>Up</button>{" "}
