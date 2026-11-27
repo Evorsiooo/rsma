@@ -38,11 +38,14 @@ async function syncOne(env: AdminEnv, d: EventData, sid: string, present0: Set<s
     const car = t.kind === "customer" && t.factoryId ? (d.teams.get(t.factoryId)?.car ?? null) : t.car;
     return { id: t.id, name: t.name, car: car ?? undefined };
   };
+  // Only a race shares one car between a team car's drivers (one number, one timing row, driver swaps). In practice and
+  // time trials every driver is a car of their own.
+  const sharedCar = settings.endurance && d.race?.sessions.find((x) => x.id === sid)?.type === "race";
   const drivers = staged
     .filter((r) => !(settings.endurance && r.carId) || seated.has(r.userId))
     .map((r) => {
       const c = r.carId ? cars.get(r.carId) : undefined;
-      return { name: r.username, team: r.teamId ? team(r.teamId) : undefined, entry: settings.endurance && c ? { id: c.id, number: c.number ?? undefined, plate: c.plate ?? undefined } : undefined };
+      return { name: r.username, team: r.teamId ? team(r.teamId) : undefined, entry: sharedCar && c ? { id: c.id, number: c.number ?? undefined, plate: c.plate ?? undefined } : undefined };
     });
   const stub = env.RACE.get(env.RACE.idFromName(sid));
   await stub.fetch("http://do/cmd", { method: "POST", body: JSON.stringify({ cmd: { type: "syncReg", drivers }, actor: "Registration" }) });
