@@ -1,5 +1,5 @@
 import type { AdminEnv } from "./admin";
-import { whoIsPresent } from "../shared/attendance";
+import { attendancePhase, whoIsPresent } from "../shared/attendance";
 import { computeGrid, qualifyingOf, type GridRow } from "../shared/grid";
 import { classify, type RaceState } from "../shared/race";
 import { loadSession } from "./sessions";
@@ -27,7 +27,8 @@ export async function gridView(env: AdminEnv, sid: string): Promise<GridView | n
   const { state } = (await res.json()) as { state: RaceState };
   const settings = settingsIn(d, sid);
   const names = whoIsPresent(driversIn(d, sid), settings, attendanceOf(d, sid)).map((r) => r.username.toLowerCase());
-  const present = settings?.attendance ? new Set(names) : null;
+  // Attendance for the race only opens shortly before it starts: until then nobody has answered, so every car with a time counts.
+  const present = settings?.attendance && attendancePhase(settings, info.session.startsAt, Date.now()) !== "upcoming" ? new Set(names) : null;
   // Practice and time trials stage every driver as a car of their own, so the registered car of each driver groups them here.
   const carOf = new Map<string, { id: string; number: string | null; plate: string | null }>();
   for (const c of groupRegs(d, groupIn(d, sid)).cars) for (const x of c.drivers) carOf.set(x.username.toLowerCase(), c);

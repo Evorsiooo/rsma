@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { classify, fmtTime, type Row } from "../shared/race";
-import { currentSession } from "../shared/sessions";
 import { regPhase, type RegSummary } from "../shared/registration";
 import type { RaceSummary, SessionSummary } from "../shared/types";
 import { api, registrationApi } from "./api";
@@ -130,10 +129,16 @@ function NextEvent({ races, regs }: { races: RaceSummary[]; regs: RegSummary[] }
   );
 }
 
-/** Top three of the latest finished event. */
-function LatestResults({ race }: { race: RaceSummary }) {
+/** The session that ended most recently, in a running event or a past one. */
+function latestEnded(races: RaceSummary[], now: number): { race: RaceSummary; session: SessionSummary } | undefined {
+  return races
+    .flatMap((race) => race.sessions.filter((s) => s.endsAt <= now).map((session) => ({ race, session })))
+    .sort((a, b) => b.session.endsAt - a.session.endsAt)[0];
+}
+
+/** Top three of the latest finished session. */
+function LatestResults({ race, session }: { race: RaceSummary; session: SessionSummary }) {
   const [rows, setRows] = useState<Row[] | null>(null);
-  const session: SessionSummary | undefined = currentSession(race.sessions, Date.now());
   useEffect(() => {
     if (!session) return setRows([]);
     api.sessionState(session.id).then(
@@ -189,6 +194,7 @@ export function Home() {
     const base = AUTH_ERRORS[code] ?? "Sign-in failed.";
     return detail ? `${base} (${detail})` : base;
   });
+  const latest = latestEnded([...races, ...past], Date.now());
   return (
     <>
       {authError && <div className="err">{authError}</div>}
@@ -198,12 +204,16 @@ export function Home() {
       <Box title="Events">
         <Bd flush>{races.length === 0 ? <div className="bd note">No active events.</div> : <EventRows races={races} label="Timing" primary until />}</Bd>
       </Box>
-      {past.length > 0 && (
+      {(past.length > 0 || latest) && (
         <div className="g2">
-          <Box title="Past Events">
-            <Bd flush><EventRows races={past} label="Results" /></Bd>
-          </Box>
-          <LatestResults race={past[0]} />
+          {past.length > 0 ? (
+            <Box title="Past Events">
+              <Bd flush><EventRows races={past} label="Results" /></Bd>
+            </Box>
+          ) : (
+            <div />
+          )}
+          {latest && <LatestResults race={latest.race} session={latest.session} />}
         </div>
       )}
     </>
