@@ -187,7 +187,8 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const counting = onTrack.filter((r) => r.startedAt! > now);
   const nextMine = queued.findIndex((r) => r.team === team.id);
   const nextCar = releasable(state.runs, team.id);
-  const releaseAt = nextMine < 0 || !state.lastReleaseAt ? null : state.lastReleaseAt + (nextMine + 1) * state.cadenceSec * 1000;
+  // Steward-timed: the team waits behind every car queued ahead of its own, one release per cadence. Self-timed: the team releases its own cars, so only one cadence counts.
+  const releaseAt = nextMine < 0 || !state.lastReleaseAt ? null : state.lastReleaseAt + (session.selfTimed ? 1 : nextMine + 1) * state.cadenceSec * 1000;
   const mineOnTrack = onTrack.filter((r) => r.team === team.id).length;
   const mineQueued = queued.filter((r) => r.team === team.id).length;
   const drivers = [...new Set(state.runs.filter((r) => r.team === team.id).map((r) => r.name))];
