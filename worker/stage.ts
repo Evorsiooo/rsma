@@ -52,7 +52,10 @@ async function syncOne(env: AdminEnv, d: EventData, sid: string, present0: Set<s
 export async function syncRegistered(env: AdminEnv, sid: string): Promise<void> {
   const d = await loadEventData(env, null, { sessionId: sid }, true);
   if (!d.settings.has(sid)) return;
-  await Promise.all(groupIn(d, sid).members.map((m) => syncOne(env, d, m.id)));
+  // A session that is already over keeps the queue it ended with: registrations added later must not put queued rows into its results.
+  const now = Date.now();
+  const over = new Set((d.race?.sessions ?? []).filter((x) => x.endsAt <= now).map((x) => x.id));
+  await Promise.all(groupIn(d, sid).members.filter((m) => !over.has(m.id)).map((m) => syncOne(env, d, m.id)));
 }
 
 /** Sessions a team (or one of its members) is registered in, taken before the registrations are deleted. */
