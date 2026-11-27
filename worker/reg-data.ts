@@ -231,7 +231,7 @@ export function settingsIn(d: EventData, sid: string): RegSettings | null {
   // In an endurance event the lineups replace the per-team driver limit, and cars per team are limited when a car is entered.
   // The team cap of the cut counts team cars across ALL teams together, so it would keep every team's second car waiting
   // (the stored values are kept, only ignored).
-  return out.endurance ? { ...out, teamLimit: null, pickCutoff: null, teamCap: null } : out;
+  return out.endurance ? { ...out, teamLimit: null, teamCap: null } : out;
 }
 
 export function groupIn(d: EventData, sid: string): { root: string; members: (RegGroupMember & { independents: boolean })[] } {
