@@ -249,70 +249,8 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
         <span className="r-text r-text--dim">{race.name}</span>
         <SessionSelect sessions={race.sessions} current={session.id} suffix="/steward" width={180} />
       </Topbar>
-      <div className="r-stack" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
-        {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended. Commands are disabled.</div>}
-        {session.type === "race" && !race.ended && <div className="r-banner is-teal" style={{ flex: "none" }}>Race timing is not available. Races are run separately.</div>}
-        <div className="r-row" style={{ height: 90, flex: "none" }}>
-          <div className="r-module" style={{ width: 84 }}>
-            <div className="r-header">Link</div>
-            <div className="r-module__well r-module__well--bare">
-              {live ? <div className="r-lamp r-lamp--fixed">LIVE</div> : <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>}
-            </div>
-          </div>
-          <div className="r-module" style={{ width: 150 }}>
-            <SessionClockLcd session={session} offset={offset} />
-          </div>
-          {!session.selfTimed && (
-            <div className="r-module" style={{ width: 170 }}>
-              <div className="r-header">Next release</div>
-              <div className="r-module__well">
-                <Lcd value={releaseLeft == null ? "--:--" : fmtMMSS(releaseLeft)} h={36} label="Time to next release" />
-              </div>
-            </div>
-          )}
-          <div className="r-module" style={{ width: 76 }}>
-            <div className="r-header">On track</div>
-            <div className="r-module__well"><Lcd value={String(onTrack.length)} h={32} ghost={1} label="Cars on track" /></div>
-          </div>
-          <div className="r-module" style={{ width: 76 }}>
-            <div className="r-header">Queued</div>
-            <div className="r-module__well"><Lcd value={String(queued.length)} h={32} ghost={1} label="Cars queued" /></div>
-          </div>
-          <div className="r-module r-fill">
-            <div className="r-header">Pending finish</div>
-            <div className="r-module__well">
-              <div className="r-blank r-stack" style={{ padding: 2, gap: 2, overflow: "auto" }}>
-                {state.pending.map((ts) => (
-                  <div className="r-row" style={{ alignItems: "center", gap: 4 }} key={ts}>
-                    <span className="r-text r-fill" style={{ paddingLeft: 4 }}>{new Date(ts).toLocaleTimeString("en-GB")}</span>
-                    <button className="r-cell r-cell--wide" style={{ height: 19 }} onClick={() => setDialog({ kind: "assign", ts })}>Assign</button>
-                    <button className="r-cell r-cell--wide" style={{ height: 19 }} onClick={() => send({ type: "discard", ts })}>Discard</button>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="r-row" style={{ height: 42, flex: "none" }}>
-          {!session.selfTimed && session.type !== "race" && (
-            <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!next} onClick={() => send({ type: "go" })}>
-              <span>Go</span>
-            </button>
-          )}
-          <div className={`r-plate is-${state.flag}`} style={{ width: 120 }}>{FLAG_WORD[state.flag]}</div>
-          <div className="r-plate r-fill">
-            {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : next ? [next.name, next.number ? `#${next.number}` : "", next.plate].filter(Boolean).join("  ") : ""}
-          </div>
-          {!session.selfTimed && session.type !== "race" && (
-            <button className="r-btn r-btn--advance" style={{ width: 150 }} onClick={() => send({ type: "finish" })}>
-              <span>Stop timer</span>
-            </button>
-          )}
-        </div>
-
-        <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
-          <div className="r-stack" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
+      <div className="r-row" style={{ flex: "1 1 0", minHeight: 0, padding: 4, gap: 4 }}>
+          <div className="r-stack side" style={{ width: 300, padding: "0 6px", flex: "none", overflow: "auto" }}>
             {track && <StewardYellows track={track} state={state} now={now} disabled={race.ended} send={send} />}
             <div className="r-section"><span>Flags</span></div>
             <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
@@ -378,7 +316,69 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
               <button className="r-btn" onClick={() => audio.setSettingsOpen(true)}>Settings</button>
             </div>
           </div>
+        <div className="r-stack r-fill" style={{ minHeight: 0, gap: 4 }}>
+        {race.ended && <div className="r-banner is-red" style={{ flex: "none" }}>Race ended. Commands are disabled.</div>}
+        {session.type === "race" && !race.ended && <div className="r-banner is-teal" style={{ flex: "none" }}>Race timing is not available. Races are run separately.</div>}
+        <div className="r-row" style={{ height: 90, flex: "none" }}>
+          <div className="r-module" style={{ width: 84 }}>
+            <div className="r-header">Link</div>
+            <div className="r-module__well r-module__well--bare">
+              {live ? <div className="r-lamp r-lamp--fixed">LIVE</div> : <div className="r-lamp r-lamp--fixed r-lamp--red is-blink">OFF</div>}
+            </div>
+          </div>
+          <div className="r-module" style={{ width: 150 }}>
+            <SessionClockLcd session={session} offset={offset} />
+          </div>
+          {!session.selfTimed && (
+            <div className="r-module" style={{ width: 170 }}>
+              <div className="r-header">Next release</div>
+              <div className="r-module__well">
+                <Lcd value={releaseLeft == null ? "--:--" : fmtMMSS(releaseLeft)} h={36} label="Time to next release" />
+              </div>
+            </div>
+          )}
+          <div className="r-module" style={{ width: 76 }}>
+            <div className="r-header">On track</div>
+            <div className="r-module__well"><Lcd value={String(onTrack.length)} h={32} ghost={1} label="Cars on track" /></div>
+          </div>
+          <div className="r-module" style={{ width: 76 }}>
+            <div className="r-header">Queued</div>
+            <div className="r-module__well"><Lcd value={String(queued.length)} h={32} ghost={1} label="Cars queued" /></div>
+          </div>
+          <div className="r-module r-fill">
+            <div className="r-header">Pending finish</div>
+            <div className="r-module__well">
+              <div className="r-blank r-stack" style={{ padding: 2, gap: 2, overflow: "auto" }}>
+                {state.pending.map((ts) => (
+                  <div className="r-row" style={{ alignItems: "center", gap: 4 }} key={ts}>
+                    <span className="r-text r-fill" style={{ paddingLeft: 4 }}>{new Date(ts).toLocaleTimeString("en-GB")}</span>
+                    <button className="r-cell r-cell--wide" style={{ height: 19 }} onClick={() => setDialog({ kind: "assign", ts })}>Assign</button>
+                    <button className="r-cell r-cell--wide" style={{ height: 19 }} onClick={() => send({ type: "discard", ts })}>Discard</button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
 
+        <div className="r-row" style={{ height: 42, flex: "none" }}>
+          {!session.selfTimed && session.type !== "race" && (
+            <button className="r-btn r-btn--advance" style={{ width: 112 }} disabled={!next} onClick={() => send({ type: "go" })}>
+              <span>Go</span>
+            </button>
+          )}
+          <div className={`r-plate is-${state.flag}`} style={{ width: 120 }}>{FLAG_WORD[state.flag]}</div>
+          <div className="r-plate r-fill">
+            {counting.length > 0 ? Math.ceil((counting[0].startedAt! - now) / 1000) : next ? [next.name, next.number ? `#${next.number}` : "", next.plate].filter(Boolean).join("  ") : ""}
+          </div>
+          {!session.selfTimed && session.type !== "race" && (
+            <button className="r-btn r-btn--advance" style={{ width: 150 }} onClick={() => send({ type: "finish" })}>
+              <span>Stop timer</span>
+            </button>
+          )}
+        </div>
+
+        <div className="r-row" style={{ flex: "1 1 0", minHeight: 0 }}>
           <div className="r-stack r-fill">
             <div className="r-panel r-fill" style={{ overflow: "auto" }}>
               <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} modeLabel={rows.some((r) => r.mode === "long") ? modeText : undefined} onRadio={state.onRadio} />
@@ -470,6 +470,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
               </div>
             </div>
           </div>
+        </div>
         </div>
       </div>
 

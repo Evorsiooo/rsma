@@ -23,3 +23,6 @@ a { color: inherit; }
 .r-btn--answer.is-no{background:var(--r-red);color:#000}
 .r-select--bar>select{height:30px}
 .r-select--bar::after{top:12px}
+
+/* Left sidebar of the steward and team pages: full height under the top bar, scrolls as a whole; controls keep their size instead of squeezing. */
+.side > * { flex: none; }
