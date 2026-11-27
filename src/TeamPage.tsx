@@ -15,7 +15,7 @@ import { TimingTable } from "./TimingTable";
 import { Dialog, sessionCountdown, toast, useClock, useNow } from "./ui";
 import { useRaceLive } from "./useRaceLive";
 import { TeamYellows, useTrack } from "./YellowFlags";
-import { AttributeDialog, ConfirmDnf, NotesDialog, SetTimeDialog } from "./steward/Dialogs";
+import { AttributeDialog, ConfirmDnf, EditInfoDialog, NotesDialog, SetTimeDialog } from "./steward/Dialogs";
 import { AudioSettingsDialog, useRadioTTS } from "./AudioSettings";
 import { startBeeps } from "./audio";
 import type { Command } from "../shared/commands";
@@ -152,7 +152,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
   const [text, setText] = useState("");
   const [toStewards, setToStewards] = useState(false);
   const [asking, setAsking] = useState(false);
-  const [dialog, setDialog] = useState<null | { kind: "dnf" | "attribute" | "setTime" | "notes"; runId: string }>(null);
+  const [dialog, setDialog] = useState<null | { kind: "dnf" | "attribute" | "setTime" | "notes" | "editInfo"; runId: string }>(null);
   const logRef = useRef<HTMLDivElement>(null);
 
   const lengthMs = session.endsAt - session.startsAt;
@@ -587,6 +587,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
                       </button>
                     )}
                     <button className="r-cell" onClick={() => setDialog({ kind: "setTime", runId: sel.id })}>Set time</button>
+                    {!sel.entry && <button className="r-cell" onClick={() => setDialog({ kind: "editInfo", runId: sel.id })}>Edit number</button>}
                   </div>
                 )}
               </div>
@@ -598,6 +599,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
       {dialog?.kind === "notes" && dialogRun && <NotesDialog run={dialogRun} notes={state.notes} team={team.id} onClose={() => setDialog(null)} send={sendNote} />}
       {dialog?.kind === "dnf" && dialogRun && <ConfirmDnf run={dialogRun} onClose={() => setDialog(null)} send={send} />}
       {dialog?.kind === "attribute" && dialogRun && <AttributeDialog run={dialogRun} state={state} team={team.id} onClose={() => setDialog(null)} send={send} />}
+      {dialog?.kind === "editInfo" && dialogRun && <EditInfoDialog run={dialogRun} team={team.id} onClose={() => setDialog(null)} send={send} />}
       {dialog?.kind === "setTime" && dialogRun && <SetTimeDialog run={dialogRun} team={team.id} onClose={() => setDialog(null)} send={send} />}
       {asking && <AskDialog sessionId={sessionId} teamId={team.id} drivers={drivers} onClose={() => setAsking(false)} />}
       {audio.settingsOpen && (
