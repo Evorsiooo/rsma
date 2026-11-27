@@ -502,7 +502,7 @@ function Panel({ sessionId, info, team }: { sessionId: string; info: SessionInfo
               />
             </div>
 
-            <div className="r-row" style={{ height: endurance ? 340 : 270, flex: "none" }}>
+            <div className="r-row" style={{ height: endurance ? "clamp(190px, 30vh, 340px)" : "clamp(170px, 24vh, 270px)", flex: "none" }}>
               <div className="r-panel r-fill">
                 <div className="r-header">Race log</div>
                 <div className="r-log r-log--wrap" ref={logRef} style={{ flex: "1 1 0", minHeight: 0 }}>

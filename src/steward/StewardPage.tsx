@@ -384,7 +384,7 @@ function Panel({ raceId, info }: { raceId: string; info: SessionInfo }) {
               <TimingTable rows={rows} now={now} selId={selId} onSelect={setSelId} bestFinal={bestFinal} modeLabel={rows.some((r) => r.mode === "long") ? modeText : undefined} onRadio={state.onRadio} />
             </div>
 
-            <div className="r-row" style={{ height: 270, flex: "none" }}>
+            <div className="r-row" style={{ height: "clamp(170px, 24vh, 270px)", flex: "none" }}>
               <div className="r-panel r-fill">
                 <div className="r-header">Race log</div>
                 <div className="r-log r-log--wrap" ref={logRef} style={{ flex: "1 1 0", minHeight: 0 }}>
