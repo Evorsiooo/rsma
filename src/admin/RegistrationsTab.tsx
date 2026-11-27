@@ -158,9 +158,10 @@ export function StaffSection({ view, sid, act }: { view: RegistrationView; sid: 
   const endurance = !!view.settings?.endurance;
   const cars = new Map(view.cars.map((c) => [c.id, c]));
   const carOf = (r: Registration) => {
-    if (r.kind !== "driver" || !r.teamId) return "";
+    if (r.kind !== "driver") return "";
+    if (!r.teamId) return endurance ? "Own car" : "";
     const c = r.carId ? cars.get(r.carId) : null;
-    return c ? `${carName(c)} · ${r.rank! <= c.seats ? `Race ${r.rank}` : `Reserve ${r.rank! - c.seats}`}` : "No car";
+    return c ? `${carName(c)} · ${r.rank! <= c.seats ? `Driver ${r.rank}` : `Reserve ${r.rank! - c.seats}`}` : "No car";
   };
   const rows = [...view.registrations].sort((a, b) => REG_KINDS.indexOf(a.kind) - REG_KINDS.indexOf(b.kind) || order[a.cut] - order[b.cut] || a.at - b.at);
   return (
@@ -273,6 +274,7 @@ type Res2 = { ok: true } | { ok: false; error: string };
 function CarsSection({ view, sid, act }: { view: RegistrationView; sid: string; act: (p: Promise<Res2>) => Promise<boolean> }) {
   const [edit, setEdit] = useState<Car | "new" | null>(null);
   const s = view.settings!;
+  const indep = view.registrations.filter((r) => r.kind === "driver" && !r.teamId && r.cut !== "denied").length;
   const rows = [...view.cars].sort((a, b) => a.teamName.localeCompare(b.teamName) || a.at - b.at);
   return (
     <div className="r-panel">
@@ -308,6 +310,7 @@ function CarsSection({ view, sid, act }: { view: RegistrationView; sid: string; 
           </tbody>
         </table>
       )}
+      {indep > 0 && <div className="r-empty">{indep} independent driver{indep === 1 ? "" : "s"} not listed here: each runs their own car and takes one car spot.</div>}
       <div style={{ padding: 4 }}>
         <button className="r-btn" style={{ width: 160 }} onClick={() => setEdit("new")}>Add a car</button>
       </div>
@@ -374,7 +377,7 @@ function CarDialog({ view, car, onSave, onClose }: { view: RegistrationView; car
           <tbody>
             {drivers.map((u, i) => (
               <tr key={u}>
-                <td style={{ width: 90 }} className="is-left">{i < (seats || 0) ? "Race" : "Reserve"}</td>
+                <td style={{ width: 90 }} className="is-left">{i < (seats || 0) ? "Driver" : "Reserve"}</td>
                 <td className="is-left" style={clip}>{name.get(u) ?? u}</td>
                 <td style={{ width: 210, padding: 2 }}>
                   <div className="r-grid" style={{ ["--cols" as string]: 3 }}>
