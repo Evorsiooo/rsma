@@ -342,9 +342,9 @@ export function fullNotice(c: SpotCount, noun: string, opts: { ownReserved?: boo
 /** What the driver spots are called: "cars" in an endurance event, "drivers" otherwise. */
 export const driverUnit = (s: Pick<RegSettings, "endurance"> | null | undefined) => (s?.endurance ? "cars" : "drivers");
 
-/** "Race: 3 · Reserve: 2" for a car's lineup. */
+/** "Racing: 3 · Reserve: 2" for a car's lineup. */
 export function lineupLine(drivers: number, seats: number): string {
-  return `Race: ${Math.min(drivers, seats)} · Reserve: ${Math.max(0, drivers - seats)}`;
+  return `Racing: ${Math.min(drivers, seats)} · Reserve: ${Math.max(0, drivers - seats)}`;
 }
 
 /** When a team's lineups lock: the first session's pick cutoff, or its start when none is set. */
