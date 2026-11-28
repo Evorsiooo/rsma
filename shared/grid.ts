@@ -27,6 +27,8 @@ export interface GridRow {
   skipped: string[];
   /** Registered after qualifying: starts from the pit lane, after the qualified cars. */
   pit?: boolean;
+  /** Pit lane because no racing driver set a qualifying time (not because of a late registration). */
+  noTime?: boolean;
 }
 
 /**

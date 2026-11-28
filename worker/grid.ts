@@ -48,5 +48,13 @@ export async function gridView(env: AdminEnv, sid: string): Promise<GridView | n
     ...[...lateCars.values()].filter((c) => c.cut === "in").map((c) => ({ position: 0, entry: c.id, number: c.number ?? undefined, car: [c.teamName, c.label].filter(Boolean).join(" "), driver: c.drivers.filter((x) => lateIds.has(x.userId)).map((x) => x.username).join(", "), ms: 0, skipped: [], pit: true })),
     ...lateSolo.map((r) => ({ position: 0, entry: null, number: undefined, car: "", driver: r.username, ms: 0, skipped: [], pit: true })),
   ];
+  // A car or independent driver that is in the race but has no usable qualifying time (nobody present set one) is not refused: it starts from the pit lane.
+  const placed = new Set(timed.map((r) => (r.entry ? `e:${r.entry}` : `d:${r.driver.toLowerCase()}`)));
+  const here = (u: string) => !present || present.has(u.toLowerCase());
+  const noTime: GridRow[] = [
+    ...g.cars.filter((c) => c.cut === "in" && !lateCars.has(c.id) && !placed.has(`e:${c.id}`) && c.drivers.some((x) => here(x.username))).map((c) => ({ position: 0, entry: c.id, number: c.number ?? undefined, car: [c.teamName, c.label].filter(Boolean).join(" "), driver: c.drivers.filter((x) => here(x.username)).map((x) => x.username).join(", "), ms: 0, skipped: [], pit: true, noTime: true })),
+    ...g.regs.filter((r) => r.kind === "driver" && !r.denied && r.cut === "in" && !r.carId && !inCar.has(r.userId) && !lateIds.has(r.userId) && !placed.has(`d:${r.username.toLowerCase()}`) && here(r.username)).map((r) => ({ position: 0, entry: null, number: undefined, car: "", driver: r.username, ms: 0, skipped: [], pit: true, noTime: true })),
+  ];
+  pit.push(...noTime);
   return { from: { id: q.id, name: q.name }, attendance: !!settings?.attendance, rows: [...keep.map((r, i) => ({ ...r, position: i + 1 })), ...pit] };
 }
