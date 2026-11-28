@@ -37,7 +37,7 @@ export function StartingGrid({ sessionId, refresh }: { sessionId: string; refres
                   </td>
                   {cars && <td>{r.driver}</td>}
                   <td className="n fin">{r.pit ? "Pit lane" : fmtTime(r.ms)}</td>
-                  <td>{r.pit ? <span className="mute">Registered after qualifying</span> : r.skipped.length > 0 ? <span className="mute">Time of {r.driver}; {r.skipped.join(", ")} not racing</span> : ""}</td>
+                  <td>{r.pit ? <span className="mute">{r.noTime ? "No qualifying time" : "Registered after qualifying"}</span> : r.skipped.length > 0 ? <span className="mute">Time of {r.driver}; {r.skipped.join(", ")} not racing</span> : ""}</td>
                 </tr>
               ))}
             </tbody>
